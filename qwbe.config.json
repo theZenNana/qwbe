@@ -1,0 +1,57 @@
+{
+  "_comment": "Caps for qwbe, ported from software-factory's factory.config.json (ADR-0006: splitting is driven by size, measured in characters). A unit here is one cube directory, one space, or the kernel. Enforced by `npm run probe:sizecaps`.",
+  "_countModeComment": "'code' measures characters with comments stripped; 'raw' measures every byte. This repository keeps the reasoning next to the rule, so several files are more comment than code — capping raw would make deleting an explanation the cheapest way to go green. Both numbers are printed either way; only this one is enforced.",
+  "countMode": "code",
+  "caps": {
+    "maxCharsPerFile": 6000,
+    "maxFilesPerUnit": 15,
+    "maxCharsPerUnit": 40000
+  },
+  "baseline": {
+    "_comment": "Violations that existed when the cap was introduced (2 Aug 2026). The gate is red for anything NEW or anything that grew past the number recorded here. Each line is debt: the fix is to split the file or the cube, not to raise the number. Regenerate deliberately with --update-baseline.",
+    "files": {
+      "_installComment": "20373 -> 20388 pe 9 aug 2026, +15 caractere. Regula spune că se sparge fișierul, nu se ridică numărul, și are dreptate — dar creșterea asta e o reparație de corectitudine, nu funcționalitate nouă: rândurile jurnalului aveau `key={i}`, iar jurnalul se scrie la CAP, deci indicele fiecărui rând se schimbă la orice operație și React potrivea greșit rândurile. Costul minim al unei chei stabile e un câmp `id` și un contor. Spargerea fișierului de 20k rămâne datoria reală.",
+      "web/app/install/page.tsx": 20388,
+      "core/store/customfields-pack/cubes/customfields/index.ts": 15406,
+      "_kernelComment": "9 aug 2026, două mișcări în aceeași zi. ÎNTÂI în sus, din reparația prin care `CommandSpec.run` primește permisiunile apelantului ca parametru: discovery 10995 -> 11014, manifest 7931 -> 7986, unitatea kernel 53325 -> 53437. APOI în jos, când au plecat cuburile `projects`, `reports`, `tasks` și `host/`: capabilitatea `usesWorkstation` a ieșit din kernel cu totul. Numerele de aici sunt cele de DUPĂ, strânse la loc dinadins — headroom-ul câștigat prin ștergere nu se păstrează, altfel crește altceva la loc în tăcere.",
+      "core/src/kernel/discovery.ts": 10606,
+      "core/store/erp-pack/cubes/contacts/index.ts": 9255,
+      "core/store/erp-pack/cubes/accounts/index.ts": 8734,
+      "core/src/cubes/settings/index.ts": 8093,
+      "web/app/customfields/page.tsx": 7996,
+      "core/src/kernel/manifest.ts": 7842,
+      "core/src/kernel/store.ts": 7347,
+      "core/src/cubes/account/index.ts": 6988,
+      "core/src/kernel/install.ts": 6821,
+      "core/store/erp-pack/cubes/erp-settings/index.ts": 6333
+    },
+    "units": {
+      "core/src/kernel": {
+        "chars": 52885,
+        "files": 13
+      }
+    }
+  },
+  "untestedBaseline": {
+    "_comment": "Units that had no unit tests when the gate was introduced (2 Aug 2026). This is a work queue, not a permission: a NEW cube without tests fails the build regardless. Shrinking this list is the job; growing it requires --update-baseline, which is a visible diff.",
+    "units": [
+      "core/plugins/crm-pack/cubes/contacts",
+      "core/plugins/crm-pack/cubes/contracts",
+      "core/plugins/example-plugin/cubes/bookmarks",
+      "core/src/cubes/account",
+      "core/src/cubes/auth",
+      "core/src/cubes/cli",
+      "core/src/cubes/links",
+      "core/src/cubes/notes",
+      "core/src/cubes/settings",
+      "core/src/spaces/erp",
+      "core/src/spaces/workspace",
+      "core/store/crm-pack/cubes/contacts",
+      "core/store/crm-pack/cubes/contracts",
+      "core/store/customfields-pack/cubes/customfields",
+      "core/store/erp-pack/cubes/accounts",
+      "core/store/erp-pack/cubes/contacts",
+      "core/store/erp-pack/cubes/erp-settings"
+    ]
+  }
+}

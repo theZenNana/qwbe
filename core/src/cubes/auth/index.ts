@@ -1,0 +1,221 @@
+// The AUTH cube. Sessions only — who is logged in, and for how long.
+//
+// Users, roles and their permissions live in the `account` cube. This one owns exactly one
+// table, `sessions`, and it reaches user data the same way anyone else would: through the
+// registry. That split is deliberate. In the previous iteration auth held both, which meant
+// the cube everything depends on was also the cube holding the most business logic.
+//
+// Tokens are OPAQUE, not JWT:
+//   - the token is 32 random bytes, base64url;
+//   - the server stores only `sha256(token)` plus an expiry;
+//   - validation is hash-and-look-up; logout deletes the row.
+// The usual counter-argument for stateless tokens — saving a database round trip — does not
+// apply, because a look-up happens on every request anyway. A database leak yields zero usable
+// sessions.
+//
+// Password login, as asked. Public/private keys would change this cube and nothing else: the
+// rest of the system only ever sees `CurrentUser`.
+
+import { createHash, randomBytes } from "node:crypto"
+import { HttpApiEndpoint, HttpApiGroup } from "@effect/platform"
+import { type Context, Effect, Layer, Redacted, Schema } from "effect"
+import { Authorization, CurrentUser } from "../../kernel/auth-contract.ts"
+import { Unauthorized } from "../../kernel/errors.ts"
+import type { CubeDefinition, CubeTools } from "../../kernel/manifest.ts"
+import { Registry } from "../../kernel/registry.ts"
+
+const SESSIONS = "sessions"
+const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000
+
+type Session = { id: string; tokenHash: string; accountId: string; expiresAt: string }
+
+const sha256 = (s: string) => createHash("sha256").update(s).digest("hex")
+
+/**
+ * Prototype password hashing. NOT production: a real system uses argon2id, as the system this
+ * borrows from does. Written plainly so nobody mistakes this for finished work.
+ *
+ * Shared with the `account` cube by duplication rather than by import — three lines copied is
+ * cheaper than a cube importing another cube, which is the one thing the whole design forbids.
+ * When it becomes real, hashing moves behind the account cube's own endpoint.
+ */
+// --- contract ---
+
+const Credentials = Schema.Struct({
+  username: Schema.String,
+  password: Schema.String,
+}).annotations({ identifier: "Credentials" })
+
+const SessionToken = Schema.Struct({
+  token: Schema.String,
+  expiresAt: Schema.String,
+}).annotations({ identifier: "SessionToken" })
+
+const Me = Schema.Struct({
+  id: Schema.String,
+  username: Schema.String,
+  roles: Schema.Array(Schema.String),
+  permissions: Schema.Array(Schema.String),
+}).annotations({ identifier: "Me" })
+
+const Ok = Schema.Struct({ ok: Schema.Boolean }).annotations({ identifier: "Ok" })
+
+// `login` is the ONLY public endpoint in the whole system. `mount.ts` verifies that against
+// the real contract: any other cube with an unauthenticated endpoint stops the server.
+const group = HttpApiGroup.make("auth")
+  .add(
+    HttpApiEndpoint.post("login")`/auth/login`.setPayload(Credentials).addSuccess(SessionToken).addError(Unauthorized),
+  )
+  .add(HttpApiEndpoint.get("me")`/auth/me`.addSuccess(Me).addError(Unauthorized).middleware(Authorization))
+  .add(HttpApiEndpoint.post("logout")`/auth/logout`.addSuccess(Ok).addError(Unauthorized).middleware(Authorization))
+
+/**
+ * The account cube exposes credentials and roles as a `Summary`, which is a deliberately narrow
+ * channel: auth reads named details rather than knowing account's columns.
+ *
+ * `verify` is the sole crossing point, and it goes through the registry — the same route any
+ * cube would use.
+ */
+/**
+ * Read a named detail out of a public summary.
+ *
+ * Only non-secret fields travel this way now. Credential checking moved to the `credentials`
+ * capability precisely because a summary is visible to anyone holding `links:read`.
+ */
+const detail = (summary: { details: ReadonlyArray<{ key: string; value: string }> }, key: string) =>
+  summary.details.find((d) => d.key === key)?.value ?? ""
+
+export const cube: CubeDefinition = {
+  manifest: {
+    name: "auth",
+    tables: [SESSIONS],
+    requiresAuth: false,
+    required: true,
+    // Declared need. The kernel wires it to whichever cube declares `providesCredentials`.
+    usesCredentials: true,
+    permissions: [{ name: "auth:session", roles: ["admin", "reader"] }],
+    publishes: ["auth.loggedIn", "auth.loggedOut"],
+  },
+
+  create: ({ store, bus, permissions, credentials }: CubeTools) => {
+    /** Drop expired rows. Cheap, and it keeps validation from scanning dead history. */
+    const dropExpiredSessions = Effect.gen(function* () {
+      const now = Date.now()
+      const rows = yield* store.all<Session>(SESSIONS)
+      for (const s of rows) {
+        if (new Date(s.expiresAt).getTime() <= now) yield* store.update(SESSIONS, s.id, { deleted: true })
+      }
+    })
+
+    /** Effective permissions for a set of roles, computed from EVERY cube's manifest. */
+    const permissionsFor = (roles: ReadonlyArray<string>): ReadonlyArray<string> => {
+      const out: Array<string> = []
+      for (const [permission, allowed] of permissions()) {
+        if (allowed.some((r) => roles.includes(r))) out.push(permission)
+      }
+      return out.sort()
+    }
+
+    /**
+     * Validate takes the registry as a VALUE, not as a tag to yield.
+     *
+     * The difference matters and cost an hour to find. `bearer` runs later, inside the
+     * middleware's own context — which does not carry the registry. Yielding `Registry` inside
+     * it fails at request time with "Service not found", while login (an ordinary handler,
+     * which does have the registry) keeps working. So the service is resolved ONCE while the
+     * layer is being built, and closed over.
+     */
+    const makeValidate = (registry: Context.Tag.Service<typeof Registry>) => (token: string) =>
+      Effect.gen(function* () {
+        const th = sha256(token)
+        // Filtered in SQL with a bound parameter and LIMIT 1, rather than reading every row
+        // and searching in JavaScript. The old version parsed the entire session history on
+        // every single request.
+        const page = yield* store.page<Session>(SESSIONS, { offset: 0, limit: 1 }, { field: "tokenHash", value: th })
+        const s = page.rows[0]
+        if (!s || new Date(s.expiresAt).getTime() <= Date.now()) return undefined
+
+        const summary = yield* registry.summary("Account", s.accountId)
+        if (!summary) return undefined
+
+        const roles = detail(summary, "roles")
+          .split(",")
+          .map((r) => r.trim())
+          .filter(Boolean)
+        return { id: summary.id, username: summary.title, roles, permissions: permissionsFor(roles) }
+      })
+
+    // The implementation of the tag the kernel declares. The only place in the system that
+    // decides who the current user is. With this cube absent, nobody satisfies the tag and the
+    // server does not start.
+    const AuthorizationLive = Layer.effect(
+      Authorization,
+      Effect.gen(function* () {
+        const registry = yield* Registry
+        const validate = makeValidate(registry)
+        return Authorization.of({
+          // The token arrives as `Redacted`, not a string — Effect hides it on purpose so it
+          // cannot land in logs by accident. Unwrap explicitly.
+          bearer: (token) =>
+            Effect.gen(function* () {
+              const user = yield* validate(Redacted.value(token))
+              if (!user) return yield* Effect.fail(new Unauthorized({ message: "invalid or expired token" }))
+              return user
+            }),
+        })
+      }),
+    )
+
+    return {
+      group,
+      layers: AuthorizationLive,
+
+      handlers: {
+        login: ({ payload }: { payload: { username: string; password: string } }) =>
+          Effect.gen(function* () {
+            // Verification happens inside the cube that stores the credentials. This cube never
+            // sees a hash — it gets an identity back, or nothing.
+            const identity = credentials ? yield* credentials.verify(payload.username, payload.password) : undefined
+
+            if (!identity) {
+              return yield* Effect.fail(new Unauthorized({ message: "wrong username or password" }))
+            }
+
+            // Expired rows are dropped at login. Without this the sessions table only ever grew,
+            // and every request paid for the whole history of logins.
+            yield* dropExpiredSessions
+
+            const token = randomBytes(32).toString("base64url")
+            const expiresAt = new Date(Date.now() + SESSION_TTL_MS).toISOString()
+            yield* store.insert(SESSIONS, "Session", "ses", {
+              tokenHash: sha256(token),
+              accountId: identity.id,
+              expiresAt,
+            })
+            yield* bus.publish("auth.loggedIn", { accountId: identity.id, username: identity.username })
+            return { token, expiresAt }
+          }),
+
+        me: () =>
+          Effect.gen(function* () {
+            const u = yield* CurrentUser
+            return { id: u.id, username: u.username, roles: u.roles, permissions: u.permissions }
+          }),
+
+        logout: () =>
+          Effect.gen(function* () {
+            // The raw token never reaches the handler (middleware hands over the user), so
+            // every session of that user is dropped. For a prototype that is the better
+            // behaviour anyway: logout means everywhere.
+            const u = yield* CurrentUser
+            const sessions = yield* store.all<Session>(SESSIONS)
+            for (const s of sessions.filter((x) => x.accountId === u.id)) {
+              yield* store.update(SESSIONS, s.id, { deleted: true })
+            }
+            yield* bus.publish("auth.loggedOut", { accountId: u.id })
+            return { ok: true }
+          }),
+      },
+    }
+  },
+}

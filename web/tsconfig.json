@@ -1,0 +1,26 @@
+{
+  "_allowImportingTsExtensionsComment": "Same reason as core/tsconfig.json: the unit tests here run under `node --test`, which strips types and therefore needs the `.ts` extension to resolve the import at runtime. TypeScript only tolerates that with `allowImportingTsExtensions`, and the flag in turn requires noEmit — already what this config does. Without it, `tsc -p web/tsconfig.json` reports TS5097 on a line that is correct for the runtime that actually executes it. (The note lives OUT here because unknown keys are illegal INSIDE compilerOptions — core's tsconfig says so, and I broke it once before reading my own file.)",
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["dom", "dom.iterable", "esnext"],
+    "allowJs": true,
+    "skipLibCheck": true,
+    "strict": true,
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
+    "esModuleInterop": true,
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "jsx": "react-jsx",
+    "incremental": true,
+    "plugins": [
+      {
+        "name": "next"
+      }
+    ]
+  },
+  "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts", ".next/dev/types/**/*.ts"],
+  "exclude": ["node_modules", "**/*.test.ts", "**/*.test.mjs"]
+}

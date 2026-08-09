@@ -1,0 +1,162 @@
+// The LINKS cube — the only one that talks to the registry, and itself an ordinary cube:
+// remove its directory and the system starts without it, just with no related lists. Nothing
+// in the kernel knows it by name.
+//
+// TWO STEPS, and this is a contract decision rather than an optimisation.
+//
+// The previous iteration walked the reverse direction with two sequential calls per link field
+// and returned EVERY row of EVERY group just to render ten. An account with 400 notes cost 400
+// summaries before the page could draw.
+//
+//     GET /links/{entity}/{id}           → which groups exist, and HOW MANY rows each has
+//     GET /links/{entity}/{id}/{cube}    → the rows of ONE group, paged
+//
+// The page asks for the cheap group heads first (limit 1, only `total` matters), then the rows
+// of the group a person actually opens. An account with 400 notes and 3000 other rows now costs
+// two numbers, not 3400 summaries.
+
+import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema } from "@effect/platform"
+import { Effect, Schema } from "effect"
+import { Authorization, requirePermission } from "../../kernel/auth-contract.ts"
+import { Summary } from "../../kernel/entity.ts"
+import { Forbidden, NotFound } from "../../kernel/errors.ts"
+import type { CubeDefinition } from "../../kernel/manifest.ts"
+import { PageOf, PageParams, pageRequest } from "../../kernel/pagination.ts"
+import { Registry } from "../../kernel/registry.ts"
+
+const GroupHead = Schema.Struct({
+  cube: Schema.String,
+  label: Schema.String,
+  field: Schema.String,
+  total: Schema.Number,
+}).annotations({ identifier: "GroupHead" })
+
+const Parent = Schema.Struct({
+  field: Schema.String,
+  to: Schema.String,
+  summary: Schema.NullOr(Summary),
+}).annotations({ identifier: "Parent" })
+
+const Links = Schema.Struct({
+  entity: Schema.String,
+  id: Schema.String,
+  /** What this row points at (forward direction). */
+  parents: Schema.Array(Parent),
+  /** Who points at it, with each group's total (reverse direction, heads only). */
+  groups: Schema.Array(GroupHead),
+}).annotations({ identifier: "Links" })
+
+const group = HttpApiGroup.make("links")
+  .add(
+    HttpApiEndpoint.get(
+      "for",
+    )`/links/${HttpApiSchema.param("entity", Schema.String)}/${HttpApiSchema.param("id", Schema.String)}`
+      .addSuccess(Links)
+      .addError(NotFound)
+      .addError(Forbidden),
+  )
+  .add(
+    HttpApiEndpoint.get(
+      "group",
+    )`/links/${HttpApiSchema.param("entity", Schema.String)}/${HttpApiSchema.param("id", Schema.String)}/${HttpApiSchema.param("cube", Schema.String)}`
+      .setUrlParams(PageParams)
+      .addSuccess(PageOf(Summary))
+      .addError(NotFound)
+      .addError(Forbidden),
+  )
+  .add(
+    HttpApiEndpoint.get("entities")`/links`
+      .addSuccess(Schema.Array(Schema.Struct({ cube: Schema.String, entity: Schema.String })))
+      .addError(Forbidden),
+  )
+  .middleware(Authorization)
+
+/** We do not want the rows, only `total`. Limit 1 because 0 is meaningless and would be capped. */
+const COUNT_ONLY = pageRequest({ offset: 0, limit: 1 })
+
+export const cube: CubeDefinition = {
+  manifest: {
+    name: "links",
+    // Owns no data at all. This cube lives entirely off the registry, so its store can open
+    // nothing — which is exactly right.
+    tables: [],
+    requiresAuth: true,
+    permissions: [{ name: "links:read", roles: ["admin", "reader"] }],
+  },
+
+  create: () => ({
+    group,
+
+    handlers: {
+      entities: () =>
+        Effect.gen(function* () {
+          yield* requirePermission("links:read")
+          const registry = yield* Registry
+          return registry.entities()
+        }),
+
+      for: ({ path }: { path: { entity: string; id: string } }) =>
+        Effect.gen(function* () {
+          yield* requirePermission("links:read")
+          const registry = yield* Registry
+
+          const owner = registry.entities().find((e) => e.entity === path.entity)
+          if (!owner) {
+            return yield* Effect.fail(new NotFound({ message: `no active cube holds entity ${path.entity}` }))
+          }
+
+          // Forward: what this row holds in its link fields. The value comes from the owning
+          // cube, the summary from the target cube — no join anywhere.
+          const parents = yield* Effect.forEach(registry.linksFrom(owner.cube), (l) =>
+            Effect.gen(function* () {
+              const v = yield* registry.fieldValue(owner.cube, path.id, l.field)
+              const s = v ? yield* registry.summary(l.to, v) : undefined
+              return { field: l.field, to: l.to, summary: s ?? null }
+            }),
+          )
+
+          // Reverse: group heads only, with totals. This is where the N+1 used to be.
+          const groups = yield* Effect.forEach(registry.linksTo(path.entity), (g) =>
+            Effect.gen(function* () {
+              const r = yield* registry.search(g.cube, g.field, path.id, COUNT_ONLY)
+              return { cube: g.cube, label: g.label, field: g.field, total: r.total }
+            }),
+          )
+
+          return { entity: path.entity, id: path.id, parents, groups }
+        }),
+
+      group: ({
+        path,
+        urlParams,
+      }: {
+        path: { entity: string; id: string; cube: string }
+        urlParams: typeof PageParams.Type
+      }) =>
+        Effect.gen(function* () {
+          yield* requirePermission("links:read")
+          const registry = yield* Registry
+
+          const g = registry.linksTo(path.entity).find((x) => x.cube === path.cube)
+          if (!g) {
+            return yield* Effect.fail(
+              new NotFound({
+                message: `no space declares a link from ${path.cube} to ${path.entity}, or a side is switched off`,
+              }),
+            )
+          }
+
+          const r = yield* registry.search(g.cube, g.field, path.id, pageRequest(urlParams))
+          // The owning cube decides the ordering of its own group and the registry does not
+          // carry that back, so this reports the default rather than inventing a field name.
+          return {
+            rows: r.rows,
+            total: r.total,
+            offset: urlParams.offset,
+            limit: urlParams.limit,
+            sortedBy: "createdAt",
+          }
+        }),
+    },
+  }),
+}

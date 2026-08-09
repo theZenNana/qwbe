@@ -1,0 +1,54 @@
+# qwbe pre-commit. Four checks, cheapest first, each one a thing that actually went wrong here:
+#
+#   1. commits landing straight on master with no branch
+#   2. branch names in four different shapes at once, so no one could read the branch list
+#   3. credentials and .env files getting staged
+#   4. Romanian prose creeping back into source
+#
+# HONEST LIMIT, stated once: a git hook is a nudge, not a boundary. `git commit --no-verify` skips
+# every line below, and hooks are not installed at all in a fresh clone until someone runs
+# `npm install`. This repo has no CI and no remote, so there is nothing authoritative behind this.
+# A green hook means "the obvious mistakes were caught", not "this commit is safe to publish".
+
+# --- 1. protected branch -------------------------------------------------------------------------
+# Work happens on a branch; master receives merges. Two agents committing straight to master is how
+# this repo ended up with changes nobody expected to find in the working tree.
+branch=$(git rev-parse --abbrev-ref HEAD)
+if [ "$branch" = "master" ] || [ "$branch" = "main" ]; then
+  if [ "$QWBE_ALLOW_MASTER" != "1" ]; then
+    echo "x refusing to commit directly on '$branch'." >&2
+    echo "  Branch first:  git switch -c <type>/<slug>" >&2
+    echo "  Deliberately, for a one-off:  QWBE_ALLOW_MASTER=1 git commit ..." >&2
+    exit 1
+  fi
+  echo "! committing on '$branch' because QWBE_ALLOW_MASTER=1" >&2
+fi
+
+# --- 2. branch name ------------------------------------------------------------------------------
+node scripts/check-branch.mjs || exit 1
+
+# Nothing staged is not an error here; git reports that itself.
+staged=$(git diff --cached --name-only --diff-filter=ACMR)
+[ -z "$staged" ] && exit 0
+
+# --- 3. secrets and environment files ------------------------------------------------------------
+# .env is gitignored, but `git add -f` and renamed variants both get past .gitignore. This catches
+# the file by name however it was staged.
+env_staged=$(echo "$staged" | grep -E '(^|/)\.env($|\.)' | grep -v '\.env\.example$' || true)
+if [ -n "$env_staged" ]; then
+  echo "x environment files are staged:" >&2
+  echo "$env_staged" | sed 's/^/    /' >&2
+  echo "  These hold credentials. Unstage them:  git restore --staged <file>" >&2
+  echo "  Commit .env.example with placeholder values instead." >&2
+  exit 1
+fi
+
+# secretlint reads .secretlintrc.json: API keys, tokens, private keys, basic-auth URLs.
+echo "$staged" | xargs npx --no-install secretlint || exit 1
+
+# --- 4. ASCII on added lines ---------------------------------------------------------------------
+# --added, not whole files: see the comment at the top of the script for why.
+node scripts/check-ascii.mjs --added || exit 1
+
+# --- 5. format and lint what is staged -----------------------------------------------------------
+npx --no-install lint-staged || exit 1

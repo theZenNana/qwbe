@@ -1,0 +1,535 @@
+/* Design minim, intenționat. Owner-ul judecă comportamentul, nu culorile — dar starea
+   trebuie să se vadă pe ecran, deci fiecare stare are un semn vizibil, nu doar text. */
+
+/* PALETA — o singură sursă de adevăr, și ea e în `globals.css`.
+ *
+ * Numele de aici (--fundal, --panou, --text…) rămân, pentru că sunt folosite de vreo 200 de
+ * reguli mai jos și de ecranele care n-au fost încă mutate pe tokeni ShadCN. Ce s-a schimbat e
+ * Values come from the light-theme tokens.
+ *
+ * De ce a fost nevoie: `layout.tsx` încarcă ambele foi. `globals.css` vine a doua, deci `body`
+ * primea fundalul DESCHIS, în timp ce fiecare ecran nemigrat își lua textul de aici — gri
+ * deschis (#e6e9ef) pe fundal aproape alb. Textul exista, dar se citea doar când îl selectai.
+ *
+ * Substituția `var()` se face la calcularea valorii, nu la parsare, deci nu contează că
+ * `--foreground` e declarat într-un fișier importat DUPĂ ăsta: pe `:root` câștigă valoarea
+ * finală în cascadă. Fallback-urile sunt scrise oricum, ca fișierul să stea în picioare singur.
+ */
+:root {
+  --fundal: var(--background, #f6f8fa);
+  --panou: var(--card, #ffffff);
+  --linie: var(--border, #d0d7de);
+  --text: var(--foreground, #1f2328);
+  --sters: var(--muted-foreground, #59636e);
+  --accent: #0969da;
+  --stins: #9a6700;
+  --viu: #1a7f37;
+
+  /* Fundaluri de interacțiune. Panourile sunt albe, deci hover-ul trebuie să fie mai închis
+     decât cardul, nu decât pagina — altfel nu se vede nimic pe alb. */
+  --hover: #f0f3f6;
+  --activ: #e1e8ef;
+  --camp: #ffffff;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--fundal);
+  color: var(--text);
+  font:
+    14px / 1.5 ui-sans-serif,
+    system-ui,
+    -apple-system,
+    "Segoe UI",
+    sans-serif;
+}
+
+a {
+  color: var(--accent);
+  text-decoration: none;
+}
+a:hover {
+  text-decoration: underline;
+}
+
+.cadru {
+  display: flex;
+  min-height: 100vh;
+}
+
+.bara {
+  width: 220px;
+  flex: 0 0 220px;
+  border-right: 1px solid var(--linie);
+  padding: 16px 12px;
+  background: var(--panou);
+}
+
+.bara h1 {
+  font-size: 13px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--sters);
+  margin: 0 0 12px;
+}
+
+.tab {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 7px 10px;
+  border-radius: 6px;
+  margin-bottom: 2px;
+  color: var(--text);
+}
+.tab:hover {
+  background: var(--hover);
+  text-decoration: none;
+}
+.tab.activ {
+  background: var(--activ);
+}
+.tab.stins {
+  color: var(--sters);
+}
+
+/* Două butoane care arătau ca altceva.
+ *
+ * „sign out" din bară și numele comenzilor din terminal erau `<a href="#">` cu `preventDefault`
+ * pe click — adică butoane deghizate în legături. Costul nu e teoretic: un cititor de ecran le
+ * anunța ca legături, iar fără JavaScript `href="#"` te duce în capul paginii în loc să facă
+ * lucrul cerut. Acum sunt `<button>`; regulile de mai jos le iau înfățișarea de buton (fundal,
+ * bordură, padding propriu) și le lasă forma pe care o aveau. Vizual nu se schimbă nimic. */
+button.tab {
+  width: 100%;
+  background: none;
+  border: 0;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+button.tab:hover {
+  background: var(--hover);
+}
+button.ca-link {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  color: var(--accent);
+  cursor: pointer;
+}
+button.ca-link:hover {
+  text-decoration: underline;
+}
+
+.pastila {
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  border: 1px solid var(--linie);
+}
+.pastila.viu {
+  color: var(--viu);
+  border-color: #aceebb;
+}
+.pastila.stins {
+  color: var(--stins);
+  border-color: #eac54f;
+}
+
+.continut {
+  flex: 1;
+  padding: 24px 28px;
+  max-width: 1100px;
+}
+
+h2 {
+  margin: 0 0 4px;
+  font-size: 20px;
+}
+.subtitlu {
+  color: var(--sters);
+  margin: 0 0 18px;
+  font-size: 13px;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+}
+th,
+td {
+  text-align: left;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--linie);
+}
+th {
+  color: var(--sters);
+  font-weight: 500;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+tbody tr:hover {
+  background: var(--hover);
+}
+
+.panou {
+  border: 1px solid var(--linie);
+  border-radius: 8px;
+  padding: 14px 16px;
+  margin-bottom: 14px;
+  background: var(--panou);
+}
+.panou h3 {
+  margin: 0 0 10px;
+  font-size: 14px;
+}
+
+button {
+  font: inherit;
+  padding: 6px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  background: var(--fundal);
+  color: var(--text);
+  border: 1px solid var(--linie);
+}
+button:hover {
+  background: var(--hover);
+}
+button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+input {
+  font: inherit;
+  padding: 7px 10px;
+  border-radius: 6px;
+  background: var(--camp);
+  color: var(--text);
+  border: 1px solid var(--linie);
+}
+
+.rand-paginare {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 12px;
+  color: var(--sters);
+}
+.eroare {
+  border: 1px solid #ffcecb;
+  background: #ffebe9;
+  color: #cf222e;
+  padding: 10px 12px;
+  border-radius: 6px;
+}
+.gol {
+  color: var(--sters);
+  padding: 14px 0;
+}
+.mic {
+  font-size: 12px;
+  color: var(--sters);
+}
+.mono {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+
+/* --- ecranul de instalare -------------------------------------------------------------------
+   Trei coloane: ce e montat, ce se poate instala, ce s-a schimbat de fapt. Jurnalul stă jos,
+   pe toată lățimea, fiindcă e citit după o operație, nu în timpul ei. */
+
+/* Trei coloane nu încap în lățimea listelor obișnuite; ecranul își cere singur spațiul,
+   fără ca Shell-ul să știe cine e înăuntru. */
+.continut:has(.inst-grila) {
+  max-width: 1560px;
+}
+
+.inst-cap {
+  display: flex;
+  align-items: flex-start;
+  gap: 24px;
+  flex-wrap: wrap;
+}
+.inst-cap .subtitlu {
+  max-width: 62ch;
+}
+.inst-contoare {
+  margin-left: auto;
+  display: flex;
+  gap: 18px;
+  font-size: 12px;
+  color: var(--sters);
+  padding-top: 6px;
+  white-space: nowrap;
+}
+.inst-contoare b {
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+  font-size: 14px;
+  margin-left: 4px;
+}
+.inst-eroare {
+  margin-bottom: 14px;
+  white-space: pre-wrap;
+}
+
+.inst-repornire {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  margin-bottom: 16px;
+  border: 1px solid #eac54f;
+  background: #fff8c5;
+  border-radius: 8px;
+  padding: 12px 14px;
+}
+.inst-repornire b {
+  color: #9a6700;
+  font-weight: 600;
+}
+.inst-semn {
+  font-size: 18px;
+  color: #9a6700;
+  line-height: 1.2;
+}
+.inst-linie-repornire {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--sters);
+}
+
+/* Linii verticale între coloane, ca în prototip: cele trei întrebări sunt separate, nu o listă
+   lungă cu spații între bucăți. */
+.inst-grila {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1.2fr;
+  gap: 0;
+  align-items: stretch;
+}
+.inst-grila > section {
+  min-width: 0;
+  padding: 0 20px;
+}
+.inst-grila > section:first-child {
+  padding-left: 0;
+}
+.inst-grila > section:last-child {
+  padding-right: 0;
+}
+.inst-grila > section + section {
+  border-left: 1px solid var(--linie);
+}
+.inst-grila h3 {
+  margin: 0 0 4px;
+  font-size: 11px;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--sters);
+  font-weight: 600;
+}
+.inst-ajutor {
+  margin: 0 0 12px;
+  color: var(--sters);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.inst-card {
+  border: 1px solid var(--linie);
+  border-radius: 8px;
+  background: var(--panou);
+  padding: 10px 12px;
+  margin-bottom: 8px;
+}
+.inst-card h4 {
+  margin: 0 0 6px;
+  font-size: 11px;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--sters);
+  font-weight: 600;
+}
+.inst-card .gol {
+  padding: 4px 0;
+  font-size: 12.5px;
+}
+
+.inst-cap-card {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex-wrap: wrap;
+}
+.inst-nume {
+  font-weight: 600;
+}
+.inst-sursa {
+  font-size: 11px;
+  color: var(--sters);
+  border: 1px solid var(--linie);
+  padding: 1px 7px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+.inst-sursa.plugin {
+  color: var(--accent);
+  border-color: #b6e3ff;
+}
+.pastila.cerut {
+  color: #9a6700;
+  border-color: #eac54f;
+}
+
+.inst-detaliu {
+  color: var(--sters);
+  font-size: 12.5px;
+  margin-top: 5px;
+}
+.inst-detaliu b {
+  color: var(--text);
+  font-weight: 500;
+}
+.inst-numere {
+  font-size: 11px;
+  letter-spacing: -0.1px;
+}
+.inst-nota {
+  margin: -2px 0 6px;
+  font-size: 11.5px;
+  font-style: italic;
+}
+
+/* `align-items: center` plus `nowrap`: without them a two-word button wraps and grows taller
+   than the text beside it, which reads as broken rather than as a button. */
+.inst-actiuni {
+  display: flex;
+  gap: 6px;
+  margin-top: 9px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.inst-actiuni button {
+  font-size: 12.5px;
+  padding: 4px 11px;
+  white-space: nowrap;
+}
+.inst-actiuni button.inst-primar {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #ffffff;
+}
+.inst-actiuni button.inst-primar:hover:not(:disabled) {
+  background: #0860ca;
+}
+.inst-actiuni button.inst-pericol {
+  color: #cf222e;
+}
+.inst-gata {
+  color: var(--viu);
+  font-size: 12px;
+}
+.inst-asteapta {
+  color: #9a6700;
+  font-size: 12px;
+}
+
+.inst-lista {
+  margin: 0;
+  padding-left: 16px;
+  list-style: none;
+}
+.inst-lista li {
+  margin: 2px 0;
+  font-size: 12.5px;
+}
+.nou {
+  color: var(--viu);
+}
+.dus {
+  color: #cf222e;
+  text-decoration: line-through;
+}
+/* Cinci panouri „neschimbat" unul sub altul sunt tocmai dovada după o instalare — dar nu au ce
+   spune, deci ocupă cât trebuie, nu cât un panou cu conținut. */
+.inst-neschimbat {
+  font-style: italic;
+  padding: 0;
+}
+.inst-card:has(.inst-neschimbat) {
+  padding: 8px 12px;
+}
+.inst-card:has(.inst-neschimbat) h4 {
+  margin-bottom: 3px;
+}
+
+.inst-amprenta {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  margin-bottom: 8px;
+  border: 1px solid #eac54f;
+  background: #fff8c5;
+  border-radius: 8px;
+  padding: 11px 13px;
+}
+.inst-amprenta b {
+  color: #9a6700;
+}
+
+.inst-jurnal {
+  margin-top: 20px;
+  border-top: 1px solid var(--linie);
+  padding-top: 12px;
+  max-height: 30vh;
+  overflow: auto;
+}
+.inst-jurnal h3 {
+  margin: 0 0 8px;
+  font-size: 11px;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--sters);
+  font-weight: 600;
+}
+.inst-rand {
+  font-size: 12.5px;
+  padding: 3px 0;
+  border-bottom: 1px solid #eaeef2;
+}
+.inst-rand:last-child {
+  border-bottom: 0;
+}
+.inst-rand.rau {
+  color: #cf222e;
+}
+.inst-ora {
+  color: var(--sters);
+  margin-right: 12px;
+}
+
+@media (max-width: 1180px) {
+  .inst-grila {
+    grid-template-columns: 1fr;
+  }
+  .inst-grila > section {
+    padding: 0;
+  }
+  .inst-grila > section + section {
+    border-left: 0;
+    border-top: 1px solid var(--linie);
+    padding-top: 16px;
+    margin-top: 16px;
+  }
+  .inst-contoare {
+    margin-left: 0;
+  }
+}

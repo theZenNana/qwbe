@@ -1,0 +1,181 @@
+@import "tailwindcss";
+
+/*
+ * Light theme expressed through CSS tokens.
+ * Paleta casei: fundal #f6f8fa, carduri albe, border #d0d7de, radius 8px,
+ * pilule de stare (verde/galben/roșu), fără umbre grele, fără gradiente.
+ * Tot ce construim de acum moștenește acești tokeni — nu se mai rescriu culori.
+ */
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  /* Stările casei — pilule */
+  --color-success-bg: #dafbe1;
+  --color-success-fg: #1a7f37;
+  --color-warning-bg: #fff8c5;
+  --color-warning-fg: #9a6700;
+  --color-danger-bg: #ffebe9;
+  --color-danger-fg: #cf222e;
+  --color-code-bg: #eff1f3;
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 8px;
+  --font-sans: system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+:root {
+  --background: #f6f8fa;
+  --foreground: #1f2328;
+  --card: #ffffff;
+  --card-foreground: #1f2328;
+  --muted: #f6f8fa;
+  --muted-foreground: #59636e;
+  --border: #d0d7de;
+  --input: #d0d7de;
+  --primary: #1f2328;
+  --primary-foreground: #ffffff;
+  --accent: #0969da;
+  --accent-foreground: #ffffff;
+  --destructive: #cf222e;
+  --destructive-foreground: #ffffff;
+  /* Folosit de `.bg-code-bg` și de blocurile de cod din `.md`, mai jos. Lipsea: definit era
+     doar `--color-code-bg`, în `@theme inline`, care e alt nume — deci `var(--code-bg)` cădea
+     pe nedefinit și fundalurile de cod ieșeau transparente. */
+  --code-bg: #eff1f3;
+}
+
+* {
+  border-color: var(--border);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.5;
+  margin: 0;
+}
+
+/* Compatibility utilities use explicit precedence over component styles. */
+
+.bg-card {
+  background-color: var(--card) !important;
+}
+.bg-muted {
+  background-color: var(--muted) !important;
+}
+.bg-primary {
+  background-color: var(--primary) !important;
+}
+.bg-destructive {
+  background-color: var(--destructive) !important;
+}
+.bg-code-bg {
+  background-color: var(--code-bg) !important;
+}
+.text-card-foreground {
+  color: var(--card-foreground) !important;
+}
+.text-muted-foreground {
+  color: var(--muted-foreground) !important;
+}
+.text-primary-foreground {
+  color: var(--primary-foreground) !important;
+}
+.text-destructive-foreground {
+  color: var(--destructive-foreground) !important;
+}
+.text-foreground {
+  color: var(--foreground) !important;
+}
+
+code,
+pre,
+.font-mono {
+  font-family: var(--font-mono);
+}
+
+/* Rendered Markdown: minimal styles on the light theme. */
+.md {
+  font-size: 14px;
+  line-height: 1.6;
+}
+.md h2,
+.md h3,
+.md h4 {
+  margin: 18px 0 8px;
+  font-weight: 600;
+}
+.md h2 {
+  font-size: 17px;
+}
+.md h3 {
+  font-size: 15px;
+}
+.md h4 {
+  font-size: 14px;
+}
+.md p {
+  margin: 8px 0;
+}
+.md ul {
+  margin: 8px 0;
+  padding-left: 22px;
+}
+.md li {
+  margin: 3px 0;
+}
+.md code {
+  background: var(--code-bg);
+  border-radius: 4px;
+  padding: 1px 5px;
+  font-size: 12.5px;
+}
+.md pre {
+  background: var(--code-bg);
+  border-radius: 8px;
+  padding: 10px 12px;
+  overflow-x: auto;
+  margin: 10px 0;
+}
+.md pre code {
+  background: none;
+  padding: 0;
+}
+.md blockquote {
+  border-left: 3px solid var(--border);
+  margin: 10px 0;
+  padding: 2px 12px;
+  color: var(--muted-foreground);
+}
+.md table {
+  border-collapse: collapse;
+  margin: 10px 0;
+  width: 100%;
+}
+.md th,
+.md td {
+  border: 1px solid var(--border);
+  padding: 5px 10px;
+  text-align: left;
+  font-size: 13px;
+}
+.md th {
+  background: var(--muted);
+  font-weight: 600;
+}

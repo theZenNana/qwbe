@@ -1,0 +1,32 @@
+{
+  "_comment": "There was no tsconfig here until now: node runs the .ts files directly by stripping types, so nothing ever CHECKED them. That is the gap this file closes — `npm run typecheck` is the correctness gate, exactly as in software-factory (D15), and it is separate from Biome, which never looks at types.",
+  "_importsComment": "Every import in this repository carries the .ts extension, because that is what node's stripper resolves at runtime. TypeScript only accepts that with allowImportingTsExtensions, which in turn requires noEmit — which is what we want anyway: this config checks, it does not build. (Unknown keys are illegal INSIDE compilerOptions, so the notes live out here.)",
+  "_strictComment": "Effect leans on inference hard; without strict the checker silently agrees with wrong code and the gate becomes decoration.",
+  "_includeComment": "store/ holds the installable packages — copies of cubes that land in a running system. They are checked too: a package that does not typecheck is one that breaks after install, which is the worst moment to find out.",
+  "_exactOptionalComment": "READ THIS BEFORE FIXING A TS2379 OR TS2375. `exactOptionalPropertyTypes` (below) changes what `?:` means, and the whole repository got it wrong the same way on one day: `readonly x?: string` does NOT mean `may be undefined`. It means ABSENT or a string — a property that is PRESENT and holds undefined is rejected. The thing that produces exactly that, everywhere, is a spread: `{ ...current, ...payload }` copies `payload.x` as an own property whose value is undefined when the caller did not send it. So the object you built to be permissive is the one the checker refuses. The fix is `readonly x?: string | undefined`, which says both. It is a WIDENING, not a cast: nothing is silenced, the optional simply admits the value it was always going to receive. Do not reach for `as`, do not drop the flag — either one trades a compile error for a runtime surprise, and the flag is the reason the surprise is visible at all. Written after seven of these were repaired in one day, in kernel, host and store alike; `grep -rn '?: .* | undefined' src store plugins` finds the ones already stated, each with the reasoning next to it.",
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2023"],
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+
+    "allowImportingTsExtensions": true,
+    "noEmit": true,
+
+    "strict": true,
+    "exactOptionalPropertyTypes": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+
+    "verbatimModuleSyntax": true,
+
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "esModuleInterop": true,
+    "resolveJsonModule": true,
+    "types": ["node"]
+  },
+  "include": ["src/**/*.ts", "plugins/**/*.ts", "store/**/*.ts"],
+  "exclude": ["node_modules"]
+}

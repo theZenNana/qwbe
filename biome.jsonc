@@ -1,0 +1,110 @@
+// Ported from software-factory's biome.json (D15: Biome owns formatting and cleanliness,
+// ESLint runs only the type-aware rules Biome cannot, `tsc --noEmit` is the correctness gate).
+//
+// Same numbers as the warehouse — 120 columns, two spaces, no semicolons, double quotes —
+// because a second style would mean this repository and that one cannot share a file.
+//
+// `.jsonc` rather than `.json` on purpose: Biome's schema refuses unknown keys, so the usual
+// `_comment` trick does not work, and a rule whose reasoning lives somewhere else is a rule
+// nobody can argue with.
+{
+  "$schema": "https://biomejs.dev/schemas/2.5.6/schema.json",
+  "vcs": {
+    "enabled": true,
+    "clientKind": "git",
+    "useIgnoreFile": true
+  },
+  "files": {
+    "includes": [
+      "**",
+      "!**/node_modules",
+      "!**/.next",
+      "!**/dist",
+      "!**/build",
+      "!**/coverage",
+      "!**/generated",
+      "!**/*.generated.*",
+      "!data",
+      "!screenshots",
+      "!package-lock.json"
+    ]
+  },
+  "formatter": {
+    "enabled": true,
+    "lineWidth": 120,
+    "indentStyle": "space",
+    "indentWidth": 2
+  },
+  "assist": {
+    "enabled": true,
+    "actions": {
+      "source": {
+        "organizeImports": "on"
+      }
+    }
+  },
+  "css": {
+    "parser": {
+      // web/app/globals.css folosește `@theme inline` (Tailwind v4) — fără flagul ăsta
+      // parserul refuză fișierul întreg și cu el tot ce e după.
+      "tailwindDirectives": true
+    }
+  },
+  "linter": {
+    "enabled": true,
+    "rules": {
+      // `preset` rather than the older `recommended: true` — Biome 2.5.6 deprecates the latter.
+      "preset": "recommended",
+      "style": {
+        "noNonNullAssertion": "off"
+      }
+    }
+  },
+  "javascript": {
+    "formatter": {
+      "semicolons": "asNeeded",
+      "quoteStyle": "double"
+    }
+  },
+  "overrides": [
+    {
+      // Tests build hostile inputs on purpose — a fake cube whose manifest lies, a group whose
+      // middlewares are wrong. Typing those honestly would mean exporting internal shapes just
+      // so a test can name them.
+      "includes": ["**/*.test.ts", "**/*.test.mjs"],
+      "linter": {
+        "rules": {
+          "suspicious": {
+            "noExplicitAny": "off"
+          }
+        }
+      }
+    },
+    {
+      // The kernel composes HttpApi groups discovered at runtime — exactly the case Effect's
+      // types cannot express (see the comment on `buildApi` in mount.ts). The `any` there is a
+      // documented price, not an oversight; flagging it every run trains everyone to ignore the
+      // linter.
+      "includes": ["core/src/kernel/mount.ts"],
+      "linter": {
+        "rules": {
+          "suspicious": {
+            "noExplicitAny": "off"
+          }
+        }
+      }
+    },
+    {
+      // globals.css defines compatibility utilities with explicit precedence. Without this
+      // scoped exception the linter rejects declarations required by the cascade.
+      "includes": ["web/app/globals.css"],
+      "linter": {
+        "rules": {
+          "complexity": {
+            "noImportantStyles": "off"
+          }
+        }
+      }
+    }
+  ]
+}

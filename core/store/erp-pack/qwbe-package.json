@@ -1,0 +1,6 @@
+{
+  "name": "erp-pack",
+  "kind": "plugin",
+  "summary": "The ERP: companies, the people who work at them, and the ERP's own settings area.",
+  "cubes": ["accounts", "contacts", "erp-settings"]
+}

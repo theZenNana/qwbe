@@ -1,0 +1,46 @@
+# Credentials. `.env.example` is the committed one, with placeholder values; everything else that
+# starts with `.env` holds real secrets and stays on the machine that made it. The pre-commit hook
+# refuses these by name too, because `git add -f` walks straight past this file.
+.env
+.env.*
+!.env.example
+
+node_modules/
+# also as a plain name: a symlink named node_modules is not a directory to git, and one was
+# committed by accident once — pointing at a path that exists on exactly one machine.
+node_modules
+data/*.sqlite
+data/*.sqlite-wal
+data/*.sqlite-shm
+data/switches.json
+web/.next/
+screenshots/
+test-results/
+
+# build artefact, regenerat la fiecare typecheck
+web/tsconfig.tsbuildinfo
+
+# Unelte și sandbox — nu fac parte din proiect.
+#
+# Cele de mai jos NU sunt fișiere: sandboxul agenților le montează în rădăcina proiectului ca
+# fișiere-dispozitiv (`stat` spune „character special file", proprietar `nobody`). Git le vede
+# ca untracked la fiecare `git status`, ceea ce înseamnă că zgomotul acoperă modificările reale
+# și mai devreme sau mai târziu cineva le prinde într-un `git add .`.
+#
+# `.gitmodules` e printre ele. E și un fișier legitim al gitului — dacă repo-ul ajunge vreodată
+# să aibă submodule reale, se adaugă cu `git add -f .gitmodules`. Deocamdată nu are, iar aici e
+# doar un dispozitiv montat.
+.bashrc
+.bash_profile
+.profile
+.zshrc
+.zprofile
+.gitconfig
+.ripgreprc
+.mcp.json
+.gitmodules
+.idea
+.vscode
+
+# Configurația locală de agent. Directorul e real, conținutul e per-mașină.
+.claude/
