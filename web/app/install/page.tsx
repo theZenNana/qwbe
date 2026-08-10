@@ -37,6 +37,7 @@ import {
 } from "../../lib/api"
 import { diskDrift } from "../../lib/drift"
 import { Shell } from "../Shell"
+import { InstallFromCard } from "./InstallFromCard"
 
 /** What the server exposed at one instant. Diffed against the next one to get a real effect. */
 type Snapshot = {
@@ -95,6 +96,7 @@ export default function Install() {
   const [log, setLog] = useState<Array<LogLine>>([])
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [sourcePath, setSourcePath] = useState("")
   const write = (lines: Array<string>, bad = false) => {
     const time = clock()
     setLog((old) => [...lines.map((text) => ({ id: idJurnal++, time, text, bad })), ...old].slice(0, 200))
@@ -377,6 +379,8 @@ export default function Install() {
             Ce oferă magazinul. Un pachet e un cub, sau un plugin care aduce mai multe — toate intră în același spațiu
             de nume plat.
           </p>
+
+          <InstallFromCard sourcePath={sourcePath} setSourcePath={setSourcePath} busy={busy} run={run} />
 
           {store === null && <div className="gol">se citește…</div>}
           {store?.length === 0 && (

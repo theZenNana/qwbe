@@ -14,30 +14,10 @@ import { Effect, Schema } from "effect"
 import { Authorization, requirePermission } from "../../kernel/auth-contract.ts"
 import { BadRequest, Forbidden, NotFound } from "../../kernel/errors.ts"
 import type { CubeDefinition, CubeTools } from "../../kernel/manifest.ts"
-import { CubeState } from "./contract.ts"
+import { settingsCommands } from "./commands.ts"
+import { CubeState, InstallFromPayload, InstallFromResult, PackageState } from "./contract.ts"
 
 const Toggle = Schema.Struct({ enabled: Schema.Boolean }).annotations({ identifier: "Toggle" })
-
-/** A package offered by the store, and whether it is already on disk. */
-const PackageState = Schema.Struct({
-  name: Schema.String,
-  kind: Schema.Literal("cube", "plugin"),
-  summary: Schema.String,
-  /** For a plugin, the cubes it brings; for a cube, itself. */
-  cubes: Schema.Array(Schema.String),
-  installed: Schema.Boolean,
-  bytes: Schema.Number,
-  /**
-   * Cube names this package would collide with, given what is on disk right now.
-   *
-   * In the contract rather than only enforced, so a client can grey the button out and say why
-   * before the click. Two store packages both brought a cube called `contacts`; installing the
-   * second was accepted, and the NEXT STARTUP died — the kernel refuses duplicate names, and
-   * rightly. From a button in a web page, "the server will not come up" is the worst possible
-   * way to learn that.
-   */
-  conflicts: Schema.Array(Schema.String),
-}).annotations({ identifier: "PackageState" })
 
 /**
  * What an install actually did.
@@ -85,6 +65,13 @@ const group = HttpApiGroup.make("settings")
   .add(
     HttpApiEndpoint.post("install")`/settings/packages/${HttpApiSchema.param("name", Schema.String)}/install`
       .addSuccess(InstallResult)
+      .addError(BadRequest)
+      .addError(Forbidden),
+  )
+  .add(
+    HttpApiEndpoint.post("installFrom")`/settings/packages/install-from`
+      .setPayload(InstallFromPayload)
+      .addSuccess(InstallFromResult)
       .addError(BadRequest)
       .addError(Forbidden),
   )
@@ -158,19 +145,7 @@ export const cube: CubeDefinition = {
     return {
       group,
 
-      commands: [
-        {
-          name: "settings:cubes",
-          summary: "list cubes and whether they are on",
-          permission: "settings:read",
-          run: () =>
-            Effect.succeed(
-              catalogue()
-                .map((c) => `${c.enabled ? "on " : "off"}  ${c.name}${c.plugin ? `  (plugin: ${c.plugin})` : ""}`)
-                .join("\n"),
-            ),
-        },
-      ],
+      commands: settingsCommands(catalogue, installer),
 
       handlers: {
         cubes: () =>
@@ -223,6 +198,20 @@ export const cube: CubeDefinition = {
             // Not mounted yet: the kernel reads the disk at startup. Said in the response
             // rather than hoped for.
             return { package: pkg, requiresRestart: true }
+          }),
+
+        installFrom: ({ payload }: { payload: { path: string } }) =>
+          Effect.gen(function* () {
+            yield* requirePermission("settings:write")
+            const result = yield* Effect.try({
+              try: () => installer.stageAndInstall(payload.path),
+              // Same pass-through as install: the kernel's refusals name the problem -
+              // relative path, symlink in the tree, lying manifest, name clash. The CLI
+              // command below calls this same function, so both surfaces speak identically.
+              catch: (e) => new BadRequest({ message: (e as Error).message }),
+            })
+            const { staged, ...pkg } = result
+            return { package: pkg, staged, requiresRestart: true }
           }),
 
         uninstall: ({ path }: { path: { name: string } }) =>

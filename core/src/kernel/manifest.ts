@@ -299,6 +299,16 @@ export type CubeInstaller = Readonly<{
   /** Disk state for exact discovery location; never exposes a path. */
   cubeOnDisk: (c: string, plugin: string | null) => boolean
   install: (name: string) => CubePackage
+  /**
+   * The administrative exception to "never a path": install from a directory an administrator
+   * pointed at. The path is validated, the tree is copied into the store (symlinks and special
+   * files refused, nothing executed from the source), and only then does the by-name install
+   * run. Cubes still cannot express a path - only the kernel ever sees one, here.
+   *
+   * `staged` tells the caller whether the store copy was created by this call or an identical
+   * one was already there (same fingerprint - idempotent reinstall).
+   */
+  stageAndInstall: (sourceDirectory: string) => CubePackage & { readonly staged: boolean }
   remove: (cube: string, plugin: string | null) => { readonly removed: string }
   /** Package name keeps rollback possible before its cubes exist in the mounted catalogue. */
   uninstallPackage: (name: string) => { readonly removed: string; readonly cubes: readonly string[] }

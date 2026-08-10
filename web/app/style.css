@@ -433,6 +433,21 @@ input {
 .inst-actiuni button.inst-pericol {
   color: #cf222e;
 }
+.inst-actiuni input.inst-input {
+  flex: 1;
+  min-width: 220px;
+  font-size: 12.5px;
+  font-family: var(--font-mono, monospace);
+  padding: 4px 9px;
+  background: var(--camp);
+  border: 1px solid var(--linie);
+  border-radius: 5px;
+  color: var(--text);
+}
+.inst-actiuni input.inst-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
 .inst-gata {
   color: var(--viu);
   font-size: 12px;

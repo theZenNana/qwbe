@@ -32,6 +32,12 @@ const EXEMPT = [
   // fixture ships, not text anyone reads in order to understand the code.
   "probes/erp-accounts.mjs",
   "probes/erp-contacts.mjs",
+  // The install page speaks Romanian to its user - page.tsx carries the same prose and predates
+  // the check. These strings are what the screen shows, not what a reader parses as code.
+  "web/app/install/InstallFromCard.tsx",
+  // The baseline comments in this config record decisions in Romanian, in the owner's words -
+  // historical DATA about why each number sits where it sits, not prose a code reader parses.
+  "qwbe.config.json",
 ]
 
 const isExempt = (file) => EXEMPT.some((allowed) => file === allowed || file.endsWith(`/${allowed}`))

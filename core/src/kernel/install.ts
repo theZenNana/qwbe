@@ -39,7 +39,10 @@ import { exec } from "node:child_process"
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs"
 import { dirname, join, resolve, sep } from "node:path"
 import { fileURLToPath } from "node:url"
+import { InstallError, PROVENANCE, stageAndInstall as stageAndInstallFor } from "./install-from.ts"
 import type { CubeInstaller, CubePackage } from "./manifest.ts"
+
+export { InstallError }
 
 const here = dirname(fileURLToPath(import.meta.url))
 const srcDir = resolve(here, "..")
@@ -60,13 +63,6 @@ const MANIFEST = "qwbe-package.json"
  * built from them.
  */
 const NAME = /^[a-z][a-z0-9-]{0,31}$/
-
-export class InstallError extends Error {
-  constructor(message: string) {
-    super(message)
-    this.name = "InstallError"
-  }
-}
 
 /**
  * Guard every path that leaves this module.
@@ -130,12 +126,52 @@ const cubesOnDisk = (): ReadonlyArray<{ cube: string; from: string }> => {
 const destinationOf = (pkg: { name: string; kind: "cube" | "plugin" }): string =>
   pkg.kind === "plugin" ? under(pluginsDir, join(pluginsDir, pkg.name)) : under(cubesDir, join(cubesDir, pkg.name))
 
-const readPackage = (name: string): CubePackage => {
+/** Store bookkeeping files that are not part of the cube and never reach the destination. */
+const isBookkeeping = (src: string): boolean => src.endsWith(sep + MANIFEST) || src.endsWith(sep + PROVENANCE)
+
+/**
+ * Install a package the store already holds, by name. Shared by the store flow and by
+ * stageAndInstall, which ends with the package on the raft and asks the very same question.
+ */
+const installExisting = (name: string): CubePackage => {
+  const pkg = readPackage(name)
+  const from = under(storeDir, join(storeDir, name))
+  const to = destinationOf(pkg)
+
+  if (existsSync(to)) {
+    throw new InstallError(
+      `refused: "${to.replace(srcDir, "src")}" already exists. ` +
+        `Installing never overwrites - remove it first if that is what you meant.`,
+    )
+  }
+
+  // Refused here rather than discovered at the next startup. The kernel's duplicate-name rule
+  // is correct and fatal, so letting the copy through would trade a clear "no" for a server
+  // that will not come up - and the person who clicked would have no way to connect the two.
+  const clash = cubesOnDisk().filter((c) => pkg.cubes.includes(c.cube))
+  if (clash.length > 0) {
+    throw new InstallError(
+      `refused: "${name}" brings ${clash.map((c) => `"${c.cube}"`).join(", ")}, ` +
+        `already on disk (${clash.map((c) => c.from).join(", ")}). ` +
+        `Two cubes cannot share a name - the server would refuse to start at all. ` +
+        `Remove the other one first if this is the one you want.`,
+    )
+  }
+
+  mkdirSync(dirname(to), { recursive: true })
+  // The package manifest and the provenance file are store bookkeeping, not part of the
+  // cube. Copying them would put files inside the installed directory that the cube itself
+  // never declared.
+  cpSync(from, to, { recursive: true, filter: (src) => !isBookkeeping(src) })
+
+  return { ...pkg, installed: true }
+}
+
+const readPackageAt = (name: string, dir: string): CubePackage => {
   checkName("package", name)
-  const dir = under(storeDir, join(storeDir, name))
   const manifestPath = join(dir, MANIFEST)
   if (!existsSync(manifestPath)) {
-    throw new InstallError(`refused: "${name}" is not a package — no ${MANIFEST} in the store`)
+    throw new InstallError(`refused: "${name}" is not a package - no ${MANIFEST} in the directory`)
   }
 
   const raw = JSON.parse(readFileSync(manifestPath, "utf8")) as {
@@ -177,6 +213,8 @@ const readPackage = (name: string): CubePackage => {
   }
 }
 
+const readPackage = (name: string): CubePackage => readPackageAt(name, under(storeDir, join(storeDir, name)))
+
 export const installerFor = (): CubeInstaller => ({
   cubeOnDisk: (cube: string, plugin: string | null) => {
     // Discovery predates the package slug grammar and mounts any non-hidden directory. This
@@ -204,38 +242,7 @@ export const installerFor = (): CubeInstaller => ({
       .sort((a, b) => a.name.localeCompare(b.name))
   },
 
-  install: (name: string) => {
-    const pkg = readPackage(name)
-    const from = under(storeDir, join(storeDir, name))
-    const to = destinationOf(pkg)
-
-    if (existsSync(to)) {
-      throw new InstallError(
-        `refused: "${to.replace(srcDir, "src")}" already exists. ` +
-          `Installing never overwrites — remove it first if that is what you meant.`,
-      )
-    }
-
-    // Refused here rather than discovered at the next startup. The kernel's duplicate-name rule
-    // is correct and fatal, so letting the copy through would trade a clear "no" for a server
-    // that will not come up — and the person who clicked would have no way to connect the two.
-    const clash = cubesOnDisk().filter((c) => pkg.cubes.includes(c.cube))
-    if (clash.length > 0) {
-      throw new InstallError(
-        `refused: "${name}" brings ${clash.map((c) => `"${c.cube}"`).join(", ")}, ` +
-          `already on disk (${clash.map((c) => c.from).join(", ")}). ` +
-          `Two cubes cannot share a name — the server would refuse to start at all. ` +
-          `Remove the other one first if this is the one you want.`,
-      )
-    }
-
-    mkdirSync(dirname(to), { recursive: true })
-    // The package manifest is store bookkeeping, not part of the cube. Copying it would put a
-    // file inside the installed directory that the cube itself never declared.
-    cpSync(from, to, { recursive: true, filter: (src) => !src.endsWith(sep + MANIFEST) })
-
-    return { ...pkg, installed: true }
-  },
+  install: (name: string) => installExisting(name),
 
   uninstallPackage: (name: string) => {
     const pkg = readPackage(name)
@@ -246,6 +253,8 @@ export const installerFor = (): CubeInstaller => ({
     rmSync(to, { recursive: true, force: true })
     return { removed: to.replace(resolve(srcDir, ".."), "."), cubes: pkg.cubes }
   },
+
+  stageAndInstall: stageAndInstallFor({ storeDir, manifest: MANIFEST, readPackageAt, installExisting }),
 
   // Reply first, die second — the caller must hear "yes" before the port goes away. The delay is
   // what makes that true; without it the response and the exit race, and the loser is the person
