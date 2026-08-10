@@ -8,8 +8,8 @@ Licensed under the [MIT License](./LICENSE). The three package manifests stay
 `private: true` because this repository is not published as three npm packages;
 that flag does not make the source license private.
 
-Implemented now: six core cubes, two plugins, two relation spaces, package lifecycle, runtime
-permissions, metadata-driven screens, CLI commands, paging and custom fields. Not implemented:
+Implemented now: six core cubes, one example plugin, one relation space, package lifecycle,
+runtime permissions, metadata-driven screens, CLI commands and paging. Not implemented:
 application namespaces, external rules, workflows, schema migrations, multi-tenancy or process
 isolation. Those belong to the roadmap in `wiki/qwbe/DIRECTION.md`, not to current capability.
 

@@ -37,7 +37,6 @@
       "core/src/cubes/links",
       "core/src/cubes/notes",
       "core/src/cubes/settings",
-      "core/src/spaces/erp",
       "core/src/spaces/workspace"
     ]
   }
