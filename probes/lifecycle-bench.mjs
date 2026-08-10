@@ -36,7 +36,8 @@ export const cubesOf = (pkg) =>
 // Anything already installed would make the first install refuse for the right reason at the
 // wrong time. It is moved, not deleted: some of it is work that was never committed.
 
-export const parking = scratchDataDir("qwbe-lifecycle-parked")
+let parking
+const parkingDir = () => (parking ??= scratchDataDir("qwbe-lifecycle-parked"))
 const parked = []
 
 // Copy-then-delete rather than rename: the parking lot is under /tmp, which on this machine is
@@ -44,7 +45,7 @@ const parked = []
 // cannot fail halfway into a half-moved directory.
 export const moveAside = (from) => {
   if (!existsSync(from)) return
-  const to = join(parking, `${parked.length}-${relative(root, from).replaceAll("/", "_")}`)
+  const to = join(parkingDir(), `${parked.length}-${relative(root, from).replaceAll("/", "_")}`)
   cpSync(from, to, { recursive: true })
   rmSync(from, { recursive: true, force: true })
   parked.push({ from, to })
@@ -57,6 +58,11 @@ export const putBack = () => {
     cpSync(to, from, { recursive: true })
   }
   parked.length = 0
+}
+
+export const dropParking = () => {
+  if (parking !== undefined) rmSync(parking, { recursive: true, force: true })
+  parking = undefined
 }
 
 /** One server on a port the OS says is free, reading the databases directory it is handed. */

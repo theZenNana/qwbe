@@ -15,6 +15,7 @@ export type CubeInfo = {
   required: boolean
   system: boolean
   plugin: string | null
+  onDisk: boolean
   entity: string | null
   screen: boolean
   publishes: Array<string>

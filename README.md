@@ -34,7 +34,9 @@ Open <http://127.0.0.1:4510> and sign in with credentials created for the instal
 Swagger at <http://127.0.0.1:4500/docs>, the raw spec at `/openapi.json`.
 
 Moving the ports: `QWBE_PORT=4530 npm start` moves the API and tells the frontend where it
-went. The web port is the `-p` argument in `web/package.json`, read from there at startup.
+went. `QWBE_WEB_PORT=4540 npm start` overrides the web port; otherwise the `-p` argument in
+`web/package.json` remains its source. The start runner respawns a cleanly exited API, so the
+admin restart action returns under this documented flow without stopping the frontend.
 `QWBE_DATA_DIR` moves the databases.
 
 ### First account and password storage
@@ -56,6 +58,9 @@ cd core && node src/main.ts            # API on :4500  (QWBE_PORT to move it)
 cd web  && npm run dev                 # sibling app on :4510
 ```
 
+This manual API process has no supervisor: the admin restart action stops it. Use `npm start`
+when restart from the admin screen must bring the API back while keeping the frontend alive.
+
 The frontend reads the API address from `NEXT_PUBLIC_QWBE_API` (default `http://127.0.0.1:4500`).
 Demo records use `example.com`, the IANA-reserved documentation domain; they are fixtures, not
 real contacts or service dependencies.
@@ -63,13 +68,15 @@ real contacts or service dependencies.
 The Playwright suite (`npm run e2e`, `npm run screenshots`) uses the root dependencies installed
 by setup. Browser binaries remain a separate Playwright install.
 
-## Verifying it — 92 checks, all passing
+## Verifying it
 
 ```bash
 node probes/smoke.mjs                                          # 27 — behaviour, login to logout
 node probes/decoupling.mjs                                     # 22 — the invariant, by SHA-256 fingerprint
 node probes/security.mjs                                       # 35 — attacks on this README's own claims
 node probes/restart.mjs                                        #  3 — survives restarts against one database
+node probes/drift.mjs                                         # 11 — five disk/process drift states
+node probes/admin-restart.mjs                                 #  5 — admin restart returns under npm start
 cd core && npx depcruise src plugins --config .dependency-cruiser.cjs   # boundaries on the real graph
 npx playwright test                                            #  5 — the UI, terminal included
 node screenshots.mjs                                           # writes screenshots/
