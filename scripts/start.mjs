@@ -8,7 +8,7 @@
 // claim outside Effect and Next.
 //
 //   QWBE_PORT=4530 npm start     moves the API; the frontend is told where it went
-//   the web port lives in web/package.json ("dev": "next dev -p 4510") and is read from there
+//   QWBE_WEB_PORT=4540 npm start moves the web app; otherwise its package.json port is used
 
 import { spawn } from "node:child_process"
 import { readFileSync } from "node:fs"
@@ -26,6 +26,7 @@ const root = join(dirname(fileURLToPath(import.meta.url)), "..")
 const API_PORT = Number(process.env.QWBE_PORT ?? 4500)
 
 const readWebPort = () => {
+  if (process.env.QWBE_WEB_PORT !== undefined) return Number(process.env.QWBE_WEB_PORT)
   const pkg = JSON.parse(readFileSync(join(root, "web", "package.json"), "utf8"))
   const dev = pkg.scripts?.dev ?? ""
   const m = dev.match(/(?:-p|--port)[= ](\d+)/)
@@ -78,7 +79,8 @@ const paint = (code, s) => (COLOR ? `[${code}m${s}[0m` : s)
 const children = []
 let shuttingDown = false
 
-const start = ({ name, color, command, args, cwd, env }) => {
+const start = (spec) => {
+  const { name, color, command, args, cwd, env, restartOnCleanExit = false } = spec
   const tag = paint(color, `[${name}]`)
   const child = spawn(command, args, {
     cwd,
@@ -114,6 +116,13 @@ const start = ({ name, color, command, args, cwd, env }) => {
   child.on("exit", (code, signal) => {
     child.dead = true
     if (shuttingDown) return
+    if (restartOnCleanExit && code === 0 && signal === null) {
+      console.log(`${tag} exited (code 0); restarting`)
+      setTimeout(() => {
+        if (!shuttingDown) start(spec)
+      }, 250)
+      return
+    }
     console.log(`${tag} exited (${signal ? `signal ${signal}` : `code ${code}`}) — stopping the rest`)
     shutdown(code ?? 1)
   })
@@ -179,13 +188,14 @@ start({
   args: ["src/main.ts"],
   cwd: join(root, "core"),
   env: { QWBE_PORT: String(API_PORT) },
+  restartOnCleanExit: true,
 })
 
 start({
   name: "web",
   color: 35, // magenta
   command: npm,
-  args: ["run", "dev"],
+  args: process.env.QWBE_WEB_PORT === undefined ? ["run", "dev"] : ["run", "dev", "--", "-p", String(WEB_PORT)],
   cwd: join(root, "web"),
   // The frontend only knows the API by its address; if QWBE_PORT moved it, say so here rather
   // than making the reader discover a silently broken login.

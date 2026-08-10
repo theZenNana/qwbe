@@ -284,27 +284,24 @@ export type Catalogue = ReadonlyArray<{
  * Never a path. The cube cannot express "install from /etc" because the type gives it nowhere
  * to put a path — the narrowing is in the shape, not only in the validation.
  */
-export type CubePackage = {
-  readonly name: string
-  readonly kind: "cube" | "plugin"
-  readonly summary: string
-  readonly cubes: ReadonlyArray<string>
-  readonly installed: boolean
-  readonly bytes: number
-}
+export type CubePackage = Readonly<{
+  name: string
+  kind: "cube" | "plugin"
+  summary: string
+  cubes: readonly string[]
+  installed: boolean
+  bytes: number
+  conflicts: readonly string[]
+}>
 
-export type CubeInstaller = {
-  readonly available: () => ReadonlyArray<CubePackage>
-  readonly install: (name: string) => CubePackage
-  readonly remove: (cube: string, plugin: string | null) => { readonly removed: string }
-  /** Undo an install by package name — works whether or not the cubes are mounted yet. */
-  readonly uninstallPackage: (name: string) => { readonly removed: string; readonly cubes: ReadonlyArray<string> }
-  /**
-   * Restart the server, after the caller has replied. The other half of `requiresRestart: true`:
-   * whoever may say a restart is needed must be able to perform one. See `install.ts`.
-   */
-  readonly restart: () => void
-}
+export type CubeInstaller = Readonly<{
+  available: () => readonly CubePackage[]
+  cubeOnDisk: (cube: string, plugin: string | null) => boolean
+  install: (name: string) => CubePackage
+  remove: (cube: string, plugin: string | null) => { readonly removed: string }
+  uninstallPackage: (name: string) => { readonly removed: string; readonly cubes: string[] }
+  restart: () => void
+}>
 
 export type CubeSwitches = {
   readonly list: () => ReadonlyArray<{

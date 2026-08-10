@@ -39,6 +39,7 @@ import { exec } from "node:child_process"
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs"
 import { dirname, join, resolve, sep } from "node:path"
 import { fileURLToPath } from "node:url"
+import type { CubeInstaller, CubePackage } from "./manifest.ts"
 
 const here = dirname(fileURLToPath(import.meta.url))
 const srcDir = resolve(here, "..")
@@ -65,25 +66,6 @@ export class InstallError extends Error {
     super(message)
     this.name = "InstallError"
   }
-}
-
-export type PackageInfo = {
-  readonly name: string
-  readonly kind: "cube" | "plugin"
-  readonly summary: string
-  /** For a plugin, the cubes it brings. For a cube, just itself. */
-  readonly cubes: ReadonlyArray<string>
-  /** True when the destination directory already exists on disk. */
-  readonly installed: boolean
-  readonly bytes: number
-  /**
-   * Cube names this package would collide with, given what is already on disk.
-   *
-   * Published rather than only checked, so the caller can grey the button out and say why
-   * BEFORE the click. Finding out afterwards is the bad version: the collision only shows up
-   * at the next startup, as a server that refuses to come up at all.
-   */
-  readonly conflicts: ReadonlyArray<string>
 }
 
 /**
@@ -148,7 +130,7 @@ const cubesOnDisk = (): ReadonlyArray<{ cube: string; from: string }> => {
 const destinationOf = (pkg: { name: string; kind: "cube" | "plugin" }): string =>
   pkg.kind === "plugin" ? under(pluginsDir, join(pluginsDir, pkg.name)) : under(cubesDir, join(cubesDir, pkg.name))
 
-const readPackage = (name: string): PackageInfo => {
+const readPackage = (name: string): CubePackage => {
   checkName("package", name)
   const dir = under(storeDir, join(storeDir, name))
   const manifestPath = join(dir, MANIFEST)
@@ -195,43 +177,16 @@ const readPackage = (name: string): PackageInfo => {
   }
 }
 
-export type Installer = {
-  /** What the store offers, with whether each is already on disk. */
-  readonly available: () => ReadonlyArray<PackageInfo>
-  /** Copy a package into place. Returns what it brought; NOT mounted until restart. */
-  readonly install: (name: string) => PackageInfo
-  /** Delete a cube's or a plugin's directory. `required` is refused by the caller, not here. */
-  readonly remove: (cube: string, plugin: string | null) => { readonly removed: string }
-  /**
-   * Undo an install, by PACKAGE name rather than by mounted cube.
-   *
-   * The pair `install` / `remove` looked complete until the gap was walked into: installing does
-   * not mount, and removing takes a MOUNTED cube. So a package installed and not yet restarted
-   * into could not be taken back — you had to restart in order to mount the thing you wanted
-   * gone, which is the opposite of what anyone means by "undo".
-   *
-   * Symmetry with `install(name)` is the fix: whatever the install put on disk, this takes off.
-   */
-  readonly uninstallPackage: (name: string) => { readonly removed: string; readonly cubes: ReadonlyArray<string> }
-  /**
-   * Restart the server, after the caller has already replied.
-   *
-   * It lives HERE, and not in a capability of its own, because it is the other half of a promise
-   * this file already makes: `install` answers `requiresRestart: true`, since the kernel reads
-   * the disk once at startup. Whoever is allowed to say "this needs a restart" is the one who
-   * must be able to perform it — otherwise the contract tells you what to do and hands you
-   * nothing to do it with.
-   *
-   * It was in `cubes/settings/index.ts` until 3 Aug 2026, where it was the repository's last
-   * `boundaries` violation: a cube importing `node:child_process`. The rule is right and the
-   * code was in the wrong place — a cube has no business spawning processes, the kernel does.
-   *
-   * WHAT the restart is stays where it belongs: the server's own environment, never a request.
-   */
-  readonly restart: () => void
-}
+export const installerFor = (): CubeInstaller => ({
+  cubeOnDisk: (cube: string, plugin: string | null) => {
+    checkName("cube", cube)
+    return existsSync(
+      plugin
+        ? under(pluginsDir, join(pluginsDir, checkName("plugin", plugin), "cubes", cube))
+        : under(cubesDir, join(cubesDir, cube)),
+    )
+  },
 
-export const installerFor = (): Installer => ({
   available: () => {
     if (!existsSync(storeDir)) return []
     return readdirSync(storeDir, { withFileTypes: true })
@@ -288,7 +243,7 @@ export const installerFor = (): Installer => ({
       throw new InstallError(`refused: "${name}" is not installed — nothing at "${to.replace(srcDir, "src")}"`)
     }
     rmSync(to, { recursive: true, force: true })
-    return { removed: to.replace(resolve(srcDir, ".."), "."), cubes: pkg.cubes }
+    return { removed: to.replace(resolve(srcDir, ".."), "."), cubes: [...pkg.cubes] }
   },
 
   // Reply first, die second — the caller must hear "yes" before the port goes away. The delay is

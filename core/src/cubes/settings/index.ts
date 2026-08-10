@@ -14,20 +14,7 @@ import { Effect, Schema } from "effect"
 import { Authorization, requirePermission } from "../../kernel/auth-contract.ts"
 import { BadRequest, Forbidden, NotFound } from "../../kernel/errors.ts"
 import type { CubeDefinition, CubeTools } from "../../kernel/manifest.ts"
-
-const CubeState = Schema.Struct({
-  name: Schema.String,
-  enabled: Schema.Boolean,
-  required: Schema.Boolean,
-  system: Schema.Boolean,
-  /** Which plugin brought it, or null when it ships with core. */
-  plugin: Schema.NullOr(Schema.String),
-  entity: Schema.NullOr(Schema.String),
-  /** A cube with a screen of its own but no entity — the sidebar links it just the same. */
-  screen: Schema.Boolean,
-  publishes: Schema.Array(Schema.String),
-  links: Schema.Array(Schema.Struct({ to: Schema.String, field: Schema.String, label: Schema.String })),
-}).annotations({ identifier: "CubeState" })
+import { CubeState } from "./contract.ts"
 
 const Toggle = Schema.Struct({ enabled: Schema.Boolean }).annotations({ identifier: "Toggle" })
 
@@ -160,6 +147,7 @@ export const cube: CubeDefinition = {
         required: c.required,
         system: c.system,
         plugin: c.plugin,
+        onDisk: installer.cubeOnDisk(c.name, c.plugin),
         entity: c.entity ?? null,
         screen: c.screen,
         publishes: c.publishes,

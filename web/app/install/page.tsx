@@ -35,6 +35,7 @@ import {
   toggleCube,
   uninstallPackage,
 } from "../../lib/api"
+import { diskDrift } from "../../lib/drift"
 import { Shell } from "../Shell"
 
 /** What the server exposed at one instant. Diffed against the next one to get a real effect. */
@@ -94,9 +95,6 @@ export default function Install() {
   const [log, setLog] = useState<Array<LogLine>>([])
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
-  /** Cubes deleted from disk in this session that the running server still has mounted. */
-  const [deleted, setDeleted] = useState<Array<string>>([])
-
   const write = (lines: Array<string>, bad = false) => {
     const time = clock()
     setLog((old) => [...lines.map((text) => ({ id: idJurnal++, time, text, bad })), ...old].slice(0, 200))
@@ -171,15 +169,7 @@ export default function Install() {
     }
   }
 
-  const mounted = new Set((cubes ?? []).map((c) => c.name))
-  const onDiskNotMounted = (store ?? []).filter((p) => p.installed && p.cubes.some((c) => !mounted.has(c)))
-  const mountedNotOnDisk = [
-    ...new Set([
-      ...(store ?? []).filter((p) => !p.installed).flatMap((p) => p.cubes.filter((c) => mounted.has(c))),
-      ...deleted.filter((c) => mounted.has(c)),
-    ]),
-  ]
-  const pendingRestart = onDiskNotMounted.length > 0 || mountedNotOnDisk.length > 0
+  const { mounted, onDiskNotMounted, mountedNotOnDisk, pendingRestart } = diskDrift(cubes ?? [], store ?? [])
 
   return (
     <Shell>
@@ -267,7 +257,6 @@ export default function Install() {
                     }
                   }
                   await read().catch(() => {})
-                  setDeleted([]) // whatever the old process had mounted is settled now
                   setBusy(null)
                 }}
               >
@@ -359,7 +348,6 @@ export default function Install() {
                   onClick={() =>
                     run(c.name, async () => {
                       const r = await removeCube(c.name)
-                      setDeleted((old) => [...new Set([...old, c.name])])
                       return {
                         title: `Scos de pe disc: ${c.name}`,
                         explanation:
