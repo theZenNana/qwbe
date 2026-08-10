@@ -5,6 +5,7 @@
 import { join } from "node:path"
 import { client, dropScratch, freePort, makeScore, root, scratchDataDir, startServer, stopServer } from "./lib.mjs"
 import { cliAndSwitches } from "./smoke-cli.mjs"
+import { secondCubeAndRelation } from "./smoke-tags.mjs"
 
 // A port the OS says is free and a databases directory of its own: this probe used to share
 // both with every other probe and with the owner's running server. See `lib.mjs`.
@@ -33,7 +34,7 @@ try {
   score.check(
     "token is opaque, not a JWT",
     !String(session.token).includes("."),
-    `"${String(session.token).slice(0, 12)}…"`,
+    `"${String(session.token).slice(0, 12)}..."`,
   )
   const H = session.headers
 
@@ -43,7 +44,7 @@ try {
   const me = await api.call("/auth/me", { headers: H })
   score.check("/auth/me → admin", me.body?.username === "admin", `roles=${JSON.stringify(me.body?.roles)}`)
 
-  // Permissions come from every cube's manifest, including the plugin's — not from a map
+  // Permissions come from every cube's manifest, including the plugin's - not from a map
   // written inside auth.
   score.check(
     "permissions aggregated from all manifests, plugin included",
@@ -122,6 +123,9 @@ try {
     `plugin=${bmState?.plugin} system=${bmState?.system}`,
   )
 
+  // --- the plugin's second cube and the space-declared relation (split out: file cap) ---
+  await secondCubeAndRelation({ api, score, H, bookmarkId: bm.body.id, cubes })
+
   await cliAndSwitches({ api, score, H, me })
 
   // --- store isolation, proven on the factory itself ---
@@ -130,7 +134,7 @@ try {
   let threw = false
   let errorName = ""
   try {
-    // Lazy: the Effect must actually be RUN for the throw to happen. Running it is the point —
+    // Lazy: the Effect must actually be RUN for the throw to happen. Running it is the point -
     // otherwise the probe would pass without testing anything.
     Effect.runSync(storeFor("notes", ["notes"]).all("accounts"))
   } catch (e) {
@@ -141,7 +145,7 @@ try {
   score.check(
     "a cube cannot open another cube's table",
     threw && errorName === "ForeignTableError",
-    threw ? `threw ${errorName}` : "did NOT throw — isolation is broken",
+    threw ? `threw ${errorName}` : "did NOT throw - isolation is broken",
   )
 
   // --- logout ---

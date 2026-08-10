@@ -28,12 +28,24 @@
 // Determinism, since that was the ask: no clock, no random, no reliance on what happens to be
 // on disk. The store is planted fresh each run, and the fingerprint comparison is the verdict.
 
-import { rmSync } from "node:fs"
-import { makeScore } from "./lib.mjs"
-import { fingerprint, plantLifecycleStore } from "./lifecycle-bench.mjs"
+import { existsSync, rmSync } from "node:fs"
+import { join } from "node:path"
+import { makeScore, root } from "./lib.mjs"
+import { fingerprint, PKG, plantLifecycleStore, pluginsDir } from "./lifecycle-bench.mjs"
 import { liveAndDie } from "./lifecycle-life.mjs"
 
 const score = makeScore()
+
+// The install step WRITES `core/plugins/lifecycle-plugin/` and the uninstall step DELETES it.
+// A directory with that name that the probe did not plant is the owner's work, and the probe
+// has no way to tell it apart - so it refuses to run rather than risk deleting it.
+const installTarget = join(pluginsDir, PKG)
+if (existsSync(installTarget)) {
+  console.error(
+    `refused: ${installTarget} already exists and was not planted by this probe. Remove or rename it first.`,
+  )
+  process.exit(1)
+}
 
 const before = fingerprint()
 const store = plantLifecycleStore()
