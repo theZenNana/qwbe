@@ -1,4 +1,4 @@
-# Qwbe — prototype
+# Qwbe - prototype
 
 Qwbe is a prototype for discovering, installing and composing isolated application modules
 without editing a central registry. Current code demonstrates the invariant and its limits; it is
@@ -15,7 +15,7 @@ isolation. Those belong to the roadmap in `wiki/qwbe/DIRECTION.md`, not to curre
 
 ## Running it
 
-Two steps, both from the project root. Node 22.18 or newer — the API and tests execute TypeScript
+Two steps, both from the project root. Node 22.18 or newer - the API and tests execute TypeScript
 directly through Node type stripping.
 
 ```bash
@@ -71,14 +71,14 @@ by setup. Browser binaries remain a separate Playwright install.
 ## Verifying it
 
 ```bash
-node probes/smoke.mjs                                          # 27 — behaviour, login to logout
-node probes/decoupling.mjs                                     # 22 — the invariant, by SHA-256 fingerprint
-node probes/security.mjs                                       # 35 — attacks on this README's own claims
-node probes/restart.mjs                                        #  3 — survives restarts against one database
-node probes/drift.mjs                                         # 11 — five disk/process drift states
-node probes/admin-restart.mjs                                 #  5 — admin restart returns under npm start
+node probes/smoke.mjs                                          # 27 - behaviour, login to logout
+node probes/decoupling.mjs                                     # 22 - the invariant, by SHA-256 fingerprint
+node probes/security.mjs                                       # 35 - attacks on this README's own claims
+node probes/restart.mjs                                        #  3 - survives restarts against one database
+node probes/drift.mjs                                         # 11 - five disk/process drift states
+node probes/admin-restart.mjs                                 #  5 - admin restart returns under npm start
 cd core && npx depcruise src plugins --config .dependency-cruiser.cjs   # boundaries on the real graph
-npx playwright test                                            #  5 — the UI, terminal included
+npx playwright test                                            #  5 - the UI, terminal included
 node screenshots.mjs                                           # writes screenshots/
 ```
 
@@ -87,7 +87,7 @@ Every check in it is an attack that once succeeded, or one written to make sure 
 stays shut.
 
 The probes start whatever servers they need and stop them afterwards. That is deliberate: a
-server started by an agent lives inside that agent's sandbox — `ss` reports LISTEN while a
+server started by an agent lives inside that agent's sandbox - `ss` reports LISTEN while a
 request from anywhere else gets ECONNREFUSED. Producing the evidence in the same place as the
 act is the only way it means anything.
 
@@ -103,7 +103,7 @@ exists because the thing it catches already happened here.
 
 **Work on a branch.** `.husky/pre-commit` refuses `master` and `main`. Two agents committing
 straight to master is how this repo ended up with changes nobody expected to find in the working
-tree. For a deliberate one-off, `QWBE_ALLOW_MASTER=1 git commit ...` — it prints a warning, so the
+tree. For a deliberate one-off, `QWBE_ALLOW_MASTER=1 git commit ...` - it prints a warning, so the
 exception is visible in the terminal rather than silent.
 
 **Name the branch `<type>/<slug>`.** Types: `feature`, `fix`, `hardening`, `refactor`, `docs`,
@@ -118,13 +118,13 @@ secretlint scans every staged file: GitHub, Slack and AWS tokens, `sk-` keys, pr
 basic-auth URLs, hardcoded `password =` assignments, and `/home/<user>/` paths. Rules and the
 allowlist are in `.secretlintrc.json`; run `npm run secrets` to scan the whole tree.
 
-**ASCII in source.** Checked on the lines a commit ADDS, not on whole files — 114 of 130 tracked
+**ASCII in source.** Checked on the lines a commit ADDS, not on whole files - 114 of 130 tracked
 files still contain Romanian prose, and whole-file checking would block every commit until that
 translation is finished. `npm run ascii` runs the whole-file version. Exemptions, each with its
 reason, are in `scripts/check-ascii.mjs`.
 
 **Commit messages**: ASCII, subject at most 72 characters, no trailing period, blank line before
-the body. Deliberately not Conventional Commits — the messages here carry a sentence of reasoning,
+the body. Deliberately not Conventional Commits - the messages here carry a sentence of reasoning,
 and a machine-readable prefix adds nothing to that.
 
 ### What this does not do
@@ -145,7 +145,7 @@ caught, not that the commit is safe to publish.
 > **One cube = one directory. Installing it touches no existing file.**
 
 Not a claim, a measurement. `probes/decoupling.mjs` fingerprints every file under `core/`,
-creates a cube AND installs a plugin, starts the server, calls both their routes — and only then
+creates a cube AND installs a plugin, starts the server, calls both their routes - and only then
 compares. Result on 1 Aug: **22 files untouched, 2 added**.
 
 It also removes the `notes` cube from disk entirely. The server starts, `account` carries on,
@@ -155,14 +155,14 @@ group vanishes from the account page. Nothing edited anywhere.
 ## Two levels
 
 ```
-LEVEL 0   cubes/<name>/              flat namespace — core cubes
-          plugins/<p>/cubes/<name>/  …and plugin cubes, in the SAME namespace
+LEVEL 0   cubes/<name>/              flat namespace - core cubes
+          plugins/<p>/cubes/<name>/  ...and plugin cubes, in the SAME namespace
 
 LEVEL 1   spaces/<name>/             no cubes. Only the connections between them.
 ```
 
 A space keeps relation knowledge outside both cubes. Without it, `notes` would need the string
-`"Account"` inside its own directory — not an import, but still knowledge of another cube.
+`"Account"` inside its own directory - not an import, but still knowledge of another cube.
 
 Now the link lives in `spaces/workspace/index.ts`, declared by neither side:
 
@@ -177,7 +177,7 @@ grep -r Account cubes/notes/     → nothing
 grep -r notes   cubes/account/   → nothing
 ```
 
-## The four legal paths between cubes — and the only ones
+## The four legal paths between cubes - and the only ones
 
 | Path | For | Travels by |
 |---|---|---|
@@ -192,7 +192,7 @@ cube importing `node:sqlite`, `node:fs`, `node:child_process`, `node:module` or 
 
 **The honest limit.** This is lint, not a sandbox. A literal `await import("node:fs")` is caught;
 `await import("node:" + "fs")` is not, and no static tool can catch it. Inside one process under
-one uid there is no barrier — a real one means a separate process per cube. Two reviewers made
+one uid there is no barrier - a real one means a separate process per cube. Two reviewers made
 this point independently after demonstrating the bypass, and the claim in `store.ts` was corrected
 from "impossible" to what is actually true.
 
@@ -207,6 +207,7 @@ from "impossible" to what is actually true.
 | `links` | system | serves the relation queries. Owns no data at all |
 | `notes` | example | notes with an author. The second entity, without which no link could be shown |
 | `bookmarks` | **plugin** | in `plugins/example-plugin/`. Proof the plugin path works, not a description of it |
+| `tags` | **plugin** | second cube of the same plugin: labels a bookmark. The link to `Bookmark` lives in the workspace space, declared by neither cube |
 
 ## Design lineage
 
@@ -218,14 +219,14 @@ from "impossible" to what is actually true.
 | **Runtime verification** | verify the real artefact, never a self-set flag | `kernel/mount.ts` reads `group.endpoints[].middlewares` |
 | **Metadata UI** | screens generated from API metadata | `web/app/[cube]/`, two files for every cube |
 
-## What two adversarial reviews found — and what came of it
+## What two adversarial reviews found - and what came of it
 
 Both reviews ran the server rather than reading the code, and each finding below was reproduced
 before it was fixed. The two most serious were security holes, not style:
 
 - **Any `reader` could read the administrator's password hash.** `account` put `passwordHash`
   into its public registry summary so that `auth` could check a password; `links` served that
-  summary to anyone holding `links:read`. One channel doing two incompatible jobs — showing a row
+  summary to anyone holding `links:read`. One channel doing two incompatible jobs - showing a row
   to anyone, and proving a password. Fixed by splitting them: `providesCredentials` /
   `usesCredentials`, wired by the kernel, hash never leaves its cube.
 - **Login died permanently after the third restart.** Ids came from a module-level counter that
@@ -239,7 +240,7 @@ before it was fixed. The two most serious were security holes, not style:
   closed, because sorting reads the stored row rather than the response. Cubes now publish which
   fields are sortable.
 - **Any cube could run any command.** `commands()` handed every cube the actual `run` function,
-  so a cube declaring no permissions at all called `account:list` with no token and no session —
+  so a cube declaring no permissions at all called `account:list` with no token and no session -
   and `dependency-cruiser` reported zero violations, because nothing forbidden had been imported.
   It used exactly what the kernel gave it. Worse than the store hole for that reason: a boundary
   rule cannot catch a legal call. Of the four paths between cubes, `commands` was the only one
@@ -260,13 +261,13 @@ distinguishable after the first attempt; and `finiteInt` let `1e20` through beca
 Worth keeping, because each was a real mistake and the probe is why it did not survive:
 
 - **A dangling link used to stop the server.** The invariant probe caught it immediately:
-  deleting `notes` broke startup, because the space still pointed at it — which would mean
+  deleting `notes` broke startup, because the space still pointed at it - which would mean
   uninstalling a cube requires editing a file that is not yours. And a typo cannot be told apart
   from a deliberate removal. It is now a loud warning at startup, and the link is inactive.
 - **The auth middleware asked for the registry at request time**, where it does not exist. Login
   worked (an ordinary handler has the registry) while every authenticated route returned 500.
   The service is now resolved once, while the layer is built.
-- **The Bearer token arrives as `Redacted`**, not a string — Effect hides it so it cannot reach
+- **The Bearer token arrives as `Redacted`**, not a string - Effect hides it so it cannot reach
   a log by accident.
 
 ## Deliberately unresolved
@@ -276,7 +277,7 @@ Worth keeping, because each was a real mistake and the probe is why it did not s
   `add()` and `addHttpApi()` exist, but there is no documented pattern for optionally-mounted
   groups with types preserved, and no large open-source Effect application to copy from. Confined
   to two functions; the emitted OpenAPI stays complete.
-- **Passwords are SHA-256 with a fixed salt**, not argon2 — a native dependency is not worth it
+- **Passwords are SHA-256 with a fixed salt**, not argon2 - a native dependency is not worth it
   in something disposable. Not production, and it says so in the code.
 - **Public/private key login** was left out on purpose: password login was asked for first. That
   change touches this one cube; the rest of the system only ever sees `CurrentUser`.
@@ -286,8 +287,8 @@ Worth keeping, because each was a real mistake and the probe is why it did not s
 ```
 core/
   src/kernel/      manifest · discovery · store · registry · bus · space · pagination · mount · state
-  src/cubes/       LEVEL 0 — one directory per cube
-  src/spaces/      LEVEL 1 — connections only, no cubes
+  src/cubes/       LEVEL 0 - one directory per cube
+  src/spaces/      LEVEL 1 - connections only, no cubes
   src/main.ts      knows no cube by name
   plugins/         installed plugins, each bringing cubes into level 0
   .dependency-cruiser.cjs

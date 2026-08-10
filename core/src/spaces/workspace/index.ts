@@ -1,8 +1,8 @@
-// LEVEL 1 — the virtual directory.
+// LEVEL 1 - the virtual directory.
 //
 // This directory holds no cube. It holds the CONNECTIONS between cubes, declared by neither
 // side. That is the whole idea: `notes` does not know `account` exists, `account` does not know
-// `notes` exists, and this file — a third party — says how they relate.
+// `notes` exists, and this file - a third party - says how they relate.
 //
 // Check it yourself:
 //     grep -r Account ../../cubes/notes/    → nothing
@@ -23,5 +23,9 @@ export const space = defineSpace({
     // A note points at the account that wrote it. On an account's page this shows up as a
     // "notes" group; on a note's page, as "author".
     link({ from: "notes", field: "authorId", to: "Account", label: "notes" }),
+    // A tag points at the bookmark it labels. Both cubes arrive with example-plugin, and
+    // neither declares the relation - the example of a plugin whose cubes connect exactly the
+    // way core cubes do.
+    link({ from: "tags", field: "bookmarkId", to: "Bookmark", label: "tags" }),
   ],
 })
