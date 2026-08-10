@@ -7,8 +7,7 @@
 // measures the before/after effect.
 
 import { installFromDirectory } from "../../lib/api"
-
-const kb = (bytes: number) => `${(bytes / 1024).toFixed(1)} KB`
+import { kb } from "../../lib/utils"
 
 export const InstallFromCard = ({
   sourcePath,

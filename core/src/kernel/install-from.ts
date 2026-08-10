@@ -35,7 +35,6 @@ import {
   realpathSync,
   renameSync,
   rmSync,
-  statSync,
   writeFileSync,
 } from "node:fs"
 import { isAbsolute, join, relative, sep } from "node:path"
@@ -58,7 +57,6 @@ export const PROVENANCE = "qwbe-source.json"
  */
 export type StageContext = Readonly<{
   storeDir: string
-  manifest: string
   readPackageAt: (name: string, dir: string) => CubePackage
   installExisting: (name: string) => CubePackage
 }>
@@ -68,12 +66,18 @@ export type StageContext = Readonly<{
  * (relative path, file hash). Two directories with the same content fingerprint alike
  * regardless of where they sit, which is what makes "same package again" decidable without
  * trusting the source path - the path can stay while the content changes under it.
+ *
+ * `exclude` names top-level files that are bookkeeping, not content: the provenance file
+ * records the fingerprint the shelf HAD at staging time, so hashing it into the shelf's
+ * fingerprint would be circular - and trusting it without re-hashing would let edited shelf
+ * content pass as identical (the review finding that put this parameter here).
  */
-const fingerprintOf = (dir: string): string => {
+const fingerprintOf = (dir: string, exclude?: ReadonlyArray<string>): string => {
   const entries: Array<string> = []
   const walk = (d: string) => {
     for (const e of readdirSync(d, { withFileTypes: true })) {
       const p = join(d, e.name)
+      if (exclude && d === dir && exclude.includes(e.name)) continue
       if (e.isDirectory()) walk(p)
       else entries.push(`${relative(dir, p)}:${createHash("sha256").update(readFileSync(p)).digest("hex")}`)
     }
@@ -107,8 +111,20 @@ export const stageAndInstall =
     if (!isAbsolute(sourceDirectory)) {
       throw new InstallError(`refused: "${sourceDirectory}" is not an absolute path`)
     }
-    if (!existsSync(sourceDirectory) || !statSync(sourceDirectory).isDirectory()) {
+    if (!existsSync(sourceDirectory)) {
       throw new InstallError(`refused: "${sourceDirectory}" is not an existing directory`)
+    }
+    // lstat, not stat: a symlink AS the root is refused by the same rule that refuses symlinks
+    // inside the tree. statSync would follow it, and realpathSync would bless the target - the
+    // checks below would describe one tree while the administrator pointed at another.
+    const rootStat = lstatSync(sourceDirectory)
+    if (rootStat.isSymbolicLink()) {
+      throw new InstallError(
+        `refused: "${sourceDirectory}" is a symlink - point at the real directory, not a link to it.`,
+      )
+    }
+    if (!rootStat.isDirectory()) {
+      throw new InstallError(`refused: "${sourceDirectory}" is not a directory`)
     }
     const source = realpathSync(sourceDirectory)
 
@@ -129,18 +145,15 @@ export const stageAndInstall =
       )
     }
 
-    // 4. Fingerprint of the source, then the raft question: same name already staged?
+    // 4. Fingerprint of the source, then the raft question: same name already staged? The
+    //    shelf's fingerprint is RE-COMPUTED from the bytes on disk, never read back from the
+    //    provenance file: that file records what was staged, and content edited after staging
+    //    must answer as "different content", not inherit the old stamp.
     const fingerprint = fingerprintOf(source)
     const shelfDir = join(ctx.storeDir, name)
-    const provenancePath = join(shelfDir, PROVENANCE)
     if (existsSync(shelfDir)) {
-      const prior = existsSync(provenancePath)
-        ? (JSON.parse(readFileSync(provenancePath, "utf8")) as { fingerprint?: string })
-        : // A package staged by hand (dropped into the store directory) has no provenance file.
-          // Its fingerprint is computed on the spot - same content is still idempotent reuse,
-          // different content is still the refusal below.
-          { fingerprint: existsSync(join(shelfDir, ctx.manifest)) ? fingerprintOf(shelfDir) : undefined }
-      if (prior.fingerprint === fingerprint) {
+      const prior = fingerprintOf(shelfDir, [PROVENANCE])
+      if (prior === fingerprint) {
         // Idempotent: the raft already holds exactly this content - reuse it. The path is
         // deliberately NOT part of the decision: the same path can serve new content.
         return { ...ctx.installExisting(name), staged: false }

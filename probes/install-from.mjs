@@ -18,8 +18,9 @@
 import { existsSync, mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { reviewAttacks } from "./install-from-attacks.mjs"
 import { plantSources } from "./install-from-fixtures.mjs"
-import { cliTwinSpeaks, mountedLife, shelfAndCycles } from "./install-from-life.mjs"
+import { cliTwinSpeaks, driftSpeaks, mountedLife, shelfAndCycles } from "./install-from-life.mjs"
 import { dropScratch, makeScore, scratchDataDir, stopServer } from "./lib.mjs"
 import { boot, fingerprint, PKG, pluginsDir } from "./lifecycle-bench.mjs"
 
@@ -43,7 +44,8 @@ const store = mkdtempSync(join(tmpdir(), "qwbe-installfrom-store-"))
 
 // The pointed-at directories, planted in temp space by the fixture module - one valid, each of
 // the others built to trip exactly one refusal. Never committed files.
-const { sources, goodDir, noManifest, liarDir, escapeDir, clashDir, rivalRoot, rivalDir } = plantSources()
+const fixtures = plantSources()
+const { sources, goodDir, noManifest, liarDir, escapeDir, clashDir, rivalDir } = fixtures
 
 const dataDir = scratchDataDir("installfrom")
 
@@ -55,8 +57,8 @@ try {
   }
   const admin = await api.login()
   const reader = await api.login("reader", "reader")
-  const H = admin.headers
-  const post = (body, headers = H) =>
+  const adminHeaders = admin.headers
+  const post = (body, headers = adminHeaders) =>
     api.call("/settings/packages/install-from", { method: "POST", headers, body: JSON.stringify(body) })
 
   // ============ 1. the door itself: what must be refused, with nothing left behind ============
@@ -102,9 +104,13 @@ try {
   const byReader = await post({ path: goodDir }, reader.headers)
   score.check("a reader cannot use the door at all", byReader.status === 403, `http=${byReader.status}`)
 
+  // 1b. the attacks the review added: symlink root, plain file, FIFO, ghost cube.
+  for (const v of await reviewAttacks({ api, admin: adminHeaders, store, fixtures }))
+    score.check(v.name, v.ok, v.detail)
+
   score.check(
     "every refusal above left the store empty - rollback leaves no partial shelf",
-    (await api.call("/settings/packages", { headers: H })).body?.length === 0,
+    (await api.call("/settings/packages", { headers: adminHeaders })).body?.length === 0,
     "a failed stage that leaves bytes behind makes the next attempt mean something else",
   )
   score.check("and nothing landed in core/plugins", !existsSync(join(pluginsDir, "dirplugin")))
@@ -134,20 +140,13 @@ try {
   )
 
   // 2b. drift while it waits: the banner must say "on disk, not mounted".
-  const drift = await api.call("/settings/packages", { headers: H })
-  const offered = (drift.body ?? []).find((p) => p.name === "dirplugin")
-  const cubesNow = await api.call("/settings/cubes", { headers: H })
-  score.check(
-    "drift: the package shows installed but its cube is not mounted yet",
-    offered?.installed === true && !(cubesNow.body ?? []).some((c) => c.name === "dirbookmarks"),
-    `installed=${offered?.installed}`,
-  )
+  verdicts.push(await driftSpeaks({ api, admin: adminHeaders }))
 
   // 2c. the CLI twin calls the same kernel function.
-  verdicts.push(await cliTwinSpeaks({ api, admin: H }))
+  verdicts.push(await cliTwinSpeaks({ api, admin: adminHeaders }))
 
   // ============ 3-5. ownership, idempotence, cycles - in install-from-life.mjs ============
-  verdicts.push(...(await shelfAndCycles({ api, admin: H, store, goodDir, rivalDir })))
+  verdicts.push(...(await shelfAndCycles({ api, admin: adminHeaders, store, goodDir, rivalDir })))
 
   await stopServer(server)
 
@@ -158,7 +157,7 @@ try {
   rmSync(join(pluginsDir, PKG), { recursive: true, force: true })
   rmSync(store, { recursive: true, force: true })
   rmSync(sources, { recursive: true, force: true })
-  rmSync(rivalRoot, { recursive: true, force: true })
+  rmSync(fixtures.rivalRoot, { recursive: true, force: true })
   dropScratch(dataDir)
 }
 

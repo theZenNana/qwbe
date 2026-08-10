@@ -162,7 +162,17 @@ const installExisting = (name: string): CubePackage => {
   // The package manifest and the provenance file are store bookkeeping, not part of the
   // cube. Copying them would put files inside the installed directory that the cube itself
   // never declared.
-  cpSync(from, to, { recursive: true, filter: (src) => !isBookkeeping(src) })
+  //
+  // A failed copy must not leave a partial destination: half a cube on disk would be
+  // discovered at the next boot as if it were whole. The destination is one directory and
+  // this operation created it, so removing it is the rollback, not a deletion of anyone
+  // else's work.
+  try {
+    cpSync(from, to, { recursive: true, filter: (src) => !isBookkeeping(src) })
+  } catch (e) {
+    rmSync(to, { recursive: true, force: true })
+    throw e
+  }
 
   return { ...pkg, installed: true }
 }
@@ -192,6 +202,19 @@ const readPackageAt = (name: string, dir: string): CubePackage => {
 
   const cubes = raw.kind === "plugin" ? (raw.cubes ?? []) : [name]
   for (const c of cubes) checkName("cube", c)
+
+  // The manifest PROMISES cubes; the directory must actually carry them. A plugin declaring
+  // `cubes: ["ghost"]` without `cubes/ghost/` would stage cleanly and fail at the next boot,
+  // where the refusal reads as a broken server rather than a bad package.
+  if (raw.kind === "plugin") {
+    for (const c of cubes) {
+      if (!existsSync(join(dir, "cubes", c))) {
+        throw new InstallError(`refused: plugin "${name}" declares cube "${c}" but has no cubes/${c}/ directory.`)
+      }
+    }
+  } else if (!existsSync(join(dir, "index.ts")) && !existsSync(join(dir, "index.tsx"))) {
+    throw new InstallError(`refused: cube package "${name}" has no index.ts at its root.`)
+  }
 
   const kind = raw.kind
   const installed = existsSync(destinationOf({ name, kind }))
@@ -254,7 +277,7 @@ export const installerFor = (): CubeInstaller => ({
     return { removed: to.replace(resolve(srcDir, ".."), "."), cubes: pkg.cubes }
   },
 
-  stageAndInstall: stageAndInstallFor({ storeDir, manifest: MANIFEST, readPackageAt, installExisting }),
+  stageAndInstall: stageAndInstallFor({ storeDir, readPackageAt, installExisting }),
 
   // Reply first, die second — the caller must hear "yes" before the port goes away. The delay is
   // what makes that true; without it the response and the exit race, and the loser is the person

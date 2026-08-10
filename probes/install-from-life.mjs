@@ -6,10 +6,22 @@
 // uninstall lives here, returning verdicts instead of checking inline (the lifecycle pattern:
 // a list of booleans keeps the score-collecting in one place).
 
-import { existsSync } from "node:fs"
+import { existsSync, rmSync } from "node:fs"
 import { join } from "node:path"
 import { stopServer } from "./lib.mjs"
 import { boot, pluginsDir } from "./lifecycle-bench.mjs"
+
+/** Section 2b: between install and restart the drift must say "on disk, not mounted". */
+export const driftSpeaks = async ({ api, admin }) => {
+  const drift = await api.call("/settings/packages", { headers: admin })
+  const offered = (drift.body ?? []).find((p) => p.name === "dirplugin")
+  const cubesNow = await api.call("/settings/cubes", { headers: admin })
+  return {
+    name: "drift: the package shows installed but its cube is not mounted yet",
+    ok: offered?.installed === true && !(cubesNow.body ?? []).some((c) => c.name === "dirbookmarks"),
+    detail: `installed=${offered?.installed}`,
+  }
+}
 
 /** Section 2c: the CLI adapter runs the same kernel function and speaks the same refusal. */
 export const cliTwinSpeaks = async ({ api, admin }) => {
@@ -118,6 +130,20 @@ export const mountedLife = async ({ dataDir, store, goodDir }) => {
 
   const gone = await third.api.call("/settings/packages/dirplugin", { method: "DELETE", headers: s3.headers })
   say("final uninstall leaves the live server answering", gone.status === 200, `http=${gone.status}`)
+
+  // 6b. The source may disappear: with the shelf kept, install by name works from the store
+  //     alone - the whole reason the shelf is kept (decision on the ticket).
+  rmSync(goodDir, { recursive: true, force: true })
+  const fromShelf = await third.api.call("/settings/packages/dirplugin/install", {
+    method: "POST",
+    headers: s3.headers,
+  })
+  const undoShelf = await third.api.call("/settings/packages/dirplugin", { method: "DELETE", headers: s3.headers })
+  say(
+    "source deleted after staging: install by name works from the kept shelf",
+    fromShelf.status === 200 && undoShelf.status === 200,
+    [fromShelf, undoShelf].map((r) => r.status).join(","),
+  )
   await stopServer(third.server)
   return verdicts
 }

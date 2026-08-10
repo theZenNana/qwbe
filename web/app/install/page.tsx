@@ -36,6 +36,7 @@ import {
   uninstallPackage,
 } from "../../lib/api"
 import { diskDrift } from "../../lib/drift"
+import { kb } from "../../lib/utils"
 import { Shell } from "../Shell"
 import { InstallFromCard } from "./InstallFromCard"
 
@@ -66,8 +67,6 @@ type Effect = {
 // `id`, fiindcă jurnalul se scrie la CAP: indicele fiecărui rând se schimbă la orice operație.
 type LogLine = { id: number; time: string; text: string; bad?: boolean }
 let idJurnal = 0
-
-const kb = (bytes: number) => `${(bytes / 1024).toFixed(1)} KB`
 
 const clock = () => new Date().toLocaleTimeString("ro-RO", { hour12: false })
 

@@ -6,6 +6,7 @@
 // door. The good source is a renamed copy of example-plugin's bookmarks cube - only bookmarks;
 // the plugin's second cube `tags` would mount a duplicate (see lifecycle-bench.mjs).
 
+import { execSync } from "node:child_process"
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -64,14 +65,54 @@ export const plantSources = () => {
   )
 
   // Same name as the good one, different content - after the good one is staged, must refuse.
+  // Carries the cube directory its manifest declares, so the ONLY thing wrong with it is the
+  // name clash - a structurally invalid rival would be refused for the wrong reason.
   const rivalRoot = mkdtempSync(join(tmpdir(), "qwbe-installfrom-rival-"))
   const rivalDir = join(rivalRoot, "dirplugin")
-  mkdirSync(rivalDir, { recursive: true })
+  mkdirSync(join(rivalDir, "cubes", "othercube"), { recursive: true })
   writeFileSync(
     join(rivalDir, "qwbe-package.json"),
     JSON.stringify({ name: "dirplugin", kind: "plugin", summary: "same name, other bytes", cubes: ["othercube"] }),
   )
-  writeFileSync(join(rivalDir, "index.ts"), "// different content under the same package name\n")
+  writeFileSync(join(rivalDir, "cubes", "othercube", "index.ts"), "// different content under the same package name\n")
 
-  return { sources, goodDir, noManifest, liarDir, escapeDir, clashDir, rivalRoot, rivalDir }
+  // A symlink AS the root - points at the valid directory. statSync would follow it; the
+  // kernel must refuse it by shape (review finding: the first version accepted it).
+  const linkRoot = join(sources, "linkroot")
+  symlinkSync(goodDir, linkRoot)
+
+  // A path that exists but is a plain file, not a directory.
+  const filePath = join(sources, "afile")
+  writeFileSync(filePath, "// not a directory\n")
+
+  // A FIFO inside an otherwise-valid tree - a special file must be refused like a symlink.
+  const fifoDir = join(sources, "fifoplugin")
+  mkdirSync(fifoDir, { recursive: true })
+  writeFileSync(join(fifoDir, "qwbe-package.json"), JSON.stringify({ name: "fifoplugin", kind: "cube" }))
+  writeFileSync(join(fifoDir, "index.ts"), "// has a fifo\n")
+  execSync("mkfifo pipe", { cwd: fifoDir })
+
+  // A plugin whose manifest promises a cube the directory does not carry.
+  const ghostDir = join(sources, "ghostplugin")
+  mkdirSync(ghostDir, { recursive: true })
+  writeFileSync(
+    join(ghostDir, "qwbe-package.json"),
+    JSON.stringify({ name: "ghostplugin", kind: "plugin", cubes: ["ghostcube"] }),
+  )
+  writeFileSync(join(ghostDir, "index.ts"), "// no cubes/ directory at all\n")
+
+  return {
+    sources,
+    goodDir,
+    noManifest,
+    liarDir,
+    escapeDir,
+    clashDir,
+    rivalRoot,
+    rivalDir,
+    linkRoot,
+    filePath,
+    fifoDir,
+    ghostDir,
+  }
 }
