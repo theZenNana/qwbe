@@ -1,75 +1,50 @@
 #!/usr/bin/env node
-// Every package on the shelf can actually be loaded.
+// The shelf, whatever state it is in, answered honestly.
 //
 //   node probes/store.mjs
 //
-// `core/store/` is what a user installs from. A package there is a promise: press install, get a
-// working cube. On 3 Aug 2026 `core/store/tasks/` had been breaking that promise since the shelf
-// existed — its imports reached for `../../kernel/`, which from `core/store/tasks/` resolves to
-// `core/kernel/`, a directory that does not exist. Installing it produced a server that would
-// not start at all.
+// Until 10 Aug 2026 this probe mounted every package on `core/store/` and refused an empty
+// shelf, because the store was the source users installed from and an untested package there was
+// a silent lie. QWB-13 moved every pack out of the repo; the shelf is empty on purpose now, and
+// the earlier refusal - "a probe over nothing would pass forever" - became the lie it guarded
+// against: the probe would have demanded fixtures the repo no longer ships.
 //
-// It survived because of HOW the store was tested. `probes/install.mjs` is thorough about the
-// install ROUTE — permissions, path traversal, collisions, refusals — but every package it
-// installs is one it fabricates itself in a temp directory. Nothing ever loaded a real one. A
-// package that no probe mounts is not "green"; it is unmounted, which looks the same from here.
+// What remains true and worth measuring over HTTP, not the filesystem:
 //
-// So this probe does the cheapest thing that would have caught it: import each package's entry
-// point and see whether Node can resolve it. No server, no HTTP — a broken import cannot be
-// argued with, and the failure it prevents is exactly "the server refuses to start".
-//
-// Depth is the trap worth naming: a `kind: "cube"` package sits at `core/store/<name>/`, one
-// level higher than a plugin's cube at `core/store/<pack>/cubes/<name>/`. Same-looking imports,
-// different number of `../`. That is why this walks the shelf instead of listing names.
+//   1. A MISSING shelf is a valid state. The catalogue answers 200 with an empty list, not a
+//      500. (The installer already treats it so: `available()` returns [] when the directory is
+//      absent. This probe keeps that promise honest.)
+//   2. The mounted cube list still answers, and nothing on it claims to be waiting for disk.
 
-import { existsSync, readdirSync, readFileSync } from "node:fs"
-import { dirname, join } from "node:path"
-import { fileURLToPath } from "node:url"
+import { client, dropScratch, freePort, makeScore, scratchDataDir, startServer, stopServer } from "./lib.mjs"
 
-import { makeScore } from "./lib.mjs"
-
-const root = join(dirname(fileURLToPath(import.meta.url)), "..")
-const store = join(root, "core", "store")
+const port = await freePort()
+const dataDir = scratchDataDir("store")
+const api = client(port)
 const score = makeScore()
 
-/** Entry points on the shelf: `<pack>/cubes/<cube>/index.ts` for plugins, `<name>/index.ts` for a lone cube. */
-const entryPoints = () => {
-  const found = []
-  for (const name of readdirSync(store, { withFileTypes: true }).filter((d) => d.isDirectory())) {
-    const dir = join(store, name.name)
-    const manifest = join(dir, "qwbe-package.json")
-    const kind = existsSync(manifest) ? (JSON.parse(readFileSync(manifest, "utf8")).kind ?? "cube") : "cube"
-    if (kind === "plugin") {
-      const cubes = join(dir, "cubes")
-      if (!existsSync(cubes)) continue
-      for (const cube of readdirSync(cubes, { withFileTypes: true }).filter((d) => d.isDirectory())) {
-        found.push({ pkg: name.name, kind, file: join(cubes, cube.name, "index.ts") })
-      }
-    } else {
-      found.push({ pkg: name.name, kind, file: join(dir, "index.ts") })
-    }
-  }
-  return found
+const server = await startServer(port, { QWBE_DATA_DIR: dataDir })
+
+try {
+  if (!server.alive) throw new Error(`server did not start:\n${server.output}`)
+  const session = await api.login()
+
+  const packages = await api.call("/settings/packages", { headers: session.headers })
+  score.check(
+    "the empty shelf answers 200 with an empty list, not an error",
+    packages.status === 200 && Array.isArray(packages.body) && packages.body.length === 0,
+    `http=${packages.status} body=${JSON.stringify(packages.body).slice(0, 120)}`,
+  )
+
+  const cubes = await api.call("/settings/cubes", { headers: session.headers })
+  score.check(
+    "the cube catalogue still answers with the mounted cubes",
+    cubes.status === 200 && Array.isArray(cubes.body) && cubes.body.length > 0,
+    `http=${cubes.status} mounted=${(cubes.body ?? []).length}`,
+  )
+} finally {
+  await stopServer(server)
+  dropScratch(dataDir)
 }
 
-const points = entryPoints()
-console.log(`\nthe store, loaded for real — ${points.length} entry points\n`)
-
-score.check(
-  "the shelf is not empty — a probe over nothing would pass forever",
-  points.length > 0,
-  `${points.length} found`,
-)
-
-for (const { pkg, kind, file } of points) {
-  const rel = file.slice(root.length + 1)
-  let failure = null
-  try {
-    await import(file)
-  } catch (err) {
-    failure = err.message.split("\n")[0]
-  }
-  score.check(`${pkg} (${kind}) loads — ${rel}`, failure === null, failure ?? "resolved")
-}
-
-process.exit(score.report("Store probe — every package on the shelf loads"))
+process.exit(score.report("Store probe - the empty shelf is a valid, answered state"))
