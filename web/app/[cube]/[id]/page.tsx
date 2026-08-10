@@ -22,7 +22,6 @@ import {
   type Paged,
   type Summary,
 } from "../../../lib/api"
-import { CustomFields } from "../../CustomFields"
 import { Shell } from "../../Shell"
 
 const HIDDEN = new Set(["type", "deleted"])
@@ -107,10 +106,6 @@ export default function Detail({ params }: { params: Promise<{ cube: string; id:
           </table>
         </div>
       )}
-
-      {/* Extra fields this cube gained at runtime. Renders nothing when there are none, or when
-          the customfields cube is absent — this page does not know it exists beyond the name. */}
-      <CustomFields cube={cube} rowId={id} />
 
       {links && links.parents.filter((p) => p.summary).length > 0 && (
         <div className="panou">
