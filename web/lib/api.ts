@@ -90,12 +90,20 @@ export type PackageInfo = {
 }
 
 export type InstallResult = { package: PackageInfo; requiresRestart: boolean }
+export type InstallFromResult = { package: PackageInfo; staged: boolean; requiresRestart: boolean }
 export type RemoveResult = { removed: string; requiresRestart: boolean }
 
 export const packages = () => request<Array<PackageInfo>>("/settings/packages")
 
 export const installPackage = (name: string) =>
   request<InstallResult>(`/settings/packages/${name}/install`, { method: "POST" })
+
+/**
+ * Install from a directory the administrator points at. The path is absolute on the SERVER -
+ * the kernel validates, stages and copies it; the browser never touches the bytes.
+ */
+export const installFromDirectory = (path: string) =>
+  request<InstallFromResult>(`/settings/packages/install-from`, { method: "POST", body: JSON.stringify({ path }) })
 
 export const removeCube = (name: string) => request<RemoveResult>(`/settings/cubes/${name}`, { method: "DELETE" })
 

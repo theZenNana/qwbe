@@ -36,7 +36,9 @@ import {
   uninstallPackage,
 } from "../../lib/api"
 import { diskDrift } from "../../lib/drift"
+import { kb } from "../../lib/utils"
 import { Shell } from "../Shell"
+import { InstallFromCard } from "./InstallFromCard"
 
 /** What the server exposed at one instant. Diffed against the next one to get a real effect. */
 type Snapshot = {
@@ -66,8 +68,6 @@ type Effect = {
 type LogLine = { id: number; time: string; text: string; bad?: boolean }
 let idJurnal = 0
 
-const kb = (bytes: number) => `${(bytes / 1024).toFixed(1)} KB`
-
 const clock = () => new Date().toLocaleTimeString("ro-RO", { hour12: false })
 
 /**
@@ -95,6 +95,7 @@ export default function Install() {
   const [log, setLog] = useState<Array<LogLine>>([])
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [sourcePath, setSourcePath] = useState("")
   const write = (lines: Array<string>, bad = false) => {
     const time = clock()
     setLog((old) => [...lines.map((text) => ({ id: idJurnal++, time, text, bad })), ...old].slice(0, 200))
@@ -377,6 +378,8 @@ export default function Install() {
             Ce oferă magazinul. Un pachet e un cub, sau un plugin care aduce mai multe — toate intră în același spațiu
             de nume plat.
           </p>
+
+          <InstallFromCard sourcePath={sourcePath} setSourcePath={setSourcePath} busy={busy} run={run} />
 
           {store === null && <div className="gol">se citește…</div>}
           {store?.length === 0 && (
