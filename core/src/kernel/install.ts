@@ -179,11 +179,12 @@ const readPackage = (name: string): CubePackage => {
 
 export const installerFor = (): CubeInstaller => ({
   cubeOnDisk: (cube: string, plugin: string | null) => {
-    checkName("cube", cube)
+    // Discovery predates the package slug grammar and mounts any non-hidden directory. This
+    // read capability must describe that state without turning the whole settings catalogue
+    // into a 500. Write operations below remain strict and still call checkName.
+    if (!NAME.test(cube) || (plugin !== null && !NAME.test(plugin))) return false
     return existsSync(
-      plugin
-        ? under(pluginsDir, join(pluginsDir, checkName("plugin", plugin), "cubes", cube))
-        : under(cubesDir, join(cubesDir, cube)),
+      plugin ? under(pluginsDir, join(pluginsDir, plugin, "cubes", cube)) : under(cubesDir, join(cubesDir, cube)),
     )
   },
 
@@ -243,7 +244,7 @@ export const installerFor = (): CubeInstaller => ({
       throw new InstallError(`refused: "${name}" is not installed — nothing at "${to.replace(srcDir, "src")}"`)
     }
     rmSync(to, { recursive: true, force: true })
-    return { removed: to.replace(resolve(srcDir, ".."), "."), cubes: [...pkg.cubes] }
+    return { removed: to.replace(resolve(srcDir, ".."), "."), cubes: pkg.cubes }
   },
 
   // Reply first, die second — the caller must hear "yes" before the port goes away. The delay is

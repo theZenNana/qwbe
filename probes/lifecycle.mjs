@@ -32,9 +32,8 @@
 // fingerprint, the parking lot — in `lifecycle-bench.mjs`. This file is what runs twice and
 // compares.
 
-import { rmSync } from "node:fs"
 import { makeScore } from "./lib.mjs"
-import { clearTheBench, fingerprint, parking, putBack } from "./lifecycle-bench.mjs"
+import { clearTheBench, dropParking, fingerprint, putBack } from "./lifecycle-bench.mjs"
 import { liveAndDie } from "./lifecycle-life.mjs"
 
 const score = makeScore()
@@ -57,7 +56,7 @@ try {
   )
 } finally {
   putBack()
-  rmSync(parking, { recursive: true, force: true })
+  dropParking()
 }
 
 const after = fingerprint()

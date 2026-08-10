@@ -58,6 +58,9 @@ cd core && node src/main.ts            # API on :4500  (QWBE_PORT to move it)
 cd web  && npm run dev                 # sibling app on :4510
 ```
 
+This manual API process has no supervisor: the admin restart action stops it. Use `npm start`
+when restart from the admin screen must bring the API back while keeping the frontend alive.
+
 The frontend reads the API address from `NEXT_PUBLIC_QWBE_API` (default `http://127.0.0.1:4500`).
 Demo records use `example.com`, the IANA-reserved documentation domain; they are fixtures, not
 real contacts or service dependencies.

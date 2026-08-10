@@ -2,6 +2,7 @@
   "name": "qwbe-web",
   "version": "0.0.0",
   "private": true,
+  "type": "module",
   "license": "MIT",
   "description": "Sibling app: Next.js. Holds the session half of authentication and draws every screen from API metadata.",
   "engines": {

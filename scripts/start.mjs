@@ -78,6 +78,8 @@ const paint = (code, s) => (COLOR ? `[${code}m${s}[0m` : s)
 
 const children = []
 let shuttingDown = false
+const CLEAN_EXIT_WINDOW_MS = 10_000
+const MAX_QUICK_CLEAN_EXITS = 5
 
 const start = (spec) => {
   const { name, color, command, args, cwd, env, restartOnCleanExit = false } = spec
@@ -91,6 +93,7 @@ const start = (spec) => {
     // the difference between "Ctrl-C worked" and an orphan on :4510.
     detached: true,
   })
+  const spawnedAt = Date.now()
 
   // Line-buffered so a chunk split mid-line does not lose the prefix.
   const pipe = (stream) => {
@@ -117,10 +120,17 @@ const start = (spec) => {
     child.dead = true
     if (shuttingDown) return
     if (restartOnCleanExit && code === 0 && signal === null) {
-      console.log(`${tag} exited (code 0); restarting`)
+      spec.quickCleanExits = Date.now() - spawnedAt < CLEAN_EXIT_WINDOW_MS ? (spec.quickCleanExits ?? 0) + 1 : 1
+      if (spec.quickCleanExits > MAX_QUICK_CLEAN_EXITS) {
+        console.error(`${tag} exited cleanly ${spec.quickCleanExits} times in under 10s - stopping restart loop`)
+        shutdown(1)
+        return
+      }
+      const delay = Math.min(250 * 2 ** (spec.quickCleanExits - 1), 4000)
+      console.log(`${tag} exited (code 0); restarting in ${delay}ms`)
       setTimeout(() => {
         if (!shuttingDown) start(spec)
-      }, 250)
+      }, delay)
       return
     }
     console.log(`${tag} exited (${signal ? `signal ${signal}` : `code ${code}`}) — stopping the rest`)

@@ -296,10 +296,13 @@ export type CubePackage = Readonly<{
 
 export type CubeInstaller = Readonly<{
   available: () => readonly CubePackage[]
-  cubeOnDisk: (cube: string, plugin: string | null) => boolean
+  /** Disk state for exact discovery location; never exposes a path. */
+  cubeOnDisk: (c: string, plugin: string | null) => boolean
   install: (name: string) => CubePackage
   remove: (cube: string, plugin: string | null) => { readonly removed: string }
-  uninstallPackage: (name: string) => { readonly removed: string; readonly cubes: string[] }
+  /** Package name keeps rollback possible before its cubes exist in the mounted catalogue. */
+  uninstallPackage: (name: string) => { readonly removed: string; readonly cubes: readonly string[] }
+  /** Kernel owns process lifetime; settings receives only this narrow action. */
   restart: () => void
 }>
 
