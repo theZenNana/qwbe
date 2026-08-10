@@ -1,7 +1,0 @@
-{
-  "_comment": "Shelf copy for the STORE road: `POST /settings/packages/crm-pack/install` copies this into core/plugins/, and probes/lifecycle-life.mjs plays the whole install/uninstall life from here. core/plugins/crm-pack/ is the OTHER copy: the committed live plugin the kernel mounts at startup (probes/erp.mjs restores it from git). The pair is deliberate, see core/plugins/crm-pack/README.md.",
-  "name": "crm-pack",
-  "kind": "plugin",
-  "summary": "Two cubes that arrive together: contacts, and the contracts signed with them.",
-  "cubes": ["contacts", "contracts"]
-}
