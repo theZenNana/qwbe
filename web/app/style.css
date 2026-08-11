@@ -148,6 +148,23 @@ button.ca-link:hover {
   max-width: 1100px;
 }
 
+.api-header {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  margin: -8px 0 20px;
+  min-width: 0;
+  font-size: 12px;
+}
+.api-status {
+  color: var(--viu);
+}
+.api-status.indisponibil {
+  color: var(--stins);
+}
+
 h2 {
   margin: 0 0 4px;
   font-size: 20px;
@@ -546,5 +563,23 @@ input {
   }
   .inst-contoare {
     margin-left: 0;
+  }
+}
+
+@media (max-width: 600px) {
+  .cadru {
+    flex-direction: column;
+  }
+  .bara {
+    width: auto;
+    flex: 0 0 auto;
+    border-right: 0;
+    border-bottom: 1px solid var(--linie);
+  }
+  .continut {
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+    padding: 20px 16px;
   }
 }

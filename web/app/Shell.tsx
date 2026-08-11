@@ -12,7 +12,7 @@
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { type ReactNode, useEffect, useState } from "react"
-import { type CubeInfo, catalogue, leafName, logout, screenPath } from "../lib/api"
+import { apiUrl, type CubeInfo, catalogue, leafName, logout, screenPath } from "../lib/api"
 import { session } from "../lib/session"
 
 export function Shell({ children }: { children: ReactNode }) {
@@ -112,6 +112,17 @@ export function Shell({ children }: { children: ReactNode }) {
       </nav>
 
       <main className="continut">
+        <nav className="api-header" aria-label="API documentation">
+          <span className={`api-status ${error ? "indisponibil" : ""}`}>
+            {error ? "API unavailable" : cubes === null ? "Checking API" : "API connected"}
+          </span>
+          <a href={apiUrl("/docs")} target="_blank" rel="noreferrer">
+            API Docs
+          </a>
+          <a href={apiUrl("/openapi.json")} target="_blank" rel="noreferrer">
+            OpenAPI
+          </a>
+        </nav>
         {error && <div className="eroare">{error}</div>}
         {children}
       </main>

@@ -26,11 +26,50 @@ export const migratedFiles = (dataDir) =>
 const post = (api, H, path, body) => api.call(path, { method: "POST", headers: H, body: JSON.stringify(body) })
 
 /** Behaviour checks: real-cube references, the setting over the bus, the switch masks. */
-export const hierarchyBehaviour = async ({ api, score, H }) => {
+export const hierarchyBehaviour = async ({ api, score, H, readerHeaders }) => {
   const bad = await post(api, H, "/bookmarks", { label: "x", targetCube: "nosuchcube" })
   score.check("a bookmark pointing at no mounted cube is refused", bad.status === 400, `http=${bad.status}`)
   const good = await post(api, H, "/bookmarks", { label: "notes", targetCube: "notes" })
   score.check("a bookmark pointing at a real cube is accepted", good.status === 200, `id=${good.body?.id}`)
+
+  const bookmarkDetail = await api.call(`/bookmarks/${good.body.id}`, { headers: H })
+  score.check(
+    "an existing bookmark has a typed detail route",
+    bookmarkDetail.status === 200 && bookmarkDetail.body?.id === good.body.id,
+    `http=${bookmarkDetail.status}`,
+  )
+  const missingBookmark = await api.call("/bookmarks/bm-missing", { headers: H })
+  score.check(
+    "a missing bookmark returns semantic 404",
+    missingBookmark.status === 404 && missingBookmark.body?.message === "bookmark bm-missing does not exist",
+    `http=${missingBookmark.status} message=${missingBookmark.body?.message}`,
+  )
+  const privateBookmark = await api.call(`/bookmarks/${good.body.id}`)
+  score.check(
+    "bookmark detail requires authentication",
+    privateBookmark.status === 401,
+    `http=${privateBookmark.status}`,
+  )
+  const readerBookmark = await api.call(`/bookmarks/${good.body.id}`, { headers: readerHeaders })
+  score.check(
+    "a reader with bookmark read permission can open detail",
+    readerBookmark.status === 200,
+    `http=${readerBookmark.status}`,
+  )
+
+  const tag = await post(api, H, "/tags", { label: "important", bookmarkId: good.body.id })
+  const tagDetail = await api.call(`/tags/${tag.body.id}`, { headers: H })
+  score.check(
+    "an existing related tag has a typed detail route",
+    tag.status === 200 && tagDetail.status === 200 && tagDetail.body?.bookmarkId === good.body.id,
+    `create=${tag.status} detail=${tagDetail.status}`,
+  )
+  const missingTag = await api.call("/tags/tag-missing", { headers: H })
+  score.check(
+    "a missing tag returns semantic 404",
+    missingTag.status === 404 && missingTag.body?.message === "tag tag-missing does not exist",
+    `http=${missingTag.status} message=${missingTag.body?.message}`,
+  )
 
   await post(api, H, "/booktags-settings/enforceTargetCube", { value: "strict" })
   const withUrl = await post(api, H, "/bookmarks", { label: "y", targetCube: "notes", url: "https://x" })

@@ -27,6 +27,8 @@ const WEB = `http://127.0.0.1:${PORT_WEB}`
 
 let apiProc
 let webProc
+let bookmarkId
+let tagId
 
 const wait = (ms) => new Promise((r) => setTimeout(r, ms))
 
@@ -104,11 +106,21 @@ test.beforeAll(async () => {
       body: JSON.stringify({ title: `Note ${String(i).padStart(2, "0")}`, body: `body ${i}` }),
     })
   }
-  await fetch(`${API}/bookmarks`, {
+  const bookmarkResponse = await fetch(`${API}/bookmarks`, {
     method: "POST",
     headers: H,
-    body: JSON.stringify({ label: "Effect docs", url: "https://effect.website" }),
+    body: JSON.stringify({ label: "Notes shortcut", targetCube: "notes" }),
   })
+  expect(bookmarkResponse.status, "bookmark fixture was not created").toBe(200)
+  bookmarkId = (await bookmarkResponse.json()).id
+
+  const tagResponse = await fetch(`${API}/tags`, {
+    method: "POST",
+    headers: H,
+    body: JSON.stringify({ label: "important", bookmarkId }),
+  })
+  expect(tagResponse.status, "tag fixture was not created").toBe(200)
+  tagId = (await tagResponse.json()).id
 
   webProc = spawn("npx", ["next", "start", "-p", String(PORT_WEB)], {
     cwd: join(here, "web"),
@@ -157,6 +169,34 @@ test("the sidebar is drawn from the catalogue, including a cube that came from a
   await expect(notesRow).toContainText("authorId → Account")
 })
 
+test("the shell always exposes API docs and reports API availability honestly", async ({ page, request }) => {
+  await signIn(page)
+
+  const apiLinks = page.getByRole("navigation", { name: "API documentation" })
+  await expect(apiLinks.getByRole("link", { name: "API Docs" })).toHaveAttribute("href", `${API}/docs`)
+  await expect(apiLinks.getByRole("link", { name: "API Docs" })).toHaveAttribute("target", "_blank")
+  await expect(apiLinks.getByRole("link", { name: "API Docs" })).toHaveAttribute("rel", "noreferrer")
+  await expect(apiLinks.getByRole("link", { name: "OpenAPI" })).toHaveAttribute("href", `${API}/openapi.json`)
+  await expect(apiLinks.getByRole("link", { name: "OpenAPI" })).toHaveAttribute("target", "_blank")
+  await expect(apiLinks.getByRole("link", { name: "OpenAPI" })).toHaveAttribute("rel", "noreferrer")
+  await expect(apiLinks.getByText("API connected")).toBeVisible()
+  expect((await request.get(`${API}/docs`)).status()).toBe(200)
+  expect((await request.get(`${API}/openapi.json`)).status()).toBe(200)
+
+  await page.locator("nav.bara").getByText("notes", { exact: true }).click()
+  await expect(apiLinks.getByRole("link", { name: "API Docs" })).toBeVisible()
+  await page.setViewportSize({ width: 390, height: 844 })
+  expect(
+    await apiLinks
+      .getByRole("link", { name: "OpenAPI" })
+      .evaluate((link) => link.getBoundingClientRect().right <= innerWidth),
+  ).toBe(true)
+
+  await page.route(`${API}/settings/cubes`, (route) => route.abort())
+  await page.goto(`${WEB}/settings`, { waitUntil: "networkidle" })
+  await expect(apiLinks.getByText("API unavailable")).toBeVisible()
+})
+
 test("lists are paged: 10 per page, with the real total", async ({ page }) => {
   await signIn(page)
   await page.locator("nav.bara").getByText("notes", { exact: true }).click()
@@ -180,6 +220,20 @@ test("Booktags settings uses the generic paged list without crashing", async ({ 
   await expect(page.getByRole("heading", { name: "booktags/settings" })).toBeVisible()
   await expect(page.getByText("Nothing here yet.")).toBeVisible()
   expect(pageErrors).toEqual([])
+})
+
+test("a bookmark detail shows its target cube and related tag", async ({ page }) => {
+  await signIn(page)
+  await page.goto(`${WEB}/booktags/bookmarks/${bookmarkId}`, { waitUntil: "networkidle" })
+
+  await expect(page.getByRole("heading", { name: "Notes shortcut" })).toBeVisible()
+  await expect(page.getByRole("link", { name: "notes", exact: true })).toHaveAttribute("href", "/notes")
+  await expect(page.getByRole("button", { name: "tags (1)" })).toBeVisible()
+  const tagLink = page.getByRole("link", { name: "important" })
+  await expect(tagLink).toHaveAttribute("href", `/booktags/tags/${tagId}`)
+
+  await tagLink.click()
+  await expect(page.getByRole("heading", { name: "important" })).toBeVisible()
 })
 
 test("an account's page shows the space-declared group, with a total, and pages it", async ({ page }) => {
