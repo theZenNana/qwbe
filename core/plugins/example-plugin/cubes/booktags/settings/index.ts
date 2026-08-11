@@ -16,6 +16,7 @@ import { EntityMeta } from "../../../../../src/kernel/entity.ts"
 import { Forbidden, NotFound } from "../../../../../src/kernel/errors.ts"
 import type { CubeDefinition, CubeTools } from "../../../../../src/kernel/manifest.ts"
 import { decodeCubeEnabled } from "../../../../../src/kernel/manifest.ts"
+import { PageOf, PageParams, pageRequest } from "../../../../../src/kernel/pagination.ts"
 
 const TABLE = "settings"
 
@@ -35,7 +36,12 @@ const KNOWN = new Set(["enforceTargetCube"])
 const VALUES = new Set(["strict", "relaxed"])
 
 const group = HttpApiGroup.make("booktags-settings")
-  .add(HttpApiEndpoint.get("list")`/booktags-settings`.addSuccess(Schema.Array(Setting)).addError(Forbidden))
+  .add(
+    HttpApiEndpoint.get("list")`/booktags-settings`
+      .setUrlParams(PageParams)
+      .addSuccess(PageOf(Setting))
+      .addError(Forbidden),
+  )
   .add(
     HttpApiEndpoint.post("set")`/booktags-settings/${HttpApiSchema.param("key", Schema.String)}`
       .setPayload(SettingSet)
@@ -96,10 +102,10 @@ export const cube: CubeDefinition = {
     ],
 
     handlers: {
-      list: () =>
+      list: ({ urlParams }: { urlParams: typeof PageParams.Type }) =>
         Effect.gen(function* () {
           yield* requirePermission("booktags/settings:read")
-          return yield* store.all<SettingRow>(TABLE)
+          return yield* store.page<SettingRow>(TABLE, pageRequest(urlParams))
         }),
 
       set: ({ path, payload }: { path: { key: string }; payload: typeof SettingSet.Type }) =>
