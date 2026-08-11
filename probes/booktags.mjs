@@ -34,6 +34,13 @@ if (!server.alive) {
 try {
   const session = await api.login()
   const H = session.headers
+  const reader = await api.login("reader", "reader")
+  await api.call("/account", {
+    method: "POST",
+    headers: H,
+    body: JSON.stringify({ username: "guest", password: "guest", roles: ["guest"] }),
+  })
+  const guest = await api.login("guest", "guest")
 
   // --- discovery and catalogue ---
   const cubes = (await api.call("/settings/cubes", { headers: H })).body ?? []
@@ -78,7 +85,7 @@ try {
     `http=${legacy.status} rows=${legacy.body?.rows?.length}`,
   )
 
-  await hierarchyBehaviour({ api, score, H })
+  await hierarchyBehaviour({ api, score, H, readerHeaders: reader.headers, guestHeaders: guest.headers })
 } finally {
   await stopServer(server)
 }

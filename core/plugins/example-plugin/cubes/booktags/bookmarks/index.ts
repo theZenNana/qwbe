@@ -10,11 +10,11 @@
 //      catalogue by name -- never by import. "Bookmark another Qwbe cube and navigate back to
 //      it" is the product behaviour; an arbitrary URL stays available as `url`.
 
-import { HttpApiEndpoint, HttpApiGroup } from "@effect/platform"
+import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema } from "@effect/platform"
 import { Effect, Schema } from "effect"
 import { Authorization, requirePermission } from "../../../../../src/kernel/auth-contract.ts"
 import { EntityMeta, type SummaryRow } from "../../../../../src/kernel/entity.ts"
-import { BadRequest, Forbidden } from "../../../../../src/kernel/errors.ts"
+import { BadRequest, Forbidden, NotFound } from "../../../../../src/kernel/errors.ts"
 import type { CubeDefinition, CubeTools } from "../../../../../src/kernel/manifest.ts"
 import { PageOf, PageParams, pageRequest } from "../../../../../src/kernel/pagination.ts"
 import { decodeBooktagsSettingChanged } from "../events.ts"
@@ -45,6 +45,12 @@ type BookmarkRow = typeof Bookmark.Type
 const group = HttpApiGroup.make("bookmarks")
   .add(
     HttpApiEndpoint.get("list")`/bookmarks`.setUrlParams(PageParams).addSuccess(PageOf(Bookmark)).addError(Forbidden),
+  )
+  .add(
+    HttpApiEndpoint.get("get")`/bookmarks/${HttpApiSchema.param("id", Schema.String)}`
+      .addSuccess(Bookmark)
+      .addError(NotFound)
+      .addError(Forbidden),
   )
   .add(
     HttpApiEndpoint.post("create")`/bookmarks`
@@ -115,6 +121,16 @@ export const cube: CubeDefinition = {
         Effect.gen(function* () {
           yield* requirePermission("booktags/bookmarks:read")
           return yield* store.page<BookmarkRow>(TABLE, pageRequest(urlParams))
+        }),
+
+      get: ({ path }: { path: { id: string } }) =>
+        Effect.gen(function* () {
+          yield* requirePermission("booktags/bookmarks:read")
+          const bookmark = yield* store.byId<BookmarkRow>(TABLE, path.id)
+          if (!bookmark) {
+            return yield* Effect.fail(new NotFound({ message: `bookmark ${path.id} does not exist` }))
+          }
+          return bookmark
         }),
 
       create: ({ payload }: { payload: typeof BookmarkCreate.Type }) =>

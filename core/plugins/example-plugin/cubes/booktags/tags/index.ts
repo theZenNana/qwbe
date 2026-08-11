@@ -4,11 +4,11 @@
 // lives in `core/src/spaces/workspace/`, declared by neither side, exactly as when both were
 // flat cubes. The hierarchy changes WHO OWNS them, not how they connect.
 
-import { HttpApiEndpoint, HttpApiGroup } from "@effect/platform"
+import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema } from "@effect/platform"
 import { Effect, Schema } from "effect"
 import { Authorization, requirePermission } from "../../../../../src/kernel/auth-contract.ts"
 import { EntityMeta, type SummaryRow } from "../../../../../src/kernel/entity.ts"
-import { Forbidden } from "../../../../../src/kernel/errors.ts"
+import { Forbidden, NotFound } from "../../../../../src/kernel/errors.ts"
 import type { CubeDefinition, CubeTools } from "../../../../../src/kernel/manifest.ts"
 import { PageOf, PageParams, pageRequest } from "../../../../../src/kernel/pagination.ts"
 
@@ -31,6 +31,12 @@ type TagRow = typeof Tag.Type
 
 const group = HttpApiGroup.make("tags")
   .add(HttpApiEndpoint.get("list")`/tags`.setUrlParams(PageParams).addSuccess(PageOf(Tag)).addError(Forbidden))
+  .add(
+    HttpApiEndpoint.get("get")`/tags/${HttpApiSchema.param("id", Schema.String)}`
+      .addSuccess(Tag)
+      .addError(NotFound)
+      .addError(Forbidden),
+  )
   .add(HttpApiEndpoint.post("create")`/tags`.setPayload(TagCreate).addSuccess(Tag).addError(Forbidden))
   .middleware(Authorization)
 
@@ -63,6 +69,14 @@ export const cube: CubeDefinition = {
         Effect.gen(function* () {
           yield* requirePermission("booktags/tags:read")
           return yield* store.page<TagRow>(TABLE, pageRequest(urlParams))
+        }),
+
+      get: ({ path }: { path: { id: string } }) =>
+        Effect.gen(function* () {
+          yield* requirePermission("booktags/tags:read")
+          const tag = yield* store.byId<TagRow>(TABLE, path.id)
+          if (!tag) return yield* Effect.fail(new NotFound({ message: `tag ${path.id} does not exist` }))
+          return tag
         }),
 
       create: ({ payload }: { payload: typeof TagCreate.Type }) =>

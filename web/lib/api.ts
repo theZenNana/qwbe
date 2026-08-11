@@ -8,6 +8,7 @@
 import { endSession, session } from "./session"
 
 export const BASE = process.env.NEXT_PUBLIC_QWBE_API ?? "http://127.0.0.1:4500"
+export const apiUrl = (path: string): string => `${BASE.replace(/\/$/, "")}/${path.replace(/^\//, "")}`
 
 export type CubeInfo = {
   name: string
@@ -40,7 +41,7 @@ export class ApiError extends Error {
 }
 
 export const request = async <A>(path: string, options: RequestInit = {}): Promise<A> => {
-  const r = await fetch(BASE + path, {
+  const r = await fetch(apiUrl(path), {
     ...options,
     headers: { "content-type": "application/json", ...session.headers(), ...(options.headers ?? {}) },
   })
@@ -167,7 +168,7 @@ export type LinksFor = {
 
 export const linksFor = (entity: string, id: string) => request<LinksFor>(`/links/${entity}/${id}`)
 export const linkGroup = (entity: string, id: string, cube: string, offset = 0, limit = 5) =>
-  request<Paged<Summary>>(`/links/${entity}/${id}/${cube}?offset=${offset}&limit=${limit}`)
+  request<Paged<Summary>>(`/links/${entity}/${id}/${encodeURIComponent(cube)}?offset=${offset}&limit=${limit}`)
 
 export type Command = { name: string; summary: string; permission: string; allowed: boolean }
 export const commands = () => request<Array<Command>>("/cli/commands")

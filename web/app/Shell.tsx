@@ -12,7 +12,7 @@
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { type ReactNode, useEffect, useState } from "react"
-import { type CubeInfo, catalogue, leafName, logout, screenPath } from "../lib/api"
+import { apiUrl, type CubeInfo, catalogue, leafName, logout, screenPath } from "../lib/api"
 import { session } from "../lib/session"
 
 export function Shell({ children }: { children: ReactNode }) {
@@ -28,7 +28,10 @@ export function Shell({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!session.read()) return
     catalogue()
-      .then(setCubes)
+      .then((next) => {
+        setCubes(next)
+        setError(null)
+      })
       .catch((e: Error) => setError(e.message))
   }, [path])
 
@@ -41,6 +44,7 @@ export function Shell({ children }: { children: ReactNode }) {
   const withScreen = (cubes ?? []).filter((c) => (c.entity || c.screen) && !c.parent)
   const infrastructure = (cubes ?? []).filter((c) => !c.entity && !c.screen && !c.parent)
   const childrenOf = (name: string) => (cubes ?? []).filter((c) => c.parent === name)
+  const apiAvailable = cubes !== null && error === null
 
   const tabFor = (c: CubeInfo) => (
     <Link
@@ -112,6 +116,26 @@ export function Shell({ children }: { children: ReactNode }) {
       </nav>
 
       <main className="continut">
+        <nav className="api-header" aria-label="API documentation">
+          <span className={`api-status ${error ? "indisponibil" : ""}`}>
+            {error ? "API unavailable" : cubes === null ? "Checking API" : "API connected"}
+          </span>
+          {apiAvailable ? (
+            <>
+              <a href={apiUrl("/docs")} target="_blank" rel="noreferrer">
+                API Docs
+              </a>
+              <a href={apiUrl("/openapi.json")} target="_blank" rel="noreferrer">
+                OpenAPI
+              </a>
+            </>
+          ) : (
+            <>
+              <span className="api-link-inactiv">API Docs</span>
+              <span className="api-link-inactiv">OpenAPI</span>
+            </>
+          )}
+        </nav>
         {error && <div className="eroare">{error}</div>}
         {children}
       </main>

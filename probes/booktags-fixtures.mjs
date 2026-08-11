@@ -1,13 +1,11 @@
-// The fixture half of the booktags probe: planting a pre-hierarchy database, and the
-// behaviour checks that run against a booted server. Split on 2026-08-11 against the
-// 6000-char file cap -- same rule as every other split in probes/.
+// Fixtures and behaviour checks for the Booktags hierarchy probe.
 
 import { existsSync, mkdirSync } from "node:fs"
 import { join } from "node:path"
 import { DatabaseSync } from "node:sqlite"
+import { detailBehaviour } from "./booktags-detail-fixtures.mjs"
 
-/** A FLAT bookmarks database as the pre-hierarchy server left it: same schema, same body
- *  shape, an id the run can look up afterwards. The kernel must rename, not transform. */
+/** Plant one flat, pre-hierarchy bookmarks database. */
 export const plantLegacyBookmarks = (dataDir) => {
   mkdirSync(dataDir, { recursive: true })
   const flat = new DatabaseSync(join(dataDir, "bookmarks.sqlite"))
@@ -26,11 +24,8 @@ export const migratedFiles = (dataDir) =>
 const post = (api, H, path, body) => api.call(path, { method: "POST", headers: H, body: JSON.stringify(body) })
 
 /** Behaviour checks: real-cube references, the setting over the bus, the switch masks. */
-export const hierarchyBehaviour = async ({ api, score, H }) => {
-  const bad = await post(api, H, "/bookmarks", { label: "x", targetCube: "nosuchcube" })
-  score.check("a bookmark pointing at no mounted cube is refused", bad.status === 400, `http=${bad.status}`)
-  const good = await post(api, H, "/bookmarks", { label: "notes", targetCube: "notes" })
-  score.check("a bookmark pointing at a real cube is accepted", good.status === 200, `id=${good.body?.id}`)
+export const hierarchyBehaviour = async ({ api, score, H, readerHeaders, guestHeaders }) => {
+  await detailBehaviour({ api, score, adminHeaders: H, readerHeaders, guestHeaders })
 
   await post(api, H, "/booktags-settings/enforceTargetCube", { value: "strict" })
   const withUrl = await post(api, H, "/bookmarks", { label: "y", targetCube: "notes", url: "https://x" })
@@ -68,10 +63,7 @@ export const hierarchyBehaviour = async ({ api, score, H }) => {
   )
   await post(api, H, "/settings/cubes/booktags%2Ftags", { enabled: true })
 
-  // The bus skips a switched-off subscriber, so a setting changed while bookmarks was down
-  // would never arrive. The kernel announces the re-enablement on `qwbe/cube.enabled` and
-  // the settings cube replays its current values -- the sequence below NEVER touches the
-  // settings routes between the set and the create, so a masked GET cannot hide a miss.
+  // No settings GET between the write and create: recovery must come from the enable event.
   await post(api, H, "/settings/cubes/booktags%2Fbookmarks", { enabled: false })
   await post(api, H, "/booktags-settings/enforceTargetCube", { value: "relaxed" })
   await post(api, H, "/settings/cubes/booktags%2Fbookmarks", { enabled: true })

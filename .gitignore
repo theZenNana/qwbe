@@ -13,6 +13,7 @@ data/*.sqlite
 data/*.sqlite-wal
 data/*.sqlite-shm
 data/switches.json
+data/provenance.json
 web/.next/
 screenshots/
 test-results/
