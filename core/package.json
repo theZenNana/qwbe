@@ -6,6 +6,7 @@
   "type": "module",
   "exports": {
     "./cube": "./src/cube-contract.ts",
+    "./agent": "./src/agent-contracts.ts",
     "./http": "./src/http-contracts.ts"
   },
   "description": "Qwbe — kernel that discovers cubes from disk. Knows no cube by name.",

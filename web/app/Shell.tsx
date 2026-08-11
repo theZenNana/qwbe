@@ -46,20 +46,31 @@ export function Shell({ children }: { children: ReactNode }) {
   const childrenOf = (name: string) => (cubes ?? []).filter((c) => c.parent === name)
   const apiAvailable = cubes !== null && error === null
 
+  const agentLinkFor = (c: CubeInfo) =>
+    c.agent ? (
+      <Link
+        href={`/agent/${encodeURIComponent(c.name)}`}
+        className={`agent-link ${path === `/agent/${c.name}` ? "activ" : ""}`}
+        aria-label={`Open agent for ${c.name}`}
+        title={`Agent for ${c.name}`}
+      >
+        @
+      </Link>
+    ) : null
+
   const tabFor = (c: CubeInfo) => (
-    <Link
-      key={c.name}
-      href={screenPath(c)}
-      className={`tab ${path === screenPath(c) ? "activ" : ""} ${c.enabled ? "" : "stins"}`}
-    >
-      {/* The name is its own element rather than a bare text node, so it can be
+    <div className="cube-tab" key={c.name}>
+      <Link href={screenPath(c)} className={`tab ${path === screenPath(c) ? "activ" : ""} ${c.enabled ? "" : "stins"}`}>
+        {/* The name is its own element rather than a bare text node, so it can be
           addressed exactly -- by a test, or by anything else reading the DOM. */}
-      <span>
-        <span data-cube={c.name}>{leafName(c.name)}</span>
-        {c.plugin && <span className="mic"> - plugin</span>}
-      </span>
-      <span className={`pastila ${c.enabled ? "viu" : "stins"}`}>{c.enabled ? "on" : "off"}</span>
-    </Link>
+        <span>
+          <span data-cube={c.name}>{leafName(c.name)}</span>
+          {c.plugin && <span className="mic"> - plugin</span>}
+        </span>
+        <span className={`pastila ${c.enabled ? "viu" : "stins"}`}>{c.enabled ? "on" : "off"}</span>
+      </Link>
+      {agentLinkFor(c)}
+    </div>
   )
 
   return (
@@ -81,9 +92,12 @@ export function Shell({ children }: { children: ReactNode }) {
           <>
             <h1 style={{ marginTop: 18 }}>No screen</h1>
             {infrastructure.map((c) => (
-              <div key={c.name} className={`tab ${c.enabled ? "" : "stins"}`}>
-                <span>{c.name}</span>
-                <span className={`pastila ${c.enabled ? "viu" : "stins"}`}>{c.enabled ? "on" : "off"}</span>
+              <div key={c.name} className="cube-tab">
+                <div className={`tab ${c.enabled ? "" : "stins"}`}>
+                  <span>{c.name}</span>
+                  <span className={`pastila ${c.enabled ? "viu" : "stins"}`}>{c.enabled ? "on" : "off"}</span>
+                </div>
+                {agentLinkFor(c)}
               </div>
             ))}
           </>

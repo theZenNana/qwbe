@@ -169,6 +169,20 @@ test("the sidebar is drawn from the catalogue, including a cube that came from a
   await expect(notesRow).toContainText("authorId → Account")
 })
 
+test("an API-only cube exposes its isolated agent through generic catalogue metadata", async ({ page }) => {
+  await signIn(page)
+
+  await page.getByRole("link", { name: "Open agent for agentlab" }).click()
+  await expect(page.getByRole("heading", { name: "Agent for agentlab" })).toBeVisible()
+  await expect(page.getByText(/ActiveGraph 1\.10\.0/)).toBeVisible({ timeout: 20_000 })
+  await expect(page.getByText("scope: agentlab; cross-cube: false")).toBeVisible()
+
+  await page.getByRole("textbox", { name: "Agent goal" }).fill("inspect only agentlab")
+  await page.getByRole("button", { name: "Run" }).click()
+  await expect(page.getByText("Captured: inspect only agentlab")).toBeVisible({ timeout: 20_000 })
+  await expect(page.getByText(/goal\.created.*object\.created/)).toBeVisible()
+})
+
 test("the shell always exposes API docs and reports API availability honestly", async ({ page, request }) => {
   await signIn(page)
 

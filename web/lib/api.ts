@@ -7,6 +7,10 @@
 
 import { Schema } from "effect"
 import type {
+  AgentContext,
+  AgentGoalResult,
+  AgentHealth,
+  AgentTrace,
   Command,
   CubeInfo,
   InstallFromResult,
@@ -20,6 +24,10 @@ import type {
   Summary,
 } from "./contracts.ts"
 import {
+  AgentContextSchema,
+  AgentGoalResultSchema,
+  AgentHealthSchema,
+  AgentTraceSchema,
   CommandResultSchema,
   CommandSchema,
   CubeInfoSchema,
@@ -40,6 +48,10 @@ import {
 import { endSession, session } from "./session.ts"
 
 export type {
+  AgentContext,
+  AgentGoalResult,
+  AgentHealth,
+  AgentTrace,
   Command,
   CubeInfo,
   InstallFromResult,
@@ -188,3 +200,10 @@ export const exec = (line: string) =>
     method: "POST",
     body: JSON.stringify({ line }),
   })
+
+const agentPath = (cube: string, suffix: string) => `/${encodeURIComponent(cube)}/${suffix}`
+export const agentHealth = (cube: string) => request(agentPath(cube, "health"), AgentHealthSchema)
+export const agentContext = (cube: string) => request(agentPath(cube, "context"), AgentContextSchema)
+export const runAgentGoal = (cube: string, goal: string) =>
+  request(agentPath(cube, "goals"), AgentGoalResultSchema, { method: "POST", body: JSON.stringify({ goal }) })
+export const agentTrace = (cube: string) => request(agentPath(cube, "trace"), AgentTraceSchema)

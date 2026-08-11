@@ -1,4 +1,4 @@
-// The manifest -- the only source of truth about a cube.
+// The manifest -- source of truth for a cube.
 //
 // The invariant everything else serves:
 //
@@ -23,7 +23,7 @@ import type { RequiredCubeError, StateFileError, UnknownCubeError } from "./stat
 export type PermissionSpec = {
   /** e.g. "notes:read". The prefix must be the cube name -- checked at mount. */
   readonly name: string
-  readonly roles: ReadonlyArray<string>
+  readonly roles: readonly string[]
 }
 
 /**
@@ -65,10 +65,7 @@ export type CommandSpec = {
    * Aleasă a doua, pe 9 aug 2026. Permisiunile apelantului sosesc ca parametru, verificate deja
    * de dispecer înainte de apel. O comandă vede CE poate cere apelantul, nu are de unde CERE.
    */
-  readonly run: (
-    args: ReadonlyArray<string>,
-    callerPermissions: ReadonlyArray<string>,
-  ) => Effect.Effect<string, string, never>
+  readonly run: (args: readonly string[], callerPermissions: readonly string[]) => Effect.Effect<string, string, never>
 }
 
 /**
@@ -103,7 +100,7 @@ export type CommandRunner = {
   /** Runs a command AFTER checking its permission against the caller's own. */
   readonly invoke: (
     name: string,
-    args: ReadonlyArray<string>,
+    args: readonly string[],
     callerPermissions: ReadonlyArray<string>,
   ) => Effect.Effect<CommandResult, CommandRefusal, never>
 }
@@ -127,7 +124,7 @@ export type Manifest = {
    */
   readonly parent?: string
   /** Tables it OWNS. Its store opens exactly these and nothing else (`store.ts`). */
-  readonly tables: ReadonlyArray<string>
+  readonly tables: readonly string[]
   /** The public entity it holds, e.g. "Account". Absent for cubes without data. */
   readonly entity?: string
   /**
@@ -140,6 +137,8 @@ export type Manifest = {
    * file exists to protect.
    */
   readonly screen?: boolean
+  /** Exposes the generic per-cube agent surface. The agent receives only this cube's context. */
+  readonly agent?: boolean
   /**
    * Fields callers may sort by. Empty means "meta columns only" (`id`, `type`, `createdAt`).
    *
@@ -284,6 +283,7 @@ export type Catalogue = ReadonlyArray<{
   readonly entity?: string | undefined
   /** It has a screen of its own, without holding an entity. See `Manifest.screen`. */
   readonly screen: boolean
+  readonly agent: boolean
   readonly enabled: boolean
   readonly required: boolean
   readonly system: boolean

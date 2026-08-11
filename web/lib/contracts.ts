@@ -1,5 +1,11 @@
 import { Schema } from "effect"
 import {
+  AgentContext as AgentContextContract,
+  AgentGoalResult as AgentGoalResultContract,
+  AgentHealth as AgentHealthContract,
+  AgentTrace as AgentTraceContract,
+} from "qwbe-core/agent"
+import {
   CommandInfo,
   CommandResult,
   CubeInfo as CubeInfoContract,
@@ -62,3 +68,12 @@ export const CommandSchema = CommandInfo
 export type Command = typeof CommandInfo.Type
 
 export const CommandResultSchema = CommandResult
+
+export const AgentHealthSchema = AgentHealthContract
+export type AgentHealth = typeof AgentHealthContract.Type
+export const AgentContextSchema = AgentContextContract
+export type AgentContext = typeof AgentContextContract.Type
+export const AgentGoalResultSchema = AgentGoalResultContract
+export type AgentGoalResult = typeof AgentGoalResultContract.Type
+export const AgentTraceSchema = AgentTraceContract
+export type AgentTrace = typeof AgentTraceContract.Type

@@ -118,6 +118,7 @@ export const cube = defineCube(group, {
         onDisk: installer.cubeOnDisk(c.name, c.plugin),
         entity: c.entity ?? null,
         screen: c.screen,
+        agent: c.agent,
         publishes: c.publishes,
         links: c.links,
       }

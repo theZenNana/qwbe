@@ -2,7 +2,7 @@ import assert from "node:assert/strict"
 import { afterEach, describe, it } from "node:test"
 import { Schema } from "effect"
 
-import { ApiError, list, request } from "./api.ts"
+import { ApiError, catalogue, list, request } from "./api.ts"
 
 const originalFetch = globalThis.fetch
 
@@ -11,6 +11,29 @@ afterEach(() => {
 })
 
 describe("request response contract", () => {
+  it("publishes the optional agent capability without cube-specific UI knowledge", async () => {
+    globalThis.fetch = async () =>
+      Response.json([
+        {
+          name: "agentlab",
+          parent: null,
+          prefix: "agentlab",
+          enabled: true,
+          required: false,
+          system: false,
+          plugin: "activegraph-plugin",
+          onDisk: true,
+          entity: null,
+          screen: false,
+          agent: true,
+          publishes: [],
+          links: [],
+        },
+      ])
+
+    assert.equal((await catalogue())[0]?.agent, true)
+  })
+
   it("refuses a successful response that does not satisfy its schema", async () => {
     globalThis.fetch = async () => Response.json({ token: 42, expiresAt: "2026-08-11T20:00:00Z" })
     const Session = Schema.Struct({ token: Schema.String, expiresAt: Schema.String })

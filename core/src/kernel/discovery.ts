@@ -264,6 +264,7 @@ export const mount = (
         parent: m.parent,
         entity: m.entity,
         screen: m.screen === true,
+        agent: m.agent === true,
         enabled: isEnabled(name),
         required: m.required === true,
         system: plugin === null,
