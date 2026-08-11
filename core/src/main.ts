@@ -13,6 +13,7 @@ import { HttpApiBuilder, HttpApiSwagger, HttpMiddleware, HttpServer } from "@eff
 import { NodeHttpServer, NodeRuntime } from "@effect/platform-node"
 import { Layer } from "effect"
 import { loadDefinitions, mount } from "./kernel/discovery.ts"
+import { writeLedger } from "./kernel/ledger.ts"
 import { buildApi, buildHandlers, checkCubes, rejectDisabled } from "./kernel/mount.ts"
 import { type RegistryEntry, registryFrom } from "./kernel/registry.ts"
 import { loadSpaces } from "./kernel/space.ts"
@@ -59,6 +60,10 @@ if (dangling.length > 0) {
 }
 
 const api = buildApi(system!.cubes)
+
+// The provenance ledger is written only after a mount that passed every life rule -- the
+// record must always describe a system that really ran, and a manifest cannot write it.
+writeLedger(system!.cubes.map((c) => ({ name: c.name, plugin: c.plugin })))
 
 const bySource = system!.cubes.map((c) => (c.plugin ? `${c.name}(${c.plugin})` : c.name))
 console.log(

@@ -15,7 +15,7 @@ import { Authorization, requirePermission } from "../../../../../src/kernel/auth
 import { EntityMeta } from "../../../../../src/kernel/entity.ts"
 import { Forbidden, NotFound } from "../../../../../src/kernel/errors.ts"
 import type { CubeDefinition, CubeTools } from "../../../../../src/kernel/manifest.ts"
-import { decodeCubeEnabled } from "../events.ts"
+import { decodeCubeEnabled } from "../../../../../src/kernel/manifest.ts"
 
 const TABLE = "settings"
 

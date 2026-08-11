@@ -14,10 +14,3 @@ export const BooktagsSettingChanged = Schema.Struct({
 }).annotations({ identifier: "BooktagsSettingChanged" })
 
 export const decodeBooktagsSettingChanged = Schema.decodeUnknownSync(BooktagsSettingChanged)
-
-/** Payload of the kernel's `qwbe/cube.enabled`: a cube was re-enabled, by name. */
-export const CubeEnabled = Schema.Struct({
-  cube: Schema.String,
-}).annotations({ identifier: "CubeEnabled" })
-
-export const decodeCubeEnabled = Schema.decodeUnknownSync(CubeEnabled)

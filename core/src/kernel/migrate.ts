@@ -16,6 +16,7 @@
 import { existsSync, renameSync } from "node:fs"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
+import { readLedger } from "./ledger.ts"
 import { type DataMigration, type Manifest, storeFileName } from "./manifest.ts"
 
 const here = dirname(fileURLToPath(import.meta.url))
@@ -55,18 +56,21 @@ export class MigrationOwnershipError extends Error {
 type Move = { readonly fromPath: string; readonly toPath: string }
 
 /**
- * Validate every declared migration against the mounted set, and return the ones that pass.
+ * Validate every declared migration against the mounted set AND the ledger (ledger.ts).
  *
- * The ownership rules run against what is ACTUALLY mounted, not what a manifest asks for:
- *   - `toCube` must be a mounted cube, and of the SAME package as the declarer;
+ *   - `toCube` must be a mounted cube of the SAME package as the declarer;
  *   - `fromCube` must NOT be a currently-mounted cube of another package -- a live cube's
- *     file is not legacy data, and moving it would be theft, not migration;
- *   - `fromPlugin`, when declared, must equal the destination's provenance.
+ *     file is not legacy data;
+ *   - `fromPlugin` is REQUIRED, and must match the ledger's record for `fromCube`. A file
+ *     with no ledger record predates the ledger -- the claim is accepted, or real pre-ledger
+ *     data would be stranded.
  */
 export const checkMigrationOwnership = (
   definitions: ReadonlyArray<{ name: string; plugin: string | null; definition: { manifest: Manifest } }>,
 ): Array<DataMigration> => {
   const mounted = new Map(definitions.map((d) => [d.name, d.plugin]))
+  const ledger = readLedger()
+  const pkg = (p: string | null) => (p === null ? "core" : `plugin "${p}"`)
   const migrations: Array<DataMigration> = []
   for (const { name, plugin, definition } of definitions) {
     for (const m of definition.manifest.dataMigration ?? []) {
@@ -80,23 +84,33 @@ export const checkMigrationOwnership = (
       if (toPlugin !== plugin) {
         throw new MigrationOwnershipError(
           `"${name}" declares ${m.fromCube} -> ${m.toCube}, but "${m.toCube}" belongs to ` +
-            `${toPlugin === null ? "core" : `plugin "${toPlugin}"`} -- not to the declaring package.`,
+            `${pkg(toPlugin)} -- not to the declaring package.`,
         )
       }
       const fromMounted = mounted.get(m.fromCube)
       if (fromMounted !== undefined && fromMounted !== plugin) {
         throw new MigrationOwnershipError(
           `"${name}" declares ${m.fromCube} -> ${m.toCube}, but "${m.fromCube}" is a mounted cube of ` +
-            `${fromMounted === null ? "core" : `plugin "${fromMounted}"`} -- its file is live, not legacy. ` +
-            `A package can only migrate its OWN history.`,
+            `${pkg(fromMounted)} -- its file is live, not legacy. A package can only migrate its OWN history.`,
         )
       }
-      if (m.fromPlugin !== undefined && m.fromPlugin !== toPlugin) {
+      if (m.fromPlugin === undefined) {
         throw new MigrationOwnershipError(
-          `"${name}" declares ${m.fromCube} came from ` +
-            `${m.fromPlugin === null ? "core" : `plugin "${m.fromPlugin}"`}, but the destination ` +
-            `"${m.toCube}" belongs to ${toPlugin === null ? "core" : `plugin "${toPlugin}"`}. ` +
-            `The claimed provenance is not this package's.`,
+          `"${name}" declares ${m.fromCube} -> ${m.toCube} without naming the source package. ` +
+            `\`fromPlugin\` is required: the claim is checked against the kernel's ledger -- not trusted.`,
+        )
+      }
+      const recorded = ledger[m.fromCube]
+      if (recorded !== undefined && recorded !== m.fromPlugin) {
+        throw new MigrationOwnershipError(
+          `"${name}" declares ${m.fromCube} came from ${pkg(m.fromPlugin)}, but the ledger records ` +
+            `${pkg(recorded)}. The ledger is kernel-written at mount -- the manifest cannot rewrite it.`,
+        )
+      }
+      if (m.fromPlugin !== toPlugin) {
+        throw new MigrationOwnershipError(
+          `"${name}" declares ${m.fromCube} came from ${pkg(m.fromPlugin)}, but the destination ` +
+            `"${m.toCube}" belongs to ${pkg(toPlugin)}. The claimed provenance is not this package's.`,
         )
       }
       migrations.push(m)
@@ -138,8 +152,13 @@ export const migrateDataFiles = (migrations: ReadonlyArray<DataMigration>): void
   }
 
   const done: Array<Move> = []
+  // Test-only fault injection: QWBE_MIGRATION_FAIL_AT=N makes the Nth rename throw, so the
+  // rollback path is exercised with files already moved. Never set in production -- and a
+  // production run has no reason to know this exists.
+  const failAt = process.env.QWBE_MIGRATION_FAIL_AT ? Number(process.env.QWBE_MIGRATION_FAIL_AT) : -1
   try {
     for (const mv of plan) {
+      if (done.length === failAt) throw new Error("injected migration fault (QWBE_MIGRATION_FAIL_AT)")
       renameSync(mv.fromPath, mv.toPath)
       done.push(mv)
     }

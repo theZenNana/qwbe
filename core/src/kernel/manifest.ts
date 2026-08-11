@@ -13,6 +13,7 @@
 // third party, so neither side knows the other exists. See `space.ts`.
 
 import type { Effect } from "effect"
+import { Schema } from "effect"
 import type { SummaryRow } from "./entity.ts"
 import type { Page, PageRequest } from "./pagination.ts"
 import type { RequiredCubeError, StateFileError, UnknownCubeError } from "./state.ts"
@@ -491,6 +492,11 @@ export const validateManifest = (directory: string, m: Manifest): void => {
         `A ":" in particular would make its commands look like they belong to another cube.`,
     )
   }
+  // `qwbe` is the kernel's own publisher name on the bus -- a cube carrying it could speak
+  // with the kernel's voice (qwbe/cube.enabled) and no subscriber could tell the difference.
+  if (m.name === "qwbe") {
+    reasons.push(`name "qwbe" is reserved for the kernel -- it is the publisher name of kernel announcements`)
+  }
   if (m.parent !== undefined && !NAME_PATTERN.test(m.parent)) {
     reasons.push(`parent "${m.parent}" must match ${NAME_PATTERN} -- the same slug rule as a cube name`)
   }
@@ -559,3 +565,16 @@ export type CubeStore = {
 export type CubeBus = {
   readonly publish: (event: string, payload: unknown) => Effect.Effect<void, never, never>
 }
+
+// --- the kernel's own announcements ------------------------------------------------------------
+//
+// The kernel speaks on the bus too, under the reserved `qwbe/` prefix. Its payloads get the
+// same treatment as any other: a Schema at the edge, not a cast. These contracts live HERE
+// because the kernel owns the events -- a package's contracts live in that package.
+
+/** Payload of `qwbe/cube.enabled`: a cube was re-enabled, by name. */
+export const CubeEnabled = Schema.Struct({
+  cube: Schema.String,
+}).annotations({ identifier: "CubeEnabled" })
+
+export const decodeCubeEnabled = Schema.decodeUnknownSync(CubeEnabled)
