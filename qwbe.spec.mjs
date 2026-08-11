@@ -50,14 +50,23 @@ test.beforeAll(async () => {
     "account.sqlite",
     "notes.sqlite",
     "bookmarks.sqlite",
+    "booktags--bookmarks.sqlite",
+    "booktags--settings.sqlite",
+    "booktags--tags.sqlite",
     "auth.sqlite-wal",
     "account.sqlite-wal",
     "notes.sqlite-wal",
     "bookmarks.sqlite-wal",
+    "booktags--bookmarks.sqlite-wal",
+    "booktags--settings.sqlite-wal",
+    "booktags--tags.sqlite-wal",
     "auth.sqlite-shm",
     "account.sqlite-shm",
     "notes.sqlite-shm",
     "bookmarks.sqlite-shm",
+    "booktags--bookmarks.sqlite-shm",
+    "booktags--settings.sqlite-shm",
+    "booktags--tags.sqlite-shm",
     "switches.json",
   ]) {
     rmSync(join(here, "data", f), { force: true })
@@ -136,11 +145,11 @@ test("the sidebar is drawn from the catalogue, including a cube that came from a
   await expect(sidebar.locator("[data-cube='notes']")).toBeVisible()
   await expect(sidebar.locator("[data-cube='account']")).toBeVisible()
   // The one that arrived in a plugin sits in the same list as the rest, marked as such.
-  await expect(sidebar.locator("[data-cube='bookmarks']")).toBeVisible()
-  await expect(sidebar.locator("a", { has: page.locator("[data-cube='bookmarks']") })).toContainText("plugin")
+  await expect(sidebar.locator("[data-cube='booktags/bookmarks']")).toBeVisible()
+  await expect(sidebar.locator("a", { has: page.locator("[data-cube='booktags/bookmarks']") })).toContainText("plugin")
 
   // The table says where each cube came from — core or a named plugin.
-  const bookmarkRow = page.locator("tbody tr", { hasText: "bookmarks" }).first()
+  const bookmarkRow = page.locator("tbody tr", { hasText: "booktags/bookmarks" }).first()
   await expect(bookmarkRow).toContainText("plugin: example-plugin")
 
   // The link shown on the notes row was declared by a space, not by the notes cube.
@@ -153,12 +162,24 @@ test("lists are paged: 10 per page, with the real total", async ({ page }) => {
   await page.locator("nav.bara").getByText("notes", { exact: true }).click()
 
   await expect(page.getByRole("heading", { name: "notes" })).toBeVisible()
-  await expect(page.getByText(/1–10 of 12/)).toBeVisible({ timeout: 20_000 })
+  await expect(page.getByText(/1-10 of 12/)).toBeVisible({ timeout: 20_000 })
   await expect(page.locator("tbody tr")).toHaveCount(10)
 
-  await page.getByRole("button", { name: "next →" }).click()
-  await expect(page.getByText(/11–12 of 12/)).toBeVisible()
+  await page.getByRole("button", { name: "next ->" }).click()
+  await expect(page.getByText(/11-12 of 12/)).toBeVisible()
   await expect(page.locator("tbody tr")).toHaveCount(2)
+})
+
+test("Booktags settings uses the generic paged list without crashing", async ({ page }) => {
+  const pageErrors = []
+  page.on("pageerror", (error) => pageErrors.push(error.message))
+
+  await signIn(page)
+  await page.goto(`${WEB}/booktags/settings`, { waitUntil: "networkidle" })
+
+  await expect(page.getByRole("heading", { name: "booktags/settings" })).toBeVisible()
+  await expect(page.getByText("Nothing here yet.")).toBeVisible()
+  expect(pageErrors).toEqual([])
 })
 
 test("an account's page shows the space-declared group, with a total, and pages it", async ({ page }) => {
@@ -170,9 +191,9 @@ test("an account's page shows the space-declared group, with a total, and pages 
 
   // The group head carries the real total (12) although the page only asked for 5 rows.
   await expect(page.getByRole("button", { name: /notes \(12\)/ })).toBeVisible()
-  await expect(page.getByText(/1–5 of 12/)).toBeVisible()
-  await page.getByRole("button", { name: "next →" }).last().click()
-  await expect(page.getByText(/6–10 of 12/)).toBeVisible()
+  await expect(page.getByText(/1-5 of 12/)).toBeVisible()
+  await page.getByRole("button", { name: "next ->" }).last().click()
+  await expect(page.getByText(/6-10 of 12/)).toBeVisible()
 })
 
 test("the terminal runs a declared command and refuses an undeclared one", async ({ page }) => {
@@ -182,7 +203,7 @@ test("the terminal runs a declared command and refuses an undeclared one", async
 
   // The command list comes from the cubes' manifests, plugin included.
   await expect(page.getByRole("button", { name: "notes:count" })).toBeVisible({ timeout: 20_000 })
-  await expect(page.getByRole("button", { name: "bookmarks:count" })).toBeVisible()
+  await expect(page.getByRole("button", { name: "booktags/bookmarks:count" })).toBeVisible()
 
   const input = page.getByTestId("terminal-input")
   const output = page.getByTestId("terminal-output")
@@ -225,7 +246,7 @@ test("switching a cube off removes its tab, its group elsewhere, and its command
   // And its commands leave the terminal.
   await page.getByRole("link", { name: "terminal" }).click()
   await expect(page.getByRole("button", { name: "notes:count" })).toHaveCount(0)
-  await expect(page.getByRole("button", { name: "bookmarks:count" })).toBeVisible()
+  await expect(page.getByRole("button", { name: "booktags/bookmarks:count" })).toBeVisible()
 
   // Switch back on so the tests are order-independent.
   await page.getByRole("link", { name: "settings", exact: true }).click()
