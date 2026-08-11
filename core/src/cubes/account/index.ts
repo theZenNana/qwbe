@@ -3,9 +3,9 @@
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto"
 import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema } from "@effect/platform"
 import { Effect, Schema } from "effect"
+import { type CubeTools, defineCube } from "qwbe-core/cube"
 import { Authorization, requirePermission } from "../../kernel/auth-contract.ts"
 import { Forbidden, NotFound } from "../../kernel/errors.ts"
-import type { CubeDefinition, CubeTools } from "../../kernel/manifest.ts"
 import { PageOf, PageParams, pageRequest } from "../../kernel/pagination.ts"
 import { Account, type AccountRow, publicShape, summary } from "./model.ts"
 import { hashPassword, verifyPassword } from "./password.ts"
@@ -42,7 +42,7 @@ const group = HttpApiGroup.make("account")
   .add(HttpApiEndpoint.post("create")`/account`.setPayload(AccountCreate).addSuccess(Account).addError(Forbidden))
   .middleware(Authorization)
 
-export const cube: CubeDefinition = {
+export const cube = defineCube(group, {
   manifest: {
     name: "account",
     tables: [TABLE],
@@ -90,8 +90,6 @@ export const cube: CubeDefinition = {
     })
 
     return {
-      group,
-
       /** Unknown users still pay one KDF, limiting username timing disclosure. */
       credentials: {
         verify: (username: string, password: string) =>
@@ -189,4 +187,4 @@ export const cube: CubeDefinition = {
       },
     }
   },
-}
+})

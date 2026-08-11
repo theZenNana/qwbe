@@ -11,9 +11,9 @@
 
 import { HttpApiEndpoint, HttpApiGroup } from "@effect/platform"
 import { Effect, Schema } from "effect"
+import { type CubeTools, defineCube } from "qwbe-core/cube"
 import { Authorization, requirePermission } from "../../../../src/kernel/auth-contract.ts"
 import { Forbidden } from "../../../../src/kernel/errors.ts"
-import type { CubeDefinition, CubeTools } from "../../../../src/kernel/manifest.ts"
 
 const ChildInfo = Schema.Struct({
   name: Schema.String,
@@ -25,7 +25,7 @@ const group = HttpApiGroup.make("booktags")
   .add(HttpApiEndpoint.get("children")`/booktags`.addSuccess(Schema.Array(ChildInfo)).addError(Forbidden))
   .middleware(Authorization)
 
-export const cube: CubeDefinition = {
+export const cube = defineCube(group, {
   manifest: {
     name: "booktags",
     tables: [],
@@ -44,8 +44,6 @@ export const cube: CubeDefinition = {
   },
 
   create: ({ catalogue }: CubeTools) => ({
-    group,
-
     commands: [
       {
         name: "booktags:children",
@@ -71,4 +69,4 @@ export const cube: CubeDefinition = {
         }),
     },
   }),
-}
+})

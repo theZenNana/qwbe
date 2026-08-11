@@ -12,15 +12,11 @@
 // the REAL ARTEFACT (`group.endpoints[].middlewares`), never a flag the cube sets on itself. A
 // flag is a promise; the middleware is what will run. A cube cannot lie.
 
-import {
-  HttpApi,
-  HttpApiBuilder,
-  HttpMiddleware,
-  HttpServerRequest,
-  HttpServerResponse,
-  OpenApi,
-} from "@effect/platform"
-import { Effect, Layer } from "effect"
+import { HttpMiddleware, HttpServerRequest, HttpServerResponse } from "@effect/platform"
+import { Effect } from "effect"
+
+export { buildApi, buildHandlers } from "../runtime-composition.ts"
+
 import type { MountedCube } from "./discovery.ts"
 import { checkRouteOwnership, routePrefixOf } from "./routes.ts"
 
@@ -125,70 +121,6 @@ export const checkCubes = (
     spaces,
     cubes.map((c) => ({ name: c.name, entity: c.manifest.entity })),
   ).map((d) => ({ space: d.space, from: d.link.from, to: d.link.to, reason: d.reason }))
-}
-
-/**
- * Compose one contract from the mounted cubes.
- *
- * WHY the `any`, not merely that it is there:
- *
- * The type of a composed `HttpApi` IS its list of groups -- `.add(g1).add(g2)` has a different
- * type from `.add(g1)`. Keeping the static type means composing statically, i.e. writing the
- * list of cubes in code. But discovery at runtime is the entire point: a list in code is the
- * central registry we removed, wearing a different hat.
- *
- * Checked against the Effect docs: `add()` and `addHttpApi()` exist and the API is chainable
- * since 3.10, but no documented pattern exists for optionally-mounted groups with types
- * preserved, and there is no large open-source Effect application to copy a solution from. So
- * this is a price paid deliberately, confined to two functions -- not a hole left open.
- *
- * What is recovered: the emitted OpenAPI is complete, and the frontend takes its shapes there.
- */
-// Tipul de întoarcere e `HttpApi<"cubes", never, never, never>`, nu `unknown`, și diferența
-// merită spusă pentru că e ușor de citit greșit ca pe o minciună mai mare.
-//
-// `unknown` nu spunea nimic, iar `main.ts` era obligat să-l treacă printr-un `as never` ca să-l
-// poată da lui `HttpApiBuilder.api`. Din cast-ul ăla inferența ieșea cu `R = unknown`, care se
-// propaga până la `NodeRuntime.runMain` și pica acolo — o eroare la 60 de rânduri distanță de
-// cauză. Numele tipului de aici mută diagnosticul la sursă.
-//
-// Ce declară, exact: grupurile acestui `HttpApi` nu cer nimic din context. E aceeași afirmație
-// pe care o face deja `buildHandlers`, întorcând `Layer<never, never, never>` — handlerele CHIAR
-// furnizează serviciile grupurilor la rulare, doar că tipul lor nu le poate număra. Nu se adaugă
-// un cast nou; cel existent e dus până la capătul lui, în loc să lase `unknown` să curgă.
-//
-// Ce NU se rezolvă: `any`-ul de mai jos. Vezi comentariul de deasupra.
-export const buildApi = (cubes: ReadonlyArray<MountedCube>): HttpApi.HttpApi<"cubes", never, never, never> => {
-  const empty = HttpApi.make("cubes")
-    .annotate(OpenApi.Title, "Qwbe -- kernel plus cubes discovered from disk")
-    .annotate(
-      OpenApi.Description,
-      "One cube = one directory. Installing it touches no existing file. Plugins land in the same namespace.",
-    )
-
-  return cubes.reduce<any>((api, c) => api.add(c.parts.group), empty)
-}
-
-/**
- * One handler layer per cube, over the contract built above.
- *
- * `mergeAll` asks for a NON-EMPTY tuple, and a mount with no cubes is a real state -- the switches
- * can turn every one of them off. Spreading a plain array at it type-checked as
- * "A spread argument must either have a tuple type", which is the compiler saying it cannot
- * promise there is a first element. So the first one is taken out by hand and the empty case
- * answers `Layer.empty`, which is what "no handlers" means.
- */
-export const buildHandlers = (api: unknown, cubes: ReadonlyArray<MountedCube>): Layer.Layer<never, never, never> => {
-  const layers = cubes.map((c) => {
-    const id = (c.parts.group as { identifier?: string }).identifier ?? c.manifest.name
-
-    return HttpApiBuilder.group(api as any, id as never, (h: any) =>
-      Object.entries(c.parts.handlers).reduce((acc, [name, impl]) => acc.handle(name, impl), h),
-    )
-  })
-  const [first, ...rest] = layers
-
-  return (first === undefined ? Layer.empty : Layer.mergeAll(first, ...rest)) as any
 }
 
 /**

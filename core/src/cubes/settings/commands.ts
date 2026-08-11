@@ -7,7 +7,7 @@
 // that is the bug, not the arrangement.
 
 import { Effect } from "effect"
-import type { CubeTools } from "../../kernel/manifest.ts"
+import type { CubeTools } from "qwbe-core/cube"
 
 type Installer = NonNullable<CubeTools["installer"]>
 type Catalogue = CubeTools["catalogue"]

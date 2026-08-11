@@ -12,10 +12,10 @@
 
 import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema } from "@effect/platform"
 import { Effect, Schema } from "effect"
+import { type CubeTools, defineCube } from "qwbe-core/cube"
 import { Authorization, requirePermission } from "../../../../../src/kernel/auth-contract.ts"
 import { EntityMeta, type SummaryRow } from "../../../../../src/kernel/entity.ts"
 import { BadRequest, Forbidden, NotFound } from "../../../../../src/kernel/errors.ts"
-import type { CubeDefinition, CubeTools } from "../../../../../src/kernel/manifest.ts"
 import { PageOf, PageParams, pageRequest } from "../../../../../src/kernel/pagination.ts"
 import { decodeBooktagsSettingChanged } from "../events.ts"
 
@@ -67,7 +67,7 @@ const summary = (b: BookmarkRow): SummaryRow => ({
   details: [{ key: "targetCube", value: b.targetCube ?? "" }],
 })
 
-export const cube: CubeDefinition = {
+export const cube = defineCube(group, {
   manifest: {
     name: "bookmarks",
     parent: "booktags",
@@ -85,8 +85,6 @@ export const cube: CubeDefinition = {
   },
 
   create: ({ store, bus, catalogue }: CubeTools) => ({
-    group,
-
     commands: [
       {
         name: "booktags/bookmarks:count",
@@ -176,4 +174,4 @@ export const cube: CubeDefinition = {
         }),
     },
   }),
-}
+})

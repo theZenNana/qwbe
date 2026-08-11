@@ -12,6 +12,7 @@
 // declare links to other entities. Those live one level up, in `spaces/` -- declared by a
 // third party, so neither side knows the other exists. See `space.ts`.
 
+import type { HttpApiEndpoint, HttpApiGroup } from "@effect/platform"
 import type { Effect } from "effect"
 import { Schema } from "effect"
 import type { SummaryRow } from "./entity.ts"
@@ -241,11 +242,6 @@ export type Subscription = {
  * `create` receives the cube's own tools and returns its live parts. It is a function, not an
  * object, precisely so a cube cannot close over a global store: there is none to reach.
  */
-export type CubeDefinition = {
-  readonly manifest: Manifest
-  readonly create: (tools: CubeTools) => CubeParts
-}
-
 export type CubeTools = {
   readonly store: CubeStore
   readonly bus: CubeBus
@@ -358,10 +354,23 @@ export type CubeSwitches = {
   ) => Effect.Effect<void, RequiredCubeError | UnknownCubeError | StateFileError>
 }
 
-export type CubeParts = {
+export type CubeGroup = HttpApiGroup.HttpApiGroup.Any
+
+export type CubeHandlers<Group extends CubeGroup> = {
+  readonly [Name in HttpApiEndpoint.HttpApiEndpoint.Name<
+    HttpApiGroup.HttpApiGroup.Endpoints<Group>
+  >]: HttpApiEndpoint.HttpApiEndpoint.HandlerWithName<
+    HttpApiGroup.HttpApiGroup.Endpoints<Group>,
+    Name,
+    HttpApiGroup.HttpApiGroup.Error<Group>,
+    unknown
+  >
+}
+
+export type CubeParts<Group extends CubeGroup = CubeGroup> = {
   /** The cube's HttpApi contract (`HttpApiGroup`). */
-  readonly group: unknown
-  readonly handlers: Record<string, (input: never) => unknown>
+  readonly group: Group
+  readonly handlers: CubeHandlers<Group>
   readonly relational?: RelationalPart
   readonly subscriptions?: ReadonlyArray<Subscription>
   /**

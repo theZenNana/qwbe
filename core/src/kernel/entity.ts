@@ -6,6 +6,10 @@
 
 import { Schema } from "effect"
 
+export { Pair, Summary } from "../http-contracts.ts"
+
+import type { Summary } from "../http-contracts.ts"
+
 export const EntityMeta = {
   id: Schema.String,
   type: Schema.String,
@@ -18,16 +22,5 @@ export const EntityMeta = {
 // When something wants to display "the author of this note", it may not know what columns an
 // account has. It gets a summary: a title plus key/value pairs the owning cube chose. Each
 // cube picks its own public representation and can change it without breaking anyone.
-
-export const Pair = Schema.Struct({
-  key: Schema.String,
-  value: Schema.String,
-}).annotations({ identifier: "Pair" })
-
-export const Summary = Schema.Struct({
-  id: Schema.String,
-  title: Schema.String,
-  details: Schema.Array(Pair),
-}).annotations({ identifier: "Summary" })
 
 export type SummaryRow = typeof Summary.Type

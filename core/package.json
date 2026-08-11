@@ -4,6 +4,10 @@
   "private": true,
   "license": "MIT",
   "type": "module",
+  "exports": {
+    "./cube": "./src/cube-contract.ts",
+    "./http": "./src/http-contracts.ts"
+  },
   "description": "Qwbe — kernel that discovers cubes from disk. Knows no cube by name.",
   "engines": {
     "node": ">=22.18.0"

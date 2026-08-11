@@ -11,10 +11,10 @@
 
 import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema } from "@effect/platform"
 import { Effect, Schema } from "effect"
+import { type CubeTools, defineCube } from "qwbe-core/cube"
 import { Authorization, requirePermission } from "../../../../../src/kernel/auth-contract.ts"
 import { EntityMeta } from "../../../../../src/kernel/entity.ts"
 import { Forbidden, NotFound } from "../../../../../src/kernel/errors.ts"
-import type { CubeDefinition, CubeTools } from "../../../../../src/kernel/manifest.ts"
 import { decodeCubeEnabled } from "../../../../../src/kernel/manifest.ts"
 import { PageOf, PageParams, pageRequest } from "../../../../../src/kernel/pagination.ts"
 
@@ -51,7 +51,7 @@ const group = HttpApiGroup.make("booktags-settings")
   )
   .middleware(Authorization)
 
-export const cube: CubeDefinition = {
+export const cube = defineCube(group, {
   manifest: {
     name: "settings",
     parent: "booktags",
@@ -66,8 +66,6 @@ export const cube: CubeDefinition = {
   },
 
   create: ({ store, bus }: CubeTools) => ({
-    group,
-
     // The kernel announces a re-enabled cube on `qwbe/cube.enabled`. When the bookmarks
     // sibling comes back on, this cube RE-PUBLISHES its current settings -- the bus is
     // fire-and-forget, so anything set while the sibling was off never reached it. The
@@ -132,4 +130,4 @@ export const cube: CubeDefinition = {
         }),
     },
   }),
-}
+})

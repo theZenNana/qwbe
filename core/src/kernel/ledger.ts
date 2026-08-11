@@ -38,9 +38,11 @@ export type LedgerSnapshot = { state: "absent" } | { state: "ok"; ledger: Ledger
 
 const CUBE_IDENTITY = /^[a-z][a-z0-9-]*(?:\/[a-z][a-z0-9-]*)?$/
 const PACKAGE_NAME = /^[a-z][a-z0-9-]*$/
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value)
 
 const decodeLedger = (value: unknown): Ledger => {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+  if (!isRecord(value)) {
     throw new Error("expected an object mapping cube identities to package names or null")
   }
   const ledger: Ledger = {}

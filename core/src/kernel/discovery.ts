@@ -15,6 +15,7 @@
 // would mean starting with half the cubes and nobody noticing until production.
 
 import { Effect } from "effect"
+import { type CubeDefinition, decodeCubeExport, validateCubeParts } from "../cube-contract.ts"
 import { busFrom } from "./bus.ts"
 import { installerFor } from "./install.ts"
 import { discover } from "./scan.ts"
@@ -29,7 +30,6 @@ import {
   type CommandRunner,
   type CommandSpec,
   type CredentialVerifier,
-  type CubeDefinition,
   type CubeParts,
   fullName,
   leafOf,
@@ -94,16 +94,13 @@ export const loadDefinitions = async (): Promise<
 
   const out: Array<{ name: string; plugin: string | null; definition: CubeDefinition }> = []
   for (const entry of onDisk.filter((c) => finalRequested.includes(c.name))) {
-    let mod: Record<string, unknown>
+    let mod: unknown
     try {
-      mod = (await import(entry.specifier)) as Record<string, unknown>
+      mod = await import(entry.specifier)
     } catch (e) {
-      throw new BrokenCubeError(entry.name, (e as Error).message)
+      throw new BrokenCubeError(entry.name, e instanceof Error ? e.message : String(e))
     }
-    const definition = mod.cube as CubeDefinition | undefined
-    if (!definition) throw new BrokenCubeError(entry.name, "index.ts does not export `cube`")
-    if (!definition.manifest) throw new BrokenCubeError(entry.name, "definition has no `manifest`")
-    if (typeof definition.create !== "function") throw new BrokenCubeError(entry.name, "definition has no `create`")
+    const definition = decodeCubeExport(mod, entry.name)
 
     // The manifest is checked against the DIRECTORY it came from, not against what it says
     // about itself. A cube cannot lie about who it is. For a child the layout check extends
@@ -296,6 +293,7 @@ export const mount = (
       credentials: m.usesCredentials ? lateBoundVerifier : undefined,
       runCommands: m.runsCommands ? runner : undefined,
     })
+    validateCubeParts(full, parts)
     if (m.providesCredentials) {
       if (!parts.credentials) {
         throw new BrokenCubeError(full, "declares `providesCredentials: true` but returned no `credentials`")

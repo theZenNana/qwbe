@@ -38,6 +38,7 @@ import {
   writeFileSync,
 } from "node:fs"
 import { isAbsolute, join, relative, sep } from "node:path"
+import { checkPackageContract, PackageContractError } from "../install-contract.ts"
 import type { CubePackage } from "./manifest.ts"
 
 /** Same refusal type the store flow throws - re-declared here to keep the seam acyclic. */
@@ -162,6 +163,18 @@ export const stageAndInstall =
         `refused: the store already holds a package named "${name}" with different content. ` +
           `Remove it from the store first if this source should replace it.`,
       )
+    }
+
+    // Static contract gate after semantic name/content refusals, but before staging or
+    // publication. Invalid code never reaches the shelf; an existing different package keeps
+    // the more useful "different content" diagnostic.
+    if (pkg.conflicts.length === 0) {
+      try {
+        checkPackageContract(source, pkg)
+      } catch (error) {
+        if (error instanceof PackageContractError) throw new InstallError(error.message)
+        throw error
+      }
     }
 
     // 5. Stage under the administered directory and publish by atomic rename. The staging

@@ -17,41 +17,20 @@
 
 import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema } from "@effect/platform"
 import { Effect, Schema } from "effect"
+import { defineCube } from "qwbe-core/cube"
+import { LinksFor } from "../../http-contracts.ts"
 import { Authorization, requirePermission } from "../../kernel/auth-contract.ts"
 import { Summary } from "../../kernel/entity.ts"
 import { Forbidden, NotFound } from "../../kernel/errors.ts"
-import type { CubeDefinition } from "../../kernel/manifest.ts"
 import { PageOf, PageParams, pageRequest } from "../../kernel/pagination.ts"
 import { Registry } from "../../kernel/registry.ts"
-
-const GroupHead = Schema.Struct({
-  cube: Schema.String,
-  label: Schema.String,
-  field: Schema.String,
-  total: Schema.Number,
-}).annotations({ identifier: "GroupHead" })
-
-const Parent = Schema.Struct({
-  field: Schema.String,
-  to: Schema.String,
-  summary: Schema.NullOr(Summary),
-}).annotations({ identifier: "Parent" })
-
-const Links = Schema.Struct({
-  entity: Schema.String,
-  id: Schema.String,
-  /** What this row points at (forward direction). */
-  parents: Schema.Array(Parent),
-  /** Who points at it, with each group's total (reverse direction, heads only). */
-  groups: Schema.Array(GroupHead),
-}).annotations({ identifier: "Links" })
 
 const group = HttpApiGroup.make("links")
   .add(
     HttpApiEndpoint.get(
       "for",
     )`/links/${HttpApiSchema.param("entity", Schema.String)}/${HttpApiSchema.param("id", Schema.String)}`
-      .addSuccess(Links)
+      .addSuccess(LinksFor)
       .addError(NotFound)
       .addError(Forbidden),
   )
@@ -74,7 +53,7 @@ const group = HttpApiGroup.make("links")
 /** We do not want the rows, only `total`. Limit 1 because 0 is meaningless and would be capped. */
 const COUNT_ONLY = pageRequest({ offset: 0, limit: 1 })
 
-export const cube: CubeDefinition = {
+export const cube = defineCube(group, {
   manifest: {
     name: "links",
     // Owns no data at all. This cube lives entirely off the registry, so its store can open
@@ -85,8 +64,6 @@ export const cube: CubeDefinition = {
   },
 
   create: () => ({
-    group,
-
     handlers: {
       entities: () =>
         Effect.gen(function* () {
@@ -159,4 +136,4 @@ export const cube: CubeDefinition = {
         }),
     },
   }),
-}
+})

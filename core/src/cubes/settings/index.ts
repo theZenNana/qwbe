@@ -11,35 +11,14 @@
 
 import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema } from "@effect/platform"
 import { Effect, Schema } from "effect"
+import { type CubeTools, defineCube } from "qwbe-core/cube"
+import { InstallResult, RemoveResult, RestartResult } from "../../http-contracts.ts"
 import { Authorization, requirePermission } from "../../kernel/auth-contract.ts"
 import { BadRequest, Forbidden, NotFound } from "../../kernel/errors.ts"
-import type { CubeDefinition, CubeTools } from "../../kernel/manifest.ts"
 import { settingsCommands } from "./commands.ts"
 import { CubeState, InstallFromPayload, InstallFromResult, PackageState } from "./contract.ts"
 
 const Toggle = Schema.Struct({ enabled: Schema.Boolean }).annotations({ identifier: "Toggle" })
-
-/**
- * What an install actually did.
- *
- * `requiresRestart` is in the contract, not in a comment, because the kernel discovers cubes at
- * startup: the directory is on disk but nothing is mounted yet. A response that listed the new
- * routes as if they were live would be a lie the caller cannot check.
- */
-const InstallResult = Schema.Struct({
-  package: PackageState,
-  requiresRestart: Schema.Boolean,
-}).annotations({ identifier: "InstallResult" })
-
-const RemoveResult = Schema.Struct({
-  removed: Schema.String,
-  requiresRestart: Schema.Boolean,
-}).annotations({ identifier: "RemoveResult" })
-
-const RestartResult = Schema.Struct({
-  restarting: Schema.Boolean,
-  message: Schema.String,
-}).annotations({ identifier: "RestartResult" })
 
 /**
  * How the API restarts itself. The process must hand its life to something that will bring it
@@ -102,7 +81,7 @@ const group = HttpApiGroup.make("settings")
   )
   .middleware(Authorization)
 
-export const cube: CubeDefinition = {
+export const cube = defineCube(group, {
   manifest: {
     name: "settings",
     tables: [],
@@ -145,8 +124,6 @@ export const cube: CubeDefinition = {
     }
 
     return {
-      group,
-
       commands: settingsCommands(catalogue, installer),
 
       handlers: {
@@ -275,4 +252,4 @@ export const cube: CubeDefinition = {
       },
     }
   },
-}
+})
