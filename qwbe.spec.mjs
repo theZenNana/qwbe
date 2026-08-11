@@ -186,15 +186,24 @@ test("the shell always exposes API docs and reports API availability honestly", 
   await page.locator("nav.bara").getByText("notes", { exact: true }).click()
   await expect(apiLinks.getByRole("link", { name: "API Docs" })).toBeVisible()
   await page.setViewportSize({ width: 390, height: 844 })
-  expect(
-    await apiLinks
-      .getByRole("link", { name: "OpenAPI" })
-      .evaluate((link) => link.getBoundingClientRect().right <= innerWidth),
-  ).toBe(true)
+  for (const element of [apiLinks, page.locator("nav.bara"), page.getByRole("button", { name: "sign out" })]) {
+    expect(
+      await element.evaluate((node) => {
+        const box = node.getBoundingClientRect()
+        return box.left >= 0 && box.right <= innerWidth
+      }),
+    ).toBe(true)
+  }
 
   await page.route(`${API}/settings/cubes`, (route) => route.abort())
   await page.goto(`${WEB}/settings`, { waitUntil: "networkidle" })
   await expect(apiLinks.getByText("API unavailable")).toBeVisible()
+  await expect(apiLinks.getByRole("link")).toHaveCount(0)
+
+  await page.unroute(`${API}/settings/cubes`)
+  await page.goto(`${WEB}/notes`, { waitUntil: "networkidle" })
+  await expect(apiLinks.getByText("API connected")).toBeVisible()
+  await expect(apiLinks.getByRole("link", { name: "API Docs" })).toBeVisible()
 })
 
 test("lists are paged: 10 per page, with the real total", async ({ page }) => {

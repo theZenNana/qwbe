@@ -164,6 +164,9 @@ button.ca-link:hover {
 .api-status.indisponibil {
   color: var(--stins);
 }
+.api-link-inactiv {
+  color: var(--sters);
+}
 
 h2 {
   margin: 0 0 4px;
