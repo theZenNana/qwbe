@@ -1,4 +1,4 @@
-// Installing and removing cubes — the capability behind the install page.
+// Installing and removing cubes -- the capability behind the install page.
 //
 // The invariant this file must not break is the one in `manifest.ts`:
 //
@@ -11,19 +11,19 @@
 //
 // WHY THIS LIVES IN THE KERNEL, not in the settings cube:
 //
-// Cubes may not touch `node:fs` — a boundary rule enforces it, because a cube with a filesystem
+// Cubes may not touch `node:fs` -- a boundary rule enforces it, because a cube with a filesystem
 // handle can open another cube's database and the isolation story collapses. The settings cube
 // is not exempt: a rule that carves out an exception for whoever enforces it stops being a rule.
 // So the kernel owns the filesystem and hands out a NARROW capability, granted on the same
 // declared basis as the switches (`managesCubes: true` in the manifest, at most one cube).
 //
-// WHAT THE CAPABILITY DELIBERATELY CANNOT DO — this is the security surface, so it is written
+// WHAT THE CAPABILITY DELIBERATELY CANNOT DO -- this is the security surface, so it is written
 // out rather than implied:
 //
 //   * It cannot copy from anywhere. Sources come only from the store directory, one level deep.
 //   * It cannot write anywhere. Destinations are only `src/cubes/<name>` or `plugins/<name>`.
 //   * It cannot be handed a path. It takes a NAME, matched against a strict pattern, and every
-//     resolved path is re-checked to sit under its allowed root — belt and braces, because the
+//     resolved path is re-checked to sit under its allowed root -- belt and braces, because the
 //     pattern is the kind of thing that gets relaxed later by someone in a hurry.
 //   * It cannot overwrite. An install onto an existing directory is refused, not merged: the
 //     invariant says no existing file is touched, and a merge touches files.
@@ -32,7 +32,7 @@
 //
 // WHAT IT HONESTLY CANNOT PROMISE: the kernel discovers cubes at STARTUP. Writing the directory
 // does not mount it. The caller is told `requiresRestart: true` rather than being shown a route
-// list that is not live yet — a page that lies about what happened is worse than one that asks
+// list that is not live yet -- a page that lies about what happened is worse than one that asks
 // you to restart.
 
 import { exec } from "node:child_process"
@@ -40,7 +40,7 @@ import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statS
 import { dirname, join, resolve, sep } from "node:path"
 import { fileURLToPath } from "node:url"
 import { InstallError, PROVENANCE, stageAndInstall as stageAndInstallFor } from "./install-from.ts"
-import type { CubeInstaller, CubePackage } from "./manifest.ts"
+import { type CubeInstaller, type CubePackage, identitySegments } from "./manifest.ts"
 
 export { InstallError }
 
@@ -58,7 +58,7 @@ const MANIFEST = "qwbe-package.json"
 /**
  * Names allowed for a package, a cube, or a plugin.
  *
- * Lowercase, starts with a letter, no dots and no separators — so `..`, `./x`, `a/b`, `a\b`,
+ * Lowercase, starts with a letter, no dots and no separators -- so `..`, `./x`, `a/b`, `a\b`,
  * absolute paths and Windows drive letters are all rejected by the shape, before any path is
  * built from them.
  */
@@ -101,7 +101,7 @@ const sizeOf = (dir: string): number => {
 /**
  * Every cube name currently on disk, wherever it came from.
  *
- * The kernel already refuses to start when two cubes share a name (`DuplicateCubeError`) — that
+ * The kernel already refuses to start when two cubes share a name (`DuplicateCubeError`) -- that
  * rule is right, and it is what turned this into a real failure: two store packages both brought
  * a cube called `contacts`, install accepted the second, and the next startup died. The server
  * did not come up at all, which from a button in a web page is the worst outcome available.
@@ -193,11 +193,11 @@ const readPackageAt = (name: string, dir: string): CubePackage => {
 
   if (raw.name !== name) {
     // A package whose manifest names something else would install under one name and appear
-    // under another — the first step of shadowing an existing cube.
+    // under another -- the first step of shadowing an existing cube.
     throw new InstallError(`refused: package directory "${name}" declares name "${raw.name}"`)
   }
   if (raw.kind !== "cube" && raw.kind !== "plugin") {
-    throw new InstallError(`refused: package "${name}" declares kind "${raw.kind}" — expected cube or plugin`)
+    throw new InstallError(`refused: package "${name}" declares kind "${raw.kind}" -- expected cube or plugin`)
   }
 
   const cubes = raw.kind === "plugin" ? (raw.cubes ?? []) : [name]
@@ -218,7 +218,7 @@ const readPackageAt = (name: string, dir: string): CubePackage => {
 
   const kind = raw.kind
   const installed = existsSync(destinationOf({ name, kind }))
-  // A package already installed does not "conflict with itself" — its own cubes are on disk
+  // A package already installed does not "conflict with itself" -- its own cubes are on disk
   // precisely because it put them there.
   const mine = new Set(installed ? cubes : [])
   const taken = cubesOnDisk()
@@ -243,10 +243,10 @@ export const installerFor = (): CubeInstaller => ({
     // Discovery predates the package slug grammar and mounts any non-hidden directory. This
     // read capability must describe that state without turning the whole settings catalogue
     // into a 500. Write operations below remain strict and still call checkName.
-    if (!NAME.test(cube) || (plugin !== null && !NAME.test(plugin))) return false
-    return existsSync(
-      plugin ? under(pluginsDir, join(pluginsDir, plugin, "cubes", cube)) : under(cubesDir, join(cubesDir, cube)),
-    )
+    const segments = identitySegments(cube)
+    if (segments.some((s) => !NAME.test(s)) || (plugin !== null && !NAME.test(plugin))) return false
+    const base = plugin ? join(pluginsDir, plugin, "cubes") : cubesDir
+    return existsSync(under(base, join(base, ...segments)))
   },
 
   available: () => {
@@ -257,7 +257,7 @@ export const installerFor = (): CubeInstaller => ({
         try {
           return [readPackage(e.name)]
         } catch {
-          // A malformed package in the store must not take the whole list down — the page has
+          // A malformed package in the store must not take the whole list down -- the page has
           // to keep working so you can install the ones that are fine.
           return []
         }
@@ -271,7 +271,7 @@ export const installerFor = (): CubeInstaller => ({
     const pkg = readPackage(name)
     const to = destinationOf(pkg)
     if (!existsSync(to)) {
-      throw new InstallError(`refused: "${name}" is not installed — nothing at "${to.replace(srcDir, "src")}"`)
+      throw new InstallError(`refused: "${name}" is not installed -- nothing at "${to.replace(srcDir, "src")}"`)
     }
     rmSync(to, { recursive: true, force: true })
     return { removed: to.replace(resolve(srcDir, ".."), "."), cubes: pkg.cubes }
@@ -279,7 +279,7 @@ export const installerFor = (): CubeInstaller => ({
 
   stageAndInstall: stageAndInstallFor({ storeDir, readPackageAt, installExisting }),
 
-  // Reply first, die second — the caller must hear "yes" before the port goes away. The delay is
+  // Reply first, die second -- the caller must hear "yes" before the port goes away. The delay is
   // what makes that true; without it the response and the exit race, and the loser is the person
   // clicking the button.
   restart: () => {

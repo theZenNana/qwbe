@@ -1,7 +1,7 @@
 // Contract composition and the LIFE RULES.
 //
 // The central rule: a cube that is not wired into authentication is not "alive but returning
-// 401" — it does not exist. Two layers, not one:
+// 401" -- it does not exist. Two layers, not one:
 //
 //   1. AT MOUNT (here): a cube with `requiresAuth: true` does not mount at all if the `auth`
 //      cube is absent. The server refuses to start and says why.
@@ -22,6 +22,10 @@ import {
 } from "@effect/platform"
 import { Effect, Layer } from "effect"
 import type { MountedCube } from "./discovery.ts"
+import { checkRouteOwnership, routePrefixOf } from "./routes.ts"
+
+export { checkRouteOwnership, DuplicateGroupError, PrefixCollisionError, RouteOwnershipError } from "./routes.ts"
+
 import { danglingLinks, type SpaceDefinition } from "./space.ts"
 
 export class DeadCubeError extends Error {
@@ -29,7 +33,7 @@ export class DeadCubeError extends Error {
     super(
       `Dead cubes: ${names.join(", ")}. ` +
         `Each requires authentication, but the "auth" cube is not mounted. ` +
-        `A cube without auth is not "alive and returning 401" — it does not exist at all. ` +
+        `A cube without auth is not "alive and returning 401" -- it does not exist at all. ` +
         `Mount "auth" or drop these from QWBE_MOUNTED.`,
     )
     this.name = "DeadCubeError"
@@ -48,11 +52,11 @@ export class PublicEndpointError extends Error {
 }
 
 /**
- * A dangling link is a WARNING, never fatal — and getting that wrong once is worth recording.
+ * A dangling link is a WARNING, never fatal -- and getting that wrong once is worth recording.
  *
  * The first version of this check threw. The invariant probe caught it immediately: deleting
  * the `notes` directory stopped the server, because the space still declared a link to it. That
- * would mean uninstalling a cube requires editing a file that is not yours — the exact thing
+ * would mean uninstalling a cube requires editing a file that is not yours -- the exact thing
  * the whole design exists to prevent.
  *
  * And there is no way to tell a typo from a deliberate removal: both look like "the other end
@@ -60,7 +64,7 @@ export class PublicEndpointError extends Error {
  *
  * What is done instead: the link is inactive (`activeLinks` already filters to mounted and
  * enabled), and the problem is printed loudly at startup and carried in the mounted system so
- * the UI can show it. Visible rather than fatal — because the failure mode being guarded
+ * the UI can show it. Visible rather than fatal -- because the failure mode being guarded
  * against is a silent empty list, and a warning fixes that just as well.
  */
 export type DanglingLink = {
@@ -68,42 +72,6 @@ export type DanglingLink = {
   readonly from: string
   readonly to: string
   readonly reason: string
-}
-
-export class RouteOwnershipError extends Error {
-  constructor(problems: ReadonlyArray<{ cube: string; path: string; prefix: string }>) {
-    super(
-      `Cubes declaring routes outside their own prefix:\n` +
-        problems.map((p) => `  - cube "${p.cube}" declares ${p.path} (prefix "${p.prefix}")`).join("\n") +
-        `\nEvery route must start with the cube's own name. Without that rule, a cube can serve ` +
-        `endpoints under another cube's prefix — and switching a cube off, which matches on the ` +
-        `first path segment, then misses them entirely. Demonstrated by review: a hostile cube ` +
-        `kept answering on /notes/backdoor after Settings reported it disabled.`,
-    )
-    this.name = "RouteOwnershipError"
-  }
-}
-
-/**
- * Every endpoint of a cube must live under `/<cube-name>/…`.
- *
- * This is what makes prefix-based switching sound. `rejectDisabled` matches the first path
- * segment; if two cubes could share a segment, the first match wins and the other becomes
- * unreachable by the switch. Rather than make the matcher cleverer, the ambiguity is removed.
- */
-export const checkRouteOwnership = (cubes: ReadonlyArray<MountedCube>): void => {
-  const problems: Array<{ cube: string; path: string; prefix: string }> = []
-  for (const c of cubes) {
-    const group = c.parts.group as { endpoints?: Record<string, { path?: string }> }
-    for (const e of Object.values(group.endpoints ?? {})) {
-      const path = e.path ?? ""
-      const prefix = path.split("/").filter(Boolean)[0] ?? ""
-      if (prefix !== c.manifest.name) {
-        problems.push({ cube: c.manifest.name, path, prefix })
-      }
-    }
-  }
-  if (problems.length > 0) throw new RouteOwnershipError(problems)
 }
 
 const AUTH_TAG = "cubes/Authorization"
@@ -149,13 +117,13 @@ export const checkCubes = (
     if (open.length > 0) throw new PublicEndpointError(c.manifest.name, open)
   }
 
-  // Fatal: a cube serving routes under someone else's prefix — see `checkRouteOwnership`.
+  // Fatal: a cube serving routes under someone else's prefix -- see `checkRouteOwnership`.
   checkRouteOwnership(cubes)
 
-  // Not fatal: links whose other end is not mounted. Reported, not thrown — see `DanglingLink`.
+  // Not fatal: links whose other end is not mounted. Reported, not thrown -- see `DanglingLink`.
   return danglingLinks(
     spaces,
-    cubes.map((c) => ({ name: c.manifest.name, entity: c.manifest.entity })),
+    cubes.map((c) => ({ name: c.name, entity: c.manifest.entity })),
   ).map((d) => ({ space: d.space, from: d.link.from, to: d.link.to, reason: d.reason }))
 }
 
@@ -164,7 +132,7 @@ export const checkCubes = (
  *
  * WHY the `any`, not merely that it is there:
  *
- * The type of a composed `HttpApi` IS its list of groups — `.add(g1).add(g2)` has a different
+ * The type of a composed `HttpApi` IS its list of groups -- `.add(g1).add(g2)` has a different
  * type from `.add(g1)`. Keeping the static type means composing statically, i.e. writing the
  * list of cubes in code. But discovery at runtime is the entire point: a list in code is the
  * central registry we removed, wearing a different hat.
@@ -172,7 +140,7 @@ export const checkCubes = (
  * Checked against the Effect docs: `add()` and `addHttpApi()` exist and the API is chainable
  * since 3.10, but no documented pattern exists for optionally-mounted groups with types
  * preserved, and there is no large open-source Effect application to copy a solution from. So
- * this is a price paid deliberately, confined to two functions — not a hole left open.
+ * this is a price paid deliberately, confined to two functions -- not a hole left open.
  *
  * What is recovered: the emitted OpenAPI is complete, and the frontend takes its shapes there.
  */
@@ -192,33 +160,34 @@ export const checkCubes = (
 // Ce NU se rezolvă: `any`-ul de mai jos. Vezi comentariul de deasupra.
 export const buildApi = (cubes: ReadonlyArray<MountedCube>): HttpApi.HttpApi<"cubes", never, never, never> => {
   const empty = HttpApi.make("cubes")
-    .annotate(OpenApi.Title, "Qwbe — kernel plus cubes discovered from disk")
+    .annotate(OpenApi.Title, "Qwbe -- kernel plus cubes discovered from disk")
     .annotate(
       OpenApi.Description,
       "One cube = one directory. Installing it touches no existing file. Plugins land in the same namespace.",
     )
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
   return cubes.reduce<any>((api, c) => api.add(c.parts.group), empty)
 }
 
 /**
  * One handler layer per cube, over the contract built above.
  *
- * `mergeAll` asks for a NON-EMPTY tuple, and a mount with no cubes is a real state — the switches
+ * `mergeAll` asks for a NON-EMPTY tuple, and a mount with no cubes is a real state -- the switches
  * can turn every one of them off. Spreading a plain array at it type-checked as
  * "A spread argument must either have a tuple type", which is the compiler saying it cannot
  * promise there is a first element. So the first one is taken out by hand and the empty case
  * answers `Layer.empty`, which is what "no handlers" means.
  */
 export const buildHandlers = (api: unknown, cubes: ReadonlyArray<MountedCube>): Layer.Layer<never, never, never> => {
-  const layers = cubes.map((c) =>
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    HttpApiBuilder.group(api as any, c.manifest.name as never, (h: any) =>
+  const layers = cubes.map((c) => {
+    const id = (c.parts.group as { identifier?: string }).identifier ?? c.manifest.name
+
+    return HttpApiBuilder.group(api as any, id as never, (h: any) =>
       Object.entries(c.parts.handlers).reduce((acc, [name, impl]) => acc.handle(name, impl), h),
-    ),
-  )
+    )
+  })
   const [first, ...rest] = layers
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
   return (first === undefined ? Layer.empty : Layer.mergeAll(first, ...rest)) as any
 }
 
@@ -227,27 +196,33 @@ export const buildHandlers = (api: unknown, cubes: ReadonlyArray<MountedCube>): 
  *
  * Sitting ahead of the API means a cube switched off in Settings returns 404 without touching
  * authentication or any handler. The second layer of switching off is in the registry, where a
- * disabled cube also vanishes from everyone else's related lists — so its tabs disappear from
+ * disabled cube also vanishes from everyone else's related lists -- so its tabs disappear from
  * the UI too, because the frontend takes tabs from the catalogue.
  *
  * Route prefixes are read from each cube's REAL contract, not a hand-written table: if a cube
  * changes its routes, switching off follows by itself.
  */
 export const rejectDisabled = (cubes: ReadonlyArray<MountedCube>, isEnabled: (name: string) => boolean) => {
-  // `checkRouteOwnership` has already guaranteed that a route's first segment IS the cube name,
-  // so the mapping is exact and a lookup can never land on the wrong cube. The earlier version
-  // scanned a list and took the first match, which is how a cube declaring `/notes/backdoor`
-  // stayed reachable after `notes` was switched off.
-  const owner = new Map(cubes.map((c) => [c.manifest.name, c.manifest.name]))
+  // `checkRouteOwnership` has already guaranteed that a route's first segment belongs to
+  // exactly one cube, so the mapping is exact. The value is the cube's FULL name
+  // (`booktags/bookmarks`), so the parent mask applies: a disabled parent hides every route
+  // of every child. The key is the prefix the cube actually serves -- for a child whose leaf
+  // name is taken by a standalone cube, that is `<parent>-<name>`.
+  const owner = new Map(
+    cubes.flatMap((c) => {
+      const prefix = routePrefixOf(c)
+      return prefix ? [[prefix, c.name] as const] : []
+    }),
+  )
 
   return HttpMiddleware.make((app) =>
     Effect.gen(function* () {
       const req = yield* HttpServerRequest.HttpServerRequest
       const first = (req.url.split("?")[0] ?? "").split("/").filter(Boolean)[0]
-      const match = first && owner.has(first) ? { cube: first } : undefined
-      if (match && !isEnabled(match.cube)) {
+      const cube = first ? owner.get(first) : undefined
+      if (cube && !isEnabled(cube)) {
         // Byte-for-byte what an unmatched route returns: 404 with an empty body. Anything else
-        // — even a generic JSON message — distinguishes "switched off" from "never existed",
+        // -- even a generic JSON message -- distinguishes "switched off" from "never existed",
         // and that difference answers "which cubes does this system have" to anyone, without a
         // token, in front of the authentication this check runs before.
         //

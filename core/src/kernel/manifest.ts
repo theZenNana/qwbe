@@ -1,4 +1,4 @@
-// The manifest — the only source of truth about a cube.
+// The manifest -- the only source of truth about a cube.
 //
 // The invariant everything else serves:
 //
@@ -9,17 +9,18 @@
 // mount time (`discovery.ts`). There is no central list of cubes anywhere.
 //
 // What is NOT here, and this is the change from the previous iteration: a cube does not
-// declare links to other entities. Those live one level up, in `spaces/` — declared by a
+// declare links to other entities. Those live one level up, in `spaces/` -- declared by a
 // third party, so neither side knows the other exists. See `space.ts`.
 
 import type { Effect } from "effect"
+import { Schema } from "effect"
 import type { SummaryRow } from "./entity.ts"
 import type { Page, PageRequest } from "./pagination.ts"
 import type { RequiredCubeError, StateFileError, UnknownCubeError } from "./state.ts"
 
 /** A permission invented by a cube, with the roles that receive it by default. */
 export type PermissionSpec = {
-  /** e.g. "notes:read". The prefix must be the cube name — checked at mount. */
+  /** e.g. "notes:read". The prefix must be the cube name -- checked at mount. */
   readonly name: string
   readonly roles: ReadonlyArray<string>
 }
@@ -31,7 +32,7 @@ export type PermissionSpec = {
  * know which cubes exist. Adding a command is adding a line to your own manifest.
  */
 export type CommandSpec = {
-  /** e.g. "notes:count". Prefix must be the cube name — checked at mount. */
+  /** e.g. "notes:count". Prefix must be the cube name -- checked at mount. */
   readonly name: string
   readonly summary: string
   /** Permission required to run it. Must be one this cube declares. */
@@ -40,7 +41,7 @@ export type CommandSpec = {
    * How many arguments it accepts. Default zero.
    *
    * Found by attacking the gate's own claim: `notes:count && cat /etc/passwd` returned 200.
-   * No shell ran — that part held — but the gate took the first token as the command and threw
+   * No shell ran -- that part held -- but the gate took the first token as the command and threw
    * the rest away in silence, so the caller believed the whole line had executed. Silent
    * discarding of input is the failure mode a gate exists to prevent, not produce.
    */
@@ -74,13 +75,13 @@ export type CommandSpec = {
  *
  * The split exists because handing `run` around was a capability leak, demonstrated rather
  * than argued: a cube declaring no permissions at all took `commands()`, called `run()` on
- * `account:list`, and got the account table — with no token, no session, and `dependency-cruiser`
+ * `account:list`, and got the account table -- with no token, no session, and `dependency-cruiser`
  * reporting zero violations, because nothing forbidden had been imported. It used exactly what
  * the kernel handed it.
  *
  * That is what made this worse than the store hole: the store bypass is an illegal import and a
  * boundary rule catches it. This one was legal by construction. Of the four paths between cubes,
- * `commands` was the only one passing executable capability instead of mediated data — so it was
+ * `commands` was the only one passing executable capability instead of mediated data -- so it was
  * brought in line with the other three.
  */
 export type CommandInfo = {
@@ -112,15 +113,25 @@ export type CommandRefusal =
   | { readonly _tag: "TooManyArgs"; readonly allowed: number; readonly got: number }
 
 export type Manifest = {
-  /** Must equal the directory name — checked at mount, so two cubes cannot share a name. */
+  /** Must equal the directory name -- checked at mount, so two cubes cannot share a name. */
   readonly name: string
+  /**
+   * Declared by a CHILD cube: the name of the parent directory it sits in.
+   *
+   * Runtime hierarchy (docs/booktags-hierarchy.md): a child lives at
+   * `cubes/<parent>/<child>/` or `plugins/<p>/cubes/<parent>/<child>/` and is addressed as
+   * `<parent>/<child>`. The kernel checks this field against the real directory layout --
+   * a manifest cannot claim a parent it does not sit inside, and a directory nested in a cube
+   * without declaring it fails the same way. Absent for standalone cubes and for parents.
+   */
+  readonly parent?: string
   /** Tables it OWNS. Its store opens exactly these and nothing else (`store.ts`). */
   readonly tables: ReadonlyArray<string>
   /** The public entity it holds, e.g. "Account". Absent for cubes without data. */
   readonly entity?: string
   /**
    * "I have a screen of my own." Entity cubes get the generic list screen; this is for a cube
-   * whose screen is not a list of rows — one that owns no table, yet whose screen is the whole
+   * whose screen is not a list of rows -- one that owns no table, yet whose screen is the whole
    * point of it.
    *
    * Declared BY the cube, aggregated by the kernel, like everything else here. The alternative
@@ -132,7 +143,7 @@ export type Manifest = {
    * Fields callers may sort by. Empty means "meta columns only" (`id`, `type`, `createdAt`).
    *
    * Anything not listed is ignored, and the default order is used. Without this list, sorting
-   * could order rows by a column the cube never puts in its responses — which leaks information
+   * could order rows by a column the cube never puts in its responses -- which leaks information
    * about values the caller cannot read. Published in the catalogue so clients know the set.
    */
   readonly sortable?: ReadonlyArray<string>
@@ -147,7 +158,7 @@ export type Manifest = {
    * DECLARED PRIVILEGE: this cube receives the on/off switches.
    *
    * At most one cube may ask for it, checked at mount. It is the only escape hatch in the
-   * system and it is declared here, in the open — `grep -r managesCubes cubes/` returns the
+   * system and it is declared here, in the open -- `grep -r managesCubes cubes/` returns the
    * complete list of privileged cubes. That is the difference from an exemption buried in a
    * config file: exemptions there accumulate, this one is singular and visible.
    */
@@ -157,7 +168,7 @@ export type Manifest = {
    *
    * Added after both reviewers found the same critical hole from different directions. The
    * `account` cube used to put `passwordHash` into its registry summary so that `auth` could
-   * check a password. But a summary is a PUBLIC representation — anything with `links:read`
+   * check a password. But a summary is a PUBLIC representation -- anything with `links:read`
    * could ask for it, and `reader` has that. Reproduced: an ordinary reader account fetched
    * `/links/Note/<id>` and read the administrator's hash out of `parents[0].summary.details`.
    * With a fixed salt and no KDF, an offline dictionary attack on that is instant.
@@ -177,6 +188,15 @@ export type Manifest = {
    * be skipped by whoever holds it. Before this existed, every cube could run every command.
    */
   readonly runsCommands?: boolean
+  /**
+   * Data-file migrations this package declares, run at mount before any store opens.
+   *
+   * Declared here -- in the declarative manifest, not in `create` -- because migration is a
+   * package-level claim about where its data moved, not executable behaviour. The kernel
+   * executes it after checking every entry against the mounted set and the package
+   * provenance, so a plugin cannot ask for `auth.sqlite`.
+   */
+  readonly dataMigration?: ReadonlyArray<DataMigration>
 }
 
 /** What a credential provider offers, and a consumer receives. Never the hash itself. */
@@ -200,7 +220,7 @@ export type SearchResult = {
  * How a cube lets itself be found, without anyone importing it.
  *
  * Every function is `Effect<..., never, never>`: the kernel binds the cube's own store before
- * putting these in the registry, so callers supply nothing — and, more importantly, cannot
+ * putting these in the registry, so callers supply nothing -- and, more importantly, cannot
  * slip in a different store.
  */
 export type RelationalPart = {
@@ -229,14 +249,14 @@ export type CubeDefinition = {
 export type CubeTools = {
   readonly store: CubeStore
   readonly bus: CubeBus
-  /** Names and shapes of mounted cubes — never their data. The frontend draws screens from this. */
+  /** Names and shapes of mounted cubes -- never their data. The frontend draws screens from this. */
   readonly catalogue: () => Catalogue
   /** All permissions aggregated from every manifest. Read by `auth`. */
   readonly permissions: () => ReadonlyMap<string, ReadonlyArray<string>>
-  /** Metadata for every command in the system. Deliberately WITHOUT `run` — see `CommandInfo`. */
+  /** Metadata for every command in the system. Deliberately WITHOUT `run` -- see `CommandInfo`. */
   readonly commands: () => ReadonlyArray<CommandInfo>
   // The five below are `?: X | undefined`, not `?: X`, and the difference is not decoration.
-  // Under `exactOptionalPropertyTypes` a bare `?:` means "absent OR a value" — never "present
+  // Under `exactOptionalPropertyTypes` a bare `?:` means "absent OR a value" -- never "present
   // and undefined". But the kernel BUILDS this object in one literal, writing
   // `installer: m.managesCubes ? installerFor() : undefined` for every cube; a cube that did not
   // ask gets the key with `undefined` in it. Same lie as `PageRequest.sortBy` and
@@ -250,7 +270,7 @@ export type CubeTools = {
    * Present ONLY when the manifest asks for `managesCubes: true`.
    *
    * Copying a directory into `cubes/` is how a cube gets installed, and cubes may not touch
-   * `node:fs`. So the kernel keeps the filesystem and lends a narrow, name-based capability —
+   * `node:fs`. So the kernel keeps the filesystem and lends a narrow, name-based capability --
    * see `install.ts` for what it deliberately cannot do.
    */
   readonly installer?: CubeInstaller | undefined
@@ -261,6 +281,8 @@ export type CubeTools = {
 
 export type Catalogue = ReadonlyArray<{
   readonly name: string
+  /** The parent cube's name for a child (`booktags` for `booktags/bookmarks`), else absent. */
+  readonly parent?: string | undefined
   /** `| undefined` for the same reason as in `CubeTools`: the kernel copies `m.entity` across
    *  for every cube, and a cube without an entity puts the key there holding `undefined`. */
   readonly entity?: string | undefined
@@ -271,6 +293,9 @@ export type Catalogue = ReadonlyArray<{
   readonly system: boolean
   /** Which plugin brought it, or `null` for the ones shipped with core. */
   readonly plugin: string | null
+  /** First URL segment this cube serves under, when it has endpoints (children whose leaf
+   *  name is taken serve under `<parent>-<name>`). Absent for cubes with no routes. */
+  readonly prefix?: string | undefined
   readonly publishes: ReadonlyArray<string>
   /** Fields a caller may sort this cube's list by. Published so clients need not guess. */
   readonly sortable: ReadonlyArray<string>
@@ -282,7 +307,7 @@ export type Catalogue = ReadonlyArray<{
  * What a package in the store looks like from a cube's side: a name and what it brings.
  *
  * Never a path. The cube cannot express "install from /etc" because the type gives it nowhere
- * to put a path — the narrowing is in the shape, not only in the validation.
+ * to put a path -- the narrowing is in the shape, not only in the validation.
  */
 export type CubePackage = Readonly<{
   name: string
@@ -323,8 +348,8 @@ export type CubeSwitches = {
     readonly required: boolean
   }>
   /**
-   * Fails instead of throwing: the cube sees in the type what a refusal can be — a required
-   * cube, an unknown one, a disk that would not take the write — and maps each to its own
+   * Fails instead of throwing: the cube sees in the type what a refusal can be -- a required
+   * cube, an unknown one, a disk that would not take the write -- and maps each to its own
    * status. A `try/catch` around a string message could not tell them apart.
    */
   readonly set: (
@@ -352,7 +377,7 @@ export type CubeParts = {
    * Effect layers the cube provides to the whole system.
    *
    * Its only present use: the `auth` cube IMPLEMENTS the `Authorization` tag declared in the
-   * kernel. General mechanism, not an auth special case — but also the only way a cube can
+   * kernel. General mechanism, not an auth special case -- but also the only way a cube can
    * affect what others see, so it gets read carefully at review.
    */
   readonly layers?: unknown
@@ -375,7 +400,7 @@ export class InvalidManifestError extends Error {
  * Check a manifest against the directory it came from.
  *
  * The rule being defended: a manifest cannot lie. The name must be the directory's, and
- * permissions and commands must carry its prefix — otherwise a cube could grant itself
+ * permissions and commands must carry its prefix -- otherwise a cube could grant itself
  * `account:write` without being `account`. Same test as everywhere in this kernel: read the
  * real artefact, not the declaration.
  */
@@ -384,7 +409,7 @@ export class InvalidManifestError extends Error {
  *
  * Not cosmetic. An adversarial review built a cube called `notes:evil`; because command names
  * are split on `:` to find their owning cube, its commands were routed to the switch belonging
- * to `notes` — so switching `notes:evil` off left its commands running while Settings reported
+ * to `notes` -- so switching `notes:evil` off left its commands running while Settings reported
  * it disabled. A button that lies is worse than no button.
  *
  * Restricting the character set removes the ambiguity at its source instead of patching every
@@ -392,24 +417,97 @@ export class InvalidManifestError extends Error {
  */
 const NAME_PATTERN = /^[a-z][a-z0-9-]*$/
 
+/**
+ * The full identity of a cube: `<parent>/<name>` for a child, bare `name` otherwise.
+ *
+ * Everything derived from the cube's name -- permission and command prefixes, the switch key,
+ * the store file -- uses this, so a child can never invent a name that collides with a
+ * standalone cube. See docs/booktags-hierarchy.md section 1.
+ */
+export const fullName = (m: Pick<Manifest, "name" | "parent">): string => (m.parent ? `${m.parent}/${m.name}` : m.name)
+
+/** The store file is path-safe: `booktags/bookmarks` -> `booktags--bookmarks.sqlite`. */
+export const storeFileName = (cube: string): string => `${cube.replace(/\//g, "--")}.sqlite`
+
+/**
+ * ONE identity -> ONE path, in every direction the kernel needs.
+ *
+ * The compound identity `<parent>/<child>` is a TYPE-level fact (`fullName`), but paths are
+ * strings. These three functions are the only legal transformations between them -- a `split("/")`
+ * or a `replace("/", "-")` anywhere else is a divergent reimplementation, and reviewers found
+ * them drifting apart between kernel and web.
+ *
+ *   screenPath  -- the web route a cube's screen lives at: `/booktags/bookmarks`, `/notes`
+ *   prefixOf    -- the first HTTP segment a cube serves under: `bookmarks`, `booktags-settings`
+ */
+export const screenPath = (name: string, parent?: string): string => (parent ? `/${parent}/${name}` : `/${name}`)
+export const leafOf = (full: string): string => (full.includes("/") ? (full.split("/")[1] as string) : full)
+export const parentOf = (full: string): string | undefined => (full.includes("/") ? full.split("/")[0] : undefined)
+
+/** Path-safe identity segments for discovery/install filesystem joins. */
+export const identitySegments = (full: string): ReadonlyArray<string> => full.split("/")
+
+/** The first segment of an HTTP path -- the segment the on/off switch matches on. */
+export const pathPrefix = (path: string): string | undefined => path.split("/").filter(Boolean)[0]
+
+/** The dash form used for route prefixes: `booktags/settings` -> `booktags-settings`. */
+export const dashForm = (full: string): string => full.replace("/", "-")
+
+/**
+ * A data-file migration, DECLARED by the package (parent manifest), executed by the kernel.
+ *
+ * The kernel knows nothing about `bookmarks` or `booktags` -- it renames `fromFile` to
+ * `storeFileName(toCube)` and nothing else. `toCube` must resolve to a mounted cube of THIS
+ * package, and `fromFile` must be exactly the file of a cube with the same package provenance.
+ * Both rules are checked at mount (`validateManifest` + `mount`); a manifest cannot name a
+ * path, and cannot reach outside its own package.
+ */
+export type DataMigration = {
+  /**
+   * The old file's cube identity as a bare name (e.g. `bookmarks` for `bookmarks.sqlite`).
+   *
+   * Guarded at mount: it must NOT be the name of a currently-mounted cube of another package
+   * (a mounted cube's file is LIVE, not legacy), and its ledger record must match `fromPlugin`.
+   */
+  readonly fromCube: string
+  /** The cube identity the data belongs to now; MUST be mounted and in the same package. */
+  readonly toCube: string
+  /**
+   * REQUIRED: which package the old cube belonged to (`null` = core). The kernel checks the
+   * claim against its provenance ledger -- written at mount, never by a manifest. A source
+   * with no ledger record is refused unless the operator authorizes the pre-ledger claim
+   * (QWBE_LEGACY_MIGRATIONS) -- the package being checked does not get that vote.
+   */
+  readonly fromPlugin: string | null
+}
+
 export const validateManifest = (directory: string, m: Manifest): void => {
   const reasons: Array<string> = []
+  const full = fullName(m)
 
   if (m.name !== directory) {
-    reasons.push(`name is "${m.name}" but the directory is "${directory}" — they must match`)
+    reasons.push(`name is "${m.name}" but the directory is "${directory}" -- they must match`)
   }
   if (!NAME_PATTERN.test(m.name)) {
     reasons.push(
-      `name "${m.name}" must match ${NAME_PATTERN} — lowercase letters, digits and dashes. ` +
+      `name "${m.name}" must match ${NAME_PATTERN} -- lowercase letters, digits and dashes. ` +
         `A ":" in particular would make its commands look like they belong to another cube.`,
     )
+  }
+  // `qwbe` is the kernel's own publisher name on the bus -- a cube carrying it could speak
+  // with the kernel's voice (qwbe/cube.enabled) and no subscriber could tell the difference.
+  if (m.name === "qwbe") {
+    reasons.push(`name "qwbe" is reserved for the kernel -- it is the publisher name of kernel announcements`)
+  }
+  if (m.parent !== undefined && !NAME_PATTERN.test(m.parent)) {
+    reasons.push(`parent "${m.parent}" must match ${NAME_PATTERN} -- the same slug rule as a cube name`)
   }
   if (m.tables.length === 0 && m.entity) {
     reasons.push(`declares entity "${m.entity}" but owns no tables`)
   }
   for (const p of m.permissions ?? []) {
-    if (!p.name.startsWith(`${m.name}:`)) {
-      reasons.push(`permission "${p.name}" does not start with "${m.name}:" — a cube cannot grant another's`)
+    if (!p.name.startsWith(`${full}:`)) {
+      reasons.push(`permission "${p.name}" does not start with "${full}:" -- a cube cannot grant another's`)
     }
   }
   if (reasons.length > 0) throw new InvalidManifestError(directory, reasons)
@@ -418,6 +516,7 @@ export const validateManifest = (directory: string, m: Manifest): void => {
 /** Commands are validated separately: they are built by `create`, so they exist later. */
 export const validateCommands = (m: Manifest, commands: ReadonlyArray<CommandSpec>): void => {
   const reasons: Array<string> = []
+  const full = fullName(m)
   const own = new Set((m.permissions ?? []).map((p) => p.name))
 
   // Duplicates used to pass: the gate looks a command up with `Array.find`, so the first
@@ -426,20 +525,20 @@ export const validateCommands = (m: Manifest, commands: ReadonlyArray<CommandSpe
   const seen = new Set<string>()
   for (const c of commands) {
     if (seen.has(c.name)) {
-      reasons.push(`command "${c.name}" is declared twice — the second one would be silently ignored`)
+      reasons.push(`command "${c.name}" is declared twice -- the second one would be silently ignored`)
     }
     seen.add(c.name)
   }
 
   for (const c of commands) {
-    if (!c.name.startsWith(`${m.name}:`)) {
-      reasons.push(`command "${c.name}" does not start with "${m.name}:"`)
+    if (!c.name.startsWith(`${full}:`)) {
+      reasons.push(`command "${c.name}" does not start with "${full}:"`)
     }
     if (!own.has(c.permission)) {
       reasons.push(`command "${c.name}" requires permission "${c.permission}", which this cube does not declare`)
     }
   }
-  if (reasons.length > 0) throw new InvalidManifestError(m.name, reasons)
+  if (reasons.length > 0) throw new InvalidManifestError(full, reasons)
 }
 
 export type CubeStore = {
@@ -468,3 +567,16 @@ export type CubeStore = {
 export type CubeBus = {
   readonly publish: (event: string, payload: unknown) => Effect.Effect<void, never, never>
 }
+
+// --- the kernel's own announcements ------------------------------------------------------------
+//
+// The kernel speaks on the bus too, under the reserved `qwbe/` prefix. Its payloads get the
+// same treatment as any other: a Schema at the edge, not a cast. These contracts live HERE
+// because the kernel owns the events -- a package's contracts live in that package.
+
+/** Payload of `qwbe/cube.enabled`: a cube was re-enabled, by name. */
+export const CubeEnabled = Schema.Struct({
+  cube: Schema.String,
+}).annotations({ identifier: "CubeEnabled" })
+
+export const decodeCubeEnabled = Schema.decodeUnknownSync(CubeEnabled)

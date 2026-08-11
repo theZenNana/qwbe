@@ -1,4 +1,4 @@
-// DISCOVERY — level 0, and the reason this prototype exists.
+// DISCOVERY -- level 0, and the reason this prototype exists.
 //
 // There is no list of cubes anywhere. The kernel reads two places and merges them into ONE
 // flat namespace:
@@ -14,12 +14,15 @@
 // Severity is deliberate: a broken manifest stops startup rather than being skipped. Skipping
 // would mean starting with half the cubes and nobody noticing until production.
 
-import { existsSync, readdirSync } from "node:fs"
-import { dirname, join } from "node:path"
-import { fileURLToPath } from "node:url"
 import { Effect } from "effect"
 import { busFrom } from "./bus.ts"
 import { installerFor } from "./install.ts"
+import { discover } from "./scan.ts"
+
+export { BrokenCubeError, DoubleCapabilityError, DoublePrivilegeError, DuplicateCubeError } from "./errors-discovery.ts"
+
+import { BrokenCubeError, DoubleCapabilityError, DoublePrivilegeError } from "./errors-discovery.ts"
+import type { Ledger } from "./ledger.ts"
 import {
   type Catalogue,
   type CommandInfo,
@@ -28,110 +31,36 @@ import {
   type CredentialVerifier,
   type CubeDefinition,
   type CubeParts,
+  fullName,
+  leafOf,
   type Manifest,
+  parentOf,
+  pathPrefix,
   type Subscription,
   validateCommands,
   validateManifest,
 } from "./manifest.ts"
+import { migrateDataFiles } from "./migrate.ts"
+import { checkMigrationOwnership } from "./migrate-ownership.ts"
 import { activeLinks, type SpaceDefinition } from "./space.ts"
 import { type Switches, switchesFrom } from "./state.ts"
 import { checkUniqueTables, storeFor } from "./store.ts"
 
-const here = dirname(fileURLToPath(import.meta.url))
-const cubesDir = join(here, "..", "cubes")
-const pluginsDir = join(here, "..", "..", "plugins")
-
 export type MountedCube = {
   readonly manifest: Manifest
+  /** Full identity: `<parent>/<name>` for a child, bare name otherwise. */
+  readonly name: string
   readonly parts: CubeParts
   /** Which plugin brought it, or `null` for the ones shipped with core. */
   readonly plugin: string | null
   readonly commands: ReadonlyArray<CommandSpec>
 }
 
-export class BrokenCubeError extends Error {
-  constructor(name: string, cause: string) {
-    super(
-      `Cube "${name}" failed to load: ${cause}\n` +
-        `A broken cube stops startup rather than being skipped silently — otherwise the system ` +
-        `would come up with half its cubes and nobody would notice.\n` +
-        `Remove its directory if you want to start without it.`,
-    )
-    this.name = "BrokenCubeError"
-  }
-}
-
-export class DuplicateCubeError extends Error {
-  constructor(name: string, sources: ReadonlyArray<string>) {
-    super(
-      `Two cubes are called "${name}": ${sources.join(" and ")}. ` +
-        `Level 0 is one flat namespace, so names must be unique across core and every plugin. ` +
-        `Rename one, or uninstall the plugin.`,
-    )
-    this.name = "DuplicateCubeError"
-  }
-}
-
-export class DoubleCapabilityError extends Error {
-  constructor(capability: string, cubes: ReadonlyArray<string>) {
-    super(
-      `More than one cube declares \`${capability}\`: ${cubes.join(", ")}. ` +
-        `A declared capability has exactly one holder — two would make it ambiguous which one ` +
-        `the kernel wires up, and ambiguity in a security path is a defect by itself.`,
-    )
-    this.name = "DoubleCapabilityError"
-  }
-}
-
-export class DoublePrivilegeError extends Error {
-  constructor(cubes: ReadonlyArray<string>) {
-    super(
-      `More than one cube asks for \`managesCubes: true\`: ${cubes.join(", ")}. ` +
-        `At most one may hold the switches — two could disable each other and leave the system ` +
-        `with no way to turn anything back on.`,
-    )
-    this.name = "DoublePrivilegeError"
-  }
-}
-
-const subdirectories = (dir: string): ReadonlyArray<string> => {
-  if (!existsSync(dir)) return []
-  return readdirSync(dir, { withFileTypes: true })
-    .filter((d) => d.isDirectory() && !d.name.startsWith("_") && !d.name.startsWith("."))
-    .map((d) => d.name)
-    .sort()
-}
-
-/** Everything on disk, in load order: core cubes first, then each plugin's. */
-export const discover = (): ReadonlyArray<{ name: string; plugin: string | null; specifier: string }> => {
-  const found: Array<{ name: string; plugin: string | null; specifier: string }> = []
-
-  for (const name of subdirectories(cubesDir)) {
-    found.push({ name, plugin: null, specifier: `../cubes/${name}/index.ts` })
-  }
-  for (const plugin of subdirectories(pluginsDir)) {
-    for (const name of subdirectories(join(pluginsDir, plugin, "cubes"))) {
-      found.push({ name, plugin, specifier: `../../plugins/${plugin}/cubes/${name}/index.ts` })
-    }
-  }
-
-  // Names collide across the flat namespace → refuse, with both sources named.
-  const seen = new Map<string, string>()
-  for (const f of found) {
-    const source = f.plugin ? `plugin "${f.plugin}"` : "core"
-    const previous = seen.get(f.name)
-    if (previous) throw new DuplicateCubeError(f.name, [previous, source])
-    seen.set(f.name, source)
-  }
-
-  return found
-}
-
 /**
  * Load the definitions.
  *
  * `QWBE_MOUNTED` narrows the list so decoupling can be exercised without touching code or
- * deleting files. A requested name with no directory is an error — otherwise a typo would look
+ * deleting files. A requested name with no directory is an error -- otherwise a typo would look
  * exactly like a missing cube and cost an hour.
  */
 export const loadDefinitions = async (): Promise<
@@ -153,8 +82,18 @@ export const loadDefinitions = async (): Promise<
     )
   }
 
+  // A child cannot be requested without its parent -- the mask would make it unreachable and
+  // the state file could not even express it. The parent is included silently rather than
+  // refused, because the request's INTENT is clear; a refusal would teach nothing.
+  const expanded = new Set(requested)
+  for (const name of requested) {
+    const p = parentOf(name)
+    if (p && !expanded.has(p)) expanded.add(p)
+  }
+  const finalRequested = [...expanded]
+
   const out: Array<{ name: string; plugin: string | null; definition: CubeDefinition }> = []
-  for (const entry of onDisk.filter((c) => requested.includes(c.name))) {
+  for (const entry of onDisk.filter((c) => finalRequested.includes(c.name))) {
     let mod: Record<string, unknown>
     try {
       mod = (await import(entry.specifier)) as Record<string, unknown>
@@ -167,8 +106,22 @@ export const loadDefinitions = async (): Promise<
     if (typeof definition.create !== "function") throw new BrokenCubeError(entry.name, "definition has no `create`")
 
     // The manifest is checked against the DIRECTORY it came from, not against what it says
-    // about itself. A cube cannot lie about who it is.
-    validateManifest(entry.name, definition.manifest)
+    // about itself. A cube cannot lie about who it is. For a child the layout check extends
+    // to the parent: `booktags/bookmarks` must declare `parent: "booktags"` and sit in the
+    // `booktags` directory -- both halves come from disk, never from the manifest alone.
+    const leaf = leafOf(entry.name)
+    const declaredParent = parentOf(entry.name)
+    validateManifest(leaf, definition.manifest)
+    const m = definition.manifest
+    if (m.parent !== declaredParent) {
+      throw new BrokenCubeError(
+        entry.name,
+        m.parent
+          ? `manifest declares parent "${m.parent}" but the directory sits at "${entry.name}" -- they must match`
+          : `the directory is nested at "${entry.name}" but the manifest declares no \`parent\` -- ` +
+              `a child must name its parent, exactly as it names itself`,
+      )
+    }
     out.push({ name: entry.name, plugin: entry.plugin, definition })
   }
   return out
@@ -182,40 +135,48 @@ export type MountedSystem = {
   readonly commands: () => ReadonlyArray<CommandInfo>
   readonly catalogue: () => Catalogue
   readonly liveLinks: () => ReadonlyArray<import("./space.ts").Link>
+  /** Parent-masked enablement: a child is off while its parent is off. Use this at the edge. */
+  readonly isEnabled: (cube: string) => boolean
 }
 
 /**
  * Mount the system. Order matters and each step depends on the one before:
  *
- *   1. unique tables      — nobody can claim another's data
- *   2. one privileged     — at most one cube administers the switches
- *   3. switches           — built from mounted cubes, so you cannot disable what never started
- *   4. permissions        — aggregated before step 6, because `auth` asks for them in `create`
- *   5. bus + subscription list — the list is filled in step 6 and read per publish
- *   6. live parts         — each cube gets ITS store, ITS bus, and the switches only if declared
+ *   1. unique tables      -- nobody can claim another's data
+ *   2. one privileged     -- at most one cube administers the switches
+ *   3. switches           -- built from mounted cubes, so you cannot disable what never started
+ *   4. permissions        -- aggregated before step 6, because `auth` asks for them in `create`
+ *   5. bus + subscription list -- the list is filled in step 6 and read per publish
+ *   6. live parts         -- each cube gets ITS store, ITS bus, and the switches only if declared
  */
 export const mount = (
   definitions: ReadonlyArray<{ name: string; plugin: string | null; definition: CubeDefinition }>,
   spaces: ReadonlyArray<SpaceDefinition>,
+  ledger: Ledger,
 ): MountedSystem => {
+  // Data migrations are DECLARED by packages, validated against the mounted set AND the
+  // ledger snapshot taken BEFORE any plugin module was imported (main.ts) -- a plugin's
+  // top-level code can rewrite the file on disk, but it cannot rewrite the snapshot.
+  migrateDataFiles(checkMigrationOwnership(definitions, ledger))
+
   const manifests = definitions.map((d) => d.definition.manifest)
 
-  checkUniqueTables(manifests.map((m) => ({ name: m.name, tables: m.tables })))
+  checkUniqueTables(manifests.map((m) => ({ name: fullName(m), tables: m.tables })))
 
-  const privileged = manifests.filter((m) => m.managesCubes).map((m) => m.name)
+  const privileged = manifests.filter((m) => m.managesCubes).map((m) => fullName(m))
   if (privileged.length > 1) throw new DoublePrivilegeError(privileged)
 
   // Credential verification is a declared capability with exactly one provider and one
   // consumer. Both are named in manifests, so `grep -r providesCredentials` shows the whole
-  // arrangement — the same visibility rule as `managesCubes`.
-  const providers = manifests.filter((m) => m.providesCredentials).map((m) => m.name)
+  // arrangement -- the same visibility rule as `managesCubes`.
+  const providers = manifests.filter((m) => m.providesCredentials).map((m) => fullName(m))
   if (providers.length > 1) throw new DoubleCapabilityError("providesCredentials", providers)
-  const consumers = manifests.filter((m) => m.usesCredentials).map((m) => m.name)
+  const consumers = manifests.filter((m) => m.usesCredentials).map((m) => fullName(m))
   if (consumers.length > 1) throw new DoubleCapabilityError("usesCredentials", consumers)
-  const runners = manifests.filter((m) => m.runsCommands).map((m) => m.name)
+  const runners = manifests.filter((m) => m.runsCommands).map((m) => fullName(m))
   if (runners.length > 1) throw new DoubleCapabilityError("runsCommands", runners)
   // The provider fills this during its own `create`; the consumer receives a wrapper that reads
-  // it at call time. Late binding on purpose — otherwise the two cubes would have to be created
+  // it at call time. Late binding on purpose -- otherwise the two cubes would have to be created
   // in a particular order, and mount order is just the order of directory names on disk.
   const verifierHolder: { current?: CredentialVerifier } = {}
   const lateBoundVerifier: CredentialVerifier = {
@@ -223,7 +184,17 @@ export const mount = (
       verifierHolder.current ? verifierHolder.current.verify(username, password) : Effect.succeed(undefined),
   }
 
-  const switches = switchesFrom(manifests.map((m) => ({ name: m.name, required: m.required === true })))
+  const switches = switchesFrom(manifests.map((m) => ({ name: fullName(m), required: m.required === true })))
+
+  // A child lives under its parent's switch: disabling `booktags` disables everything below
+  // it, and the state file cannot express "child on, parent off" -- the mask is applied at
+  // read time, so there is no such state to represent. A child may still be switched off
+  // alone; its own entry persists and takes effect the moment the parent comes back on.
+  const isEnabled = (cube: string): boolean => {
+    if (!switches.isEnabled(cube)) return false
+    const slash = cube.indexOf("/")
+    return slash === -1 || switches.isEnabled(cube.slice(0, slash))
+  }
 
   const permissions = new Map<string, ReadonlyArray<string>>()
   for (const m of manifests) {
@@ -231,13 +202,13 @@ export const mount = (
   }
 
   const subscriptions: Array<{ cube: string; subscription: Subscription }> = []
-  const bus = busFrom(subscriptions, switches.isEnabled)
+  const bus = busFrom(subscriptions, isEnabled)
 
   const liveLinks = () =>
     activeLinks(
       spaces,
-      manifests.map((m) => ({ name: m.name, entity: m.entity })),
-      switches.isEnabled,
+      manifests.map((m) => ({ name: fullName(m), entity: m.entity })),
+      isEnabled,
     )
 
   // Functions, not values: switch state changes at runtime and the frontend draws its tabs
@@ -245,7 +216,7 @@ export const mount = (
   // The full specs, INCLUDING `run`, never leave this closure. Cubes see metadata; only the
   // dispatcher below can execute, and only after checking the caller's permissions.
   const allCommands: Array<CommandSpec> = []
-  const liveSpecs = () => allCommands.filter((c) => switches.isEnabled(c.name.split(":")[0] as string))
+  const liveSpecs = () => allCommands.filter((c) => isEnabled(c.name.split(":")[0] as string))
 
   const commands = (): ReadonlyArray<CommandInfo> =>
     liveSpecs().map((c) => ({
@@ -263,7 +234,7 @@ export const mount = (
         const command = table.get(name)
         if (!command) return yield* Effect.fail({ _tag: "UnknownCommand" as const })
 
-        // The check lives HERE, with the dispatcher — not in whoever calls it. That is the whole
+        // The check lives HERE, with the dispatcher -- not in whoever calls it. That is the whole
         // point of moving it: before, the permission was checked in the CLI gate while `run` was
         // handed to every cube, so any cube could skip the gate entirely.
         if (!callerPermissions.includes(command.permission)) {
@@ -288,14 +259,19 @@ export const mount = (
   const catalogue = (): Catalogue =>
     definitions.map(({ name, plugin, definition }) => {
       const m = definition.manifest
+      const parts = cubes.find((c) => c.name === name)?.parts
+      const endpoints = (parts?.group as { endpoints?: Record<string, { path?: string }> } | undefined)?.endpoints
+      const firstPath = Object.values(endpoints ?? {})[0]?.path
       return {
         name,
+        parent: m.parent,
         entity: m.entity,
         screen: m.screen === true,
-        enabled: switches.isEnabled(name),
+        enabled: isEnabled(name),
         required: m.required === true,
         system: plugin === null,
         plugin,
+        prefix: firstPath ? pathPrefix(firstPath) : undefined,
         publishes: m.publishes ?? [],
         sortable: m.sortable ?? [],
         links: liveLinks()
@@ -306,9 +282,10 @@ export const mount = (
 
   const cubes: Array<MountedCube> = definitions.map(({ plugin, definition }) => {
     const m = definition.manifest
+    const full = fullName(m)
     const parts = definition.create({
-      store: storeFor(m.name, m.tables, m.sortable ?? []),
-      bus: bus.for(m.name),
+      store: storeFor(full, m.tables, m.sortable ?? []),
+      bus: bus.for(full),
       catalogue,
       permissions: () => permissions,
       commands,
@@ -321,22 +298,30 @@ export const mount = (
     })
     if (m.providesCredentials) {
       if (!parts.credentials) {
-        throw new BrokenCubeError(m.name, "declares `providesCredentials: true` but returned no `credentials`")
+        throw new BrokenCubeError(full, "declares `providesCredentials: true` but returned no `credentials`")
       }
       verifierHolder.current = parts.credentials
     }
-    for (const s of parts.subscriptions ?? []) subscriptions.push({ cube: m.name, subscription: s })
+    for (const s of parts.subscriptions ?? []) subscriptions.push({ cube: full, subscription: s })
 
     // Commands come from `create`, so they are validated here rather than in the manifest pass.
     const own = parts.commands ?? []
     validateCommands(m, own)
     allCommands.push(...own)
 
-    return { manifest: m, parts, plugin, commands: own }
+    return { manifest: m, name: full, parts, plugin, commands: own }
   })
 
-  // Every cube is created and every subscription registered — publishing is now safe.
+  // Every cube is created and every subscription registered -- publishing is now safe.
   bus.seal()
 
-  return { cubes, switches, bus, permissions, commands, catalogue, liveLinks }
+  // A re-enabled cube may have missed events published while it was off. The kernel announces
+  // the re-enablement on the bus; any cube whose events matter to a sibling subscribes and
+  // replays its CURRENT values. The kernel publishes the fact, never the payload -- it knows
+  // nothing about what a setting contains.
+  switches._wireOnEnable((cube) => {
+    Effect.runSync(bus.for("qwbe").publish("qwbe/cube.enabled", { cube }))
+  })
+
+  return { cubes, switches, bus, permissions, commands, catalogue, liveLinks, isEnabled }
 }

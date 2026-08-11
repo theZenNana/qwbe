@@ -3,7 +3,7 @@
 // There is no generated client and no type imported from the API. The contract is composed at
 // runtime from whatever cubes are on disk, so a static client would either be wrong or would
 // force the cube list back into code. What the frontend uses instead is the catalogue: names,
-// shapes, links, commands. A new cube — or a whole plugin — appears without a rebuild here.
+// shapes, links, commands. A new cube -- or a whole plugin -- appears without a rebuild here.
 
 import { endSession, session } from "./session"
 
@@ -11,6 +11,11 @@ export const BASE = process.env.NEXT_PUBLIC_QWBE_API ?? "http://127.0.0.1:4500"
 
 export type CubeInfo = {
   name: string
+  /** The parent cube's name for a child (`booktags`), or null for standalone cubes. */
+  parent: string | null
+  /** First URL segment this cube serves under; children whose leaf name is taken serve
+   *  under `<parent>-<name>`. Null for cubes with no routes. */
+  prefix: string | null
   enabled: boolean
   required: boolean
   system: boolean
@@ -47,7 +52,7 @@ export const request = async <A>(path: string, options: RequestInit = {}): Promi
     body = text
   }
   if (!r.ok) {
-    // A 401 mid-session means the token died — send the person back to the door rather than
+    // A 401 mid-session means the token died -- send the person back to the door rather than
     // rendering an error they can do nothing about.
     if (r.status === 401 && session.read()) endSession()
     throw new ApiError(r.status, (body as { message?: string })?.message ?? `HTTP ${r.status}`)
@@ -71,13 +76,16 @@ export const logout = async () => {
 
 export const catalogue = () => request<Array<CubeInfo>>("/settings/cubes")
 export const toggleCube = (name: string, enabled: boolean) =>
-  request<CubeInfo>(`/settings/cubes/${name}`, { method: "POST", body: JSON.stringify({ enabled }) })
+  request<CubeInfo>(`/settings/cubes/${encodeURIComponent(name)}`, {
+    method: "POST",
+    body: JSON.stringify({ enabled }),
+  })
 
 // --- installing -------------------------------------------------------------------------------
 //
 // `requiresRestart` is part of the contract, not a footnote: the kernel discovers cubes at
 // startup, so writing the directory does not mount it. It is carried through to the screen
-// rather than swallowed here — a page that showed the new routes as live would be lying.
+// rather than swallowed here -- a page that showed the new routes as live would be lying.
 
 export type PackageInfo = {
   name: string
@@ -105,10 +113,11 @@ export const installPackage = (name: string) =>
 export const installFromDirectory = (path: string) =>
   request<InstallFromResult>(`/settings/packages/install-from`, { method: "POST", body: JSON.stringify({ path }) })
 
-export const removeCube = (name: string) => request<RemoveResult>(`/settings/cubes/${name}`, { method: "DELETE" })
+export const removeCube = (name: string) =>
+  request<RemoveResult>(`/settings/cubes/${encodeURIComponent(name)}`, { method: "DELETE" })
 
 /**
- * Undo an install by PACKAGE name — the only way back before a restart.
+ * Undo an install by PACKAGE name -- the only way back before a restart.
  *
  * `removeCube` above takes a mounted cube, and installing does not mount. So between installing
  * something by accident and restarting, that route cannot reach it.
@@ -126,7 +135,7 @@ export const me = () => request<Me>("/auth/me")
  * Every route the server declares, as `METHOD /path`.
  *
  * Worth knowing before reading it as truth: the OpenAPI document is composed at STARTUP from the
- * cubes that were on disk then. Switching a cube off does not shorten it — the routes stay in the
+ * cubes that were on disk then. Switching a cube off does not shorten it -- the routes stay in the
  * document and answer 404 at runtime. Measured, not assumed.
  */
 export const routes = async (): Promise<Array<string>> => {
@@ -140,6 +149,14 @@ export const list = (cube: string, offset = 0, limit = 10) =>
   request<Paged<Record<string, unknown>>>(`/${cube}?offset=${offset}&limit=${limit}`)
 
 export const one = (cube: string, id: string) => request<Record<string, unknown>>(`/${cube}/${id}`)
+
+/** The leaf of a compound cube name (`booktags/bookmarks` -> `bookmarks`); bare names pass
+ *  through. The ONE place the split lives in this app -- mirrors the kernel's `leafOf`. */
+export const leafName = (full: string): string => (full.includes("/") ? (full.split("/")[1] as string) : full)
+
+/** The web route for a cube screen: standalone cubes at `/<name>`, children grouped under
+ *  their parent at `/<parent>/<child>` -- one sidebar entry per hierarchy. */
+export const screenPath = (c: CubeInfo): string => (c.parent ? `/${c.parent}/${leafName(c.name)}` : `/${c.name}`)
 
 export type LinksFor = {
   entity: string

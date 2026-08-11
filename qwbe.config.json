@@ -12,7 +12,7 @@
     "files": {
       "_installComment": "20373 -> 20388 pe 9 aug 2026, +15 caractere. Regula spune că se sparge fișierul, nu se ridică numărul, și are dreptate - dar creșterea asta e o reparație de corectitudine, nu funcționalitate nouă: rândurile jurnalului aveau `key={i}`, iar jurnalul se scrie la CAP, deci indicele fiecărui rând se schimbă la orice operație și React potrivea greșit rândurile. Costul minim al unei chei stabile e un câmp `id` și un contor. Spargerea fișierului de 20k rămâne datoria reală.",
       "web/app/install/page.tsx": 20388,
-      "_kernelComment": "9 aug 2026, două mișcări în aceeași zi. ÎNTÂI în sus, din reparația prin care `CommandSpec.run` primește permisiunile apelantului ca parametru: discovery 10995 -> 11014, manifest 7931 -> 7986, unitatea kernel 53325 -> 53437. APOI în jos, când au plecat cuburile `projects`, `reports`, `tasks` și `host/`: capabilitatea `usesWorkstation` a ieșit din kernel cu totul. Numerele de aici sunt cele de DUPĂ, strânse la loc dinadins - headroom-ul câștigat prin ștergere nu se păstrează, altfel crește altceva la loc în tăcere. 10 aug 2026, QWB-15: numerele kernelului ridicate la 10000 de owner (manifest 7842 -> 10000, install 6821 -> 10000) după ce staging-ul a fost DEJA spart în install-from.ts; unitatea kernel la 60000.",
+      "_kernelComment": "9 aug 2026, două mișcări în aceeași zi. ÎNTÂI în sus, din reparația prin care `CommandSpec.run` primește permisiunile apelantului ca parametru: discovery 10995 -> 11014, manifest 7931 -> 7986, unitatea kernel 53325 -> 53437. APOI în jos, când au plecat cuburile `projects`, `reports`, `tasks` și `host/`: capabilitatea `usesWorkstation` a ieșit din kernel cu totul. Numerele de aici sunt cele de DUPĂ, strânse la loc dinadins - headroom-ul câștigat prin ștergere nu se păstrează, altfel crește altceva la loc în tăcere. 10 aug 2026, QWB-15: numerele kernelului ridicate la 10000 de owner (manifest 7842 -> 10000, install 6821 -> 10000) după ce staging-ul a fost DEJA spart în install-from.ts; unitatea kernel la 60000. 11 aug 2026, IDE-18: ierarhia părinte/copil a adăugat ~4400 code chars net; split făcut ÎNTÂI (migrate.ts, scan.ts, routes.ts, errors-discovery.ts scoase din discovery.ts/mount.ts), apoi ownerul a ridicat baseline-ul unității de la 60000 la 100000.",
       "core/src/kernel/discovery.ts": 10606,
       "core/src/cubes/settings/index.ts": 8093,
       "core/src/kernel/manifest.ts": 10000,
@@ -22,8 +22,8 @@
     },
     "units": {
       "core/src/kernel": {
-        "chars": 60000,
-        "files": 15
+        "chars": 100000,
+        "files": 20
       }
     }
   },

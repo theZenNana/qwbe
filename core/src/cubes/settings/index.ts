@@ -1,4 +1,4 @@
-// The SETTINGS cube — minimal, as asked: switch cubes on and off, and show what is installed.
+// The SETTINGS cube -- minimal, as asked: switch cubes on and off, and show what is installed.
 //
 // It is the only cube with `managesCubes: true`. The privilege is DECLARED in its manifest, in
 // the open: `grep -r managesCubes src/cubes/ plugins/` returns the complete list of privileged
@@ -43,11 +43,11 @@ const RestartResult = Schema.Struct({
 
 /**
  * How the API restarts itself. The process must hand its life to something that will bring it
- * back — otherwise the button would kill the server for good. Declared as an environment
+ * back -- otherwise the button would kill the server for good. Declared as an environment
  * variable with a default that fits the systemd unit the nest runs (`qwbe.service`):
  *
- *   inband  — exit(0); systemd's Restart=always brings it back. Default.
- *   command — run QWBE_RESTART_CMD (e.g. `systemctl --user restart qwbe`); for a manually
+ *   inband  -- exit(0); systemd's Restart=always brings it back. Default.
+ *   command -- run QWBE_RESTART_CMD (e.g. `systemctl --user restart qwbe`); for a manually
  *             started server. The request answers BEFORE the restart fires.
  */
 
@@ -84,7 +84,7 @@ const group = HttpApiGroup.make("settings")
   )
   // The counterpart of `install`, and the reason it exists: installing does not mount, and the
   // route above takes a MOUNTED cube. Without this, a package installed and not yet restarted
-  // into could not be taken back — you would have to restart in order to mount the very thing
+  // into could not be taken back -- you would have to restart in order to mount the very thing
   // you wanted gone.
   .add(
     HttpApiEndpoint.del("uninstallPackage")`/settings/packages/${HttpApiSchema.param("name", Schema.String)}`
@@ -93,7 +93,7 @@ const group = HttpApiGroup.make("settings")
       .addError(Forbidden),
   )
   // The banner says "ask for the API to be restarted". This is the button for it. Guarded by
-  // settings:write like every other mutation here — a reader cannot bounce the server.
+  // settings:write like every other mutation here -- a reader cannot bounce the server.
   .add(
     HttpApiEndpoint.post("restart")`/settings/restart`
       .addSuccess(RestartResult)
@@ -119,10 +119,10 @@ export const cube: CubeDefinition = {
 
   create: ({ catalogue, switches, installer }: CubeTools) => {
     if (!switches || !installer) {
-      // Cannot happen — the manifest asks for the privilege and the kernel grants it on that
+      // Cannot happen -- the manifest asks for the privilege and the kernel grants it on that
       // basis. If it does, it is a kernel bug, and failing at startup beats a 500 on the first
       // click.
-      throw new Error("settings asked for `managesCubes: true` but received no switches/installer — kernel bug")
+      throw new Error("settings asked for `managesCubes: true` but received no switches/installer -- kernel bug")
     }
 
     const state = (name: string) => {
@@ -130,10 +130,12 @@ export const cube: CubeDefinition = {
       if (!c) return undefined
       return {
         name: c.name,
+        parent: c.parent ?? null,
         enabled: c.enabled,
         required: c.required,
         system: c.system,
         plugin: c.plugin,
+        prefix: c.prefix ?? null,
         onDisk: installer.cubeOnDisk(c.name, c.plugin),
         entity: c.entity ?? null,
         screen: c.screen,
@@ -163,7 +165,7 @@ export const cube: CubeDefinition = {
               return yield* Effect.fail(new NotFound({ message: `cube ${path.name} is not mounted` }))
             }
             // Each refusal keeps its own meaning: a required cube is a bad request, a cube that
-            // is not mounted is a 404, and a disk that would not take the write is neither —
+            // is not mounted is a 404, and a disk that would not take the write is neither --
             // it is not the caller's fault, so it is not dressed up as their mistake. The
             // kernel's wording is passed through; it already says what was refused and why.
             yield* switches.set(path.name, payload.enabled).pipe(
@@ -190,7 +192,7 @@ export const cube: CubeDefinition = {
             yield* requirePermission("settings:write")
             const pkg = yield* Effect.try({
               try: () => installer.install(path.name),
-              // Every refusal from the installer already says what was refused and why —
+              // Every refusal from the installer already says what was refused and why --
               // unknown package, bad name, destination taken. Rewriting them into a generic
               // message would hide exactly the part the caller needs.
               catch: (e) => new BadRequest({ message: (e as Error).message }),
@@ -242,7 +244,7 @@ export const cube: CubeDefinition = {
         uninstallPackage: ({ path }: { path: { name: string } }) =>
           Effect.gen(function* () {
             yield* requirePermission("settings:write")
-            // A package from the store cannot BE a required cube — required ones ship with core
+            // A package from the store cannot BE a required cube -- required ones ship with core
             // and are not in the store. Checked anyway rather than reasoned about, because that
             // sentence is true today and is exactly the kind that stops being true quietly.
             const mounted = catalogue()
@@ -265,7 +267,7 @@ export const cube: CubeDefinition = {
         restart: () =>
           Effect.gen(function* () {
             yield* requirePermission("settings:write")
-            // The spawning lives in the kernel, borrowed through `installer` — a cube may not
+            // The spawning lives in the kernel, borrowed through `installer` -- a cube may not
             // touch `node:child_process`, and this was the repository's last such violation.
             installer.restart()
             return { restarting: true, message: "API repornește — revino în câteva secunde." }

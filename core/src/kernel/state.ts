@@ -85,6 +85,8 @@ export type Switches = {
     cube: string,
     enabled: boolean,
   ) => Effect.Effect<void, RequiredCubeError | UnknownCubeError | StateFileError>
+  /** Kernel-internal: mount wires the re-enable notification through this. */
+  readonly _wireOnEnable: (fn: (cube: string) => void) => void
 }
 
 export const switchesFrom = (
@@ -92,6 +94,9 @@ export const switchesFrom = (
 ): Switches => {
   let disabled = readDisabled()
   const known = new Map(mounted.map((m) => [m.name, m]))
+  // The kernel notifies AFTER a cube is re-enabled, so a cube whose events were missed while
+  // it was off can replay them. Wired by mount(); the bus does not exist yet when this runs.
+  let onEnable: (cube: string) => void = () => undefined
 
   // A cube that was switched off and has since been removed from disk has no business staying
   // in the file — otherwise the disabled list grows ghosts forever.
@@ -124,6 +129,11 @@ export const switchesFrom = (
           catch: (e) => new StateFileError({ path: stateFile, message: (e as Error).message }),
         })
         disabled = next
+        if (enabled) onEnable(cube)
       }),
+    /** Kernel-internal: mount wires the re-enable notification through this. */
+    _wireOnEnable: (fn: (cube: string) => void) => {
+      onEnable = fn
+    },
   }
 }

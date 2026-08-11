@@ -27,10 +27,10 @@ try {
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ username: "admin", password: "wrong" }),
   })
-  score.check("wrong password → 401", wrong.status === 401, `http=${wrong.status}`)
+  score.check("wrong password -> 401", wrong.status === 401, `http=${wrong.status}`)
 
   const session = await api.login()
-  score.check("login → token", session.status === 200 && !!session.token, `http=${session.status}`)
+  score.check("login -> token", session.status === 200 && !!session.token, `http=${session.status}`)
   score.check(
     "token is opaque, not a JWT",
     !String(session.token).includes("."),
@@ -39,16 +39,17 @@ try {
   const H = session.headers
 
   const noToken = await api.call("/notes")
-  score.check("no token → 401", noToken.status === 401, `http=${noToken.status}`)
+  score.check("no token -> 401", noToken.status === 401, `http=${noToken.status}`)
 
   const me = await api.call("/auth/me", { headers: H })
-  score.check("/auth/me → admin", me.body?.username === "admin", `roles=${JSON.stringify(me.body?.roles)}`)
+  score.check("/auth/me -> admin", me.body?.username === "admin", `roles=${JSON.stringify(me.body?.roles)}`)
 
   // Permissions come from every cube's manifest, including the plugin's - not from a map
-  // written inside auth.
+  // written inside auth. The plugin's cubes are children of `booktags` now, so the
+  // permission carries the compound prefix.
   score.check(
     "permissions aggregated from all manifests, plugin included",
-    me.body?.permissions?.includes("notes:read") && me.body?.permissions?.includes("bookmarks:read"),
+    me.body?.permissions?.includes("notes:read") && me.body?.permissions?.includes("booktags/bookmarks:read"),
     `${me.body?.permissions?.length} permissions`,
   )
 
@@ -107,20 +108,20 @@ try {
     `rows=${groupPage.body?.rows?.length} of ${groupPage.body?.total}`,
   )
 
-  // --- the plugin cube behaves like any other ---
+  // --- the plugin cube behaves like any other -- now as a CHILD of booktags ---
   const bm = await api.call("/bookmarks", {
     method: "POST",
     headers: H,
-    body: JSON.stringify({ label: "Effect docs", url: "https://effect.website" }),
+    body: JSON.stringify({ label: "Effect docs", targetCube: "notes", url: "https://effect.website" }),
   })
   score.check("a plugin cube's routes work like any other", bm.status === 200 && !!bm.body.id, `id=${bm.body?.id}`)
 
   const cubes = await api.call("/settings/cubes", { headers: H })
-  const bmState = cubes.body?.find((c) => c.name === "bookmarks")
+  const bmState = cubes.body?.find((c) => c.name === "booktags/bookmarks")
   score.check(
-    "the catalogue says which plugin brought a cube",
-    bmState?.plugin === "example-plugin" && bmState?.system === false,
-    `plugin=${bmState?.plugin} system=${bmState?.system}`,
+    "the catalogue says which plugin brought a cube, and which parent owns it",
+    bmState?.plugin === "example-plugin" && bmState?.system === false && bmState?.parent === "booktags",
+    `plugin=${bmState?.plugin} system=${bmState?.system} parent=${bmState?.parent}`,
   )
 
   // --- the plugin's second cube and the space-declared relation (split out: file cap) ---

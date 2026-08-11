@@ -118,7 +118,8 @@ export const mountedLife = async ({ dataDir, store, goodDir }) => {
   const made = await third.api.call("/dirbookmarks", {
     method: "POST",
     headers: s3.headers,
-    body: JSON.stringify({ label: "Proba", url: "https://example.org/proba" }),
+    // The cube is a copy of booktags' bookmarks child: a bookmark points at a real cube.
+    body: JSON.stringify({ label: "Proba", targetCube: "notes", url: "https://example.org/proba" }),
   })
   const list = await third.api.call("/dirbookmarks?limit=50", { headers: s3.headers })
   const found = (list.body?.rows ?? []).some((r) => r.id === made.body?.id && r.label === "Proba")

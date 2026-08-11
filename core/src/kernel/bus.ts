@@ -47,6 +47,18 @@ export const busFrom = (
           ),
         )
       }
+      // The `qwbe/` prefix is the kernel's own channel: a cube cannot impersonate a kernel
+      // announcement (qwbe/cube.enabled), because a subscriber has no other way to know who
+      // is speaking. The kernel publishes from the name "qwbe", which no cube can carry --
+      // the name pattern forbids it.
+      if (event.startsWith("qwbe/") && publishedBy !== "qwbe") {
+        return yield* Effect.die(
+          new Error(
+            `Cube "${publishedBy}" tried to publish "${event}" -- the qwbe/ prefix is reserved ` +
+              `for kernel announcements. Name your events after your own cube.`,
+          ),
+        )
+      }
       const targets = subscriptions.filter((s) => s.subscription.event === event && isEnabled(s.cube))
 
       journal.push({ event, publishedBy, at: new Date().toISOString(), listeners: targets.length })

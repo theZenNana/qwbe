@@ -48,12 +48,29 @@ export const fingerprint = () => {
  */
 export const plantLifecycleStore = () => {
   const store = mkdtempSync(join(tmpdir(), "qwbe-lifecycle-store-"))
-  const src = join(pluginsDir, "example-plugin", "cubes", "bookmarks")
+  const src = join(pluginsDir, "example-plugin", "cubes", "booktags", "bookmarks")
   const cubeDir = join(store, PKG, "cubes", "bookmarks")
   cpSync(src, cubeDir, { recursive: true })
   const indexAt = join(cubeDir, "index.ts")
   const source = readFileSync(indexAt, "utf8")
-  const renamed = source.replaceAll("bookmarks", PKG_CUBE)
+  // The source is a child of `booktags`: it declares `parent` and reaches one directory
+  // deeper for the kernel. A standalone copy needs neither -- same rewrite as
+  // install-from-fixtures.mjs, with the compound prefix renamed before the bare name.
+  const renamed = source
+    .replaceAll("booktags/bookmarks:", "PPP_COLON")
+    .replaceAll("booktags/bookmarks.created", "PPP_EVENT")
+    .replaceAll("bookmarks", PKG_CUBE)
+    // The sibling's cache table is owned by the original cube; a mounted copy must own
+    // another one. AFTER the bare rename, so the new name is not renamed again.
+    .replaceAll('"settings-cache"', `"${PKG_CUBE}-cache"`)
+    .replaceAll("PPP_COLON", `${PKG_CUBE}:`)
+    .replaceAll("PPP_EVENT", `${PKG_CUBE}.created`)
+    .replaceAll("../../../../../src/", "../../../../src/")
+    // The sibling-contract import belongs to the package, not the cube: the flat copy has
+    // no sibling, so the import goes and the decode is inlined as the shape it checks.
+    .replace(/^\s*import \{ decodeBooktagsSettingChanged \} from "\.\.\/events\.ts"\n/m, "")
+    .replaceAll("decodeBooktagsSettingChanged(payload)", "payload as { key: string; value: string }")
+    .replace(/^\s*parent: "booktags",\n/m, "")
   if (renamed === source) throw new Error('example-plugin no longer names its cube "bookmarks" - rewrite missed')
   writeFileSync(indexAt, renamed)
   renameSync(cubeDir, join(store, PKG, "cubes", PKG_CUBE))

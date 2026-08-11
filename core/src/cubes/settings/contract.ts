@@ -2,11 +2,15 @@ import { Schema } from "effect"
 
 export const CubeState = Schema.Struct({
   name: Schema.String,
+  /** The parent cube's name for a child (`booktags`), or null for standalone cubes. */
+  parent: Schema.NullOr(Schema.String),
   enabled: Schema.Boolean,
   required: Schema.Boolean,
   system: Schema.Boolean,
   /** Which plugin brought it, or null when it ships with core. */
   plugin: Schema.NullOr(Schema.String),
+  /** First URL segment this cube serves under, when it has routes; null otherwise. */
+  prefix: Schema.NullOr(Schema.String),
   /** Whether this mounted cube's directory still exists at the location discovered at startup. */
   onDisk: Schema.Boolean,
   entity: Schema.NullOr(Schema.String),

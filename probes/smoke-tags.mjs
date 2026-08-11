@@ -21,15 +21,15 @@ export const secondCubeAndRelation = async ({ api, score, H, bookmarkId, cubes }
     `http=${tagList.status}`,
   )
 
-  const tagState = cubes.body?.find((c) => c.name === "tags")
+  const tagState = cubes.body?.find((c) => c.name === "booktags/tags")
   score.check(
-    "the catalogue attributes the second cube to the same plugin",
-    tagState?.plugin === "example-plugin",
-    `plugin=${tagState?.plugin}`,
+    "the catalogue attributes the second cube to the same plugin, under the same parent",
+    tagState?.plugin === "example-plugin" && tagState?.parent === "booktags",
+    `plugin=${tagState?.plugin} parent=${tagState?.parent}`,
   )
 
   const bmLinks = await api.call(`/links/Bookmark/${bookmarkId}`, { headers: H })
-  const tagGroup = await api.call(`/links/Bookmark/${bookmarkId}/tags?limit=5`, { headers: H })
+  const tagGroup = await api.call(`/links/Bookmark/${bookmarkId}/booktags%2Ftags?limit=5`, { headers: H })
   score.check(
     "the Tag -> Bookmark relation answers from the space, declared by neither cube",
     bmLinks.status === 200 && tagGroup.status === 200 && (tagGroup.body?.rows ?? []).some((r) => r.id === tag.body?.id),

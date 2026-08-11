@@ -30,7 +30,7 @@
 
 import { existsSync, rmSync } from "node:fs"
 import { join } from "node:path"
-import { makeScore, root } from "./lib.mjs"
+import { makeScore } from "./lib.mjs"
 import { fingerprint, PKG, plantLifecycleStore, pluginsDir } from "./lifecycle-bench.mjs"
 import { liveAndDie } from "./lifecycle-life.mjs"
 
