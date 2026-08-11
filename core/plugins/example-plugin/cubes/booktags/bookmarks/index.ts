@@ -15,7 +15,11 @@ import { Effect, Schema } from "effect"
 import { Authorization, requirePermission } from "../../../../../src/kernel/auth-contract.ts"
 import { EntityMeta, type SummaryRow } from "../../../../../src/kernel/entity.ts"
 import { BadRequest, Forbidden } from "../../../../../src/kernel/errors.ts"
-import type { CubeDefinition, CubeTools } from "../../../../../src/kernel/manifest.ts"
+import {
+  type CubeDefinition,
+  type CubeTools,
+  decodeBooktagsSettingChanged,
+} from "../../../../../src/kernel/manifest.ts"
 import { PageOf, PageParams, pageRequest } from "../../../../../src/kernel/pagination.ts"
 
 const TABLE = "bookmarks"
@@ -98,7 +102,9 @@ export const cube: CubeDefinition = {
         event: "booktags/settings.changed",
         handle: (payload) =>
           Effect.gen(function* () {
-            const { key, value } = payload as { key: string; value: string }
+            // Decoded against the kernel's contract, never cast. A payload that does not
+            // match dies here -- caught by the bus, logged, delivery continues.
+            const { key, value } = decodeBooktagsSettingChanged(payload)
             const rows = yield* store.all<{ id: string; key: string }>(CACHE)
             const existing = rows.find((r) => r.key === key)
             if (existing) yield* store.update(CACHE, existing.id, { value })

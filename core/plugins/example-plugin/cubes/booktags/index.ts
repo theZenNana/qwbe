@@ -34,6 +34,13 @@ export const cube: CubeDefinition = {
     screen: true,
     requiresAuth: true,
     permissions: [{ name: "booktags:read", roles: ["admin", "reader"] }],
+    // The flat cubes this hierarchy replaced: their data files move to the children's files.
+    // Declared in the manifest -- never executed by the cube -- and the kernel checks every
+    // entry against the mounted set and this package's provenance before touching a byte.
+    dataMigration: [
+      { fromCube: "bookmarks", toCube: "booktags/bookmarks" },
+      { fromCube: "tags", toCube: "booktags/tags" },
+    ],
   },
 
   create: ({ catalogue }: CubeTools) => ({

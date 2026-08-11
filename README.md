@@ -8,9 +8,10 @@ Licensed under the [MIT License](./LICENSE). The three package manifests stay
 `private: true` because this repository is not published as three npm packages;
 that flag does not make the source license private.
 
-Implemented now: six core cubes, one example plugin, one relation space, package lifecycle,
-runtime permissions, metadata-driven screens, CLI commands and paging. Not implemented:
-application namespaces, external rules, workflows, schema migrations, multi-tenancy or process
+Implemented now: six core cubes, one example plugin (a runtime hierarchy), one relation
+space, package lifecycle, runtime permissions, metadata-driven screens, CLI commands, paging
+and declared data-file migrations. Not implemented: application namespaces beyond one
+hierarchy level, external rules, workflows, schema migrations, multi-tenancy or process
 isolation. Those belong to the roadmap in `wiki/qwbe/DIRECTION.md`, not to current capability.
 
 ## Running it
@@ -155,11 +156,18 @@ group vanishes from the account page. Nothing edited anywhere.
 ## Two levels
 
 ```
-LEVEL 0   cubes/<name>/              flat namespace - core cubes
-          plugins/<p>/cubes/<name>/  ...and plugin cubes, in the SAME namespace
+LEVEL 0   cubes/<name>/                          flat namespace - core cubes
+          plugins/<p>/cubes/<name>/              ...and plugin cubes, in the SAME namespace
+          cubes/<parent>/<child>/                one level of runtime hierarchy (parent + owned children)
 
-LEVEL 1   spaces/<name>/             no cubes. Only the connections between them.
+LEVEL 1   spaces/<name>/                         no cubes. Only the connections between them.
 ```
+
+A child cube lives inside its parent's directory and is addressed `<parent>/<child>`: same
+namespace, one level deeper. The parent is the lifecycle unit -- switching it off takes the
+children with it; a child can still be off alone. Discovery is exactly one level deep, and a
+child whose leaf name collides with a mounted cube serves under `<parent>-<name>`. The
+canonical example is `booktags` in the example plugin (docs/booktags-hierarchy.md).
 
 A space keeps relation knowledge outside both cubes. Without it, `notes` would need the string
 `"Account"` inside its own directory - not an import, but still knowledge of another cube.
@@ -196,6 +204,20 @@ one uid there is no barrier - a real one means a separate process per cube. Two 
 this point independently after demonstrating the bypass, and the claim in `store.ts` was corrected
 from "impossible" to what is actually true.
 
+## Data migrations
+
+When a cube's identity moves (flat `bookmarks` -> `booktags/bookmarks`), its store file must
+follow. The migration is DECLARED in the parent package's manifest, never executed by the cube:
+
+```ts
+dataMigration: [{ fromCube: "bookmarks", toCube: "booktags/bookmarks" }]
+```
+
+The kernel runs it at mount, before any store opens, under strict rules: `toCube` must be a
+mounted cube of the same package, every companion file (.sqlite, -wal, -shm) is preflighted
+before the first byte moves, and a failed move rolls the whole batch back. A manifest cannot
+name a path, and a plugin cannot reach outside its own package.
+
 ## The cubes
 
 | Cube | Kind | What it does |
@@ -206,8 +228,10 @@ from "impossible" to what is actually true.
 | `cli` | system | aggregates the commands cubes declare, and runs them via `POST /cli/exec` |
 | `links` | system | serves the relation queries. Owns no data at all |
 | `notes` | example | notes with an author. The second entity, without which no link could be shown |
-| `bookmarks` | **plugin** | in `plugins/example-plugin/`. Proof the plugin path works, not a description of it |
-| `tags` | **plugin** | second cube of the same plugin: labels a bookmark. The link to `Bookmark` lives in the workspace space, declared by neither cube |
+| `booktags` | **plugin** | parent cube in `plugins/example-plugin/` -- a namespace root and one sidebar entry |
+| `booktags/bookmarks` | **plugin** | child: bookmarks pointing at a real mounted cube |
+| `booktags/tags` | **plugin** | child: labels a bookmark. The link to `Bookmark` lives in the workspace space, declared by neither cube |
+| `booktags/settings` | **plugin** | child: the hierarchy's own setting, shared with the bookmarks sibling over the bus |
 
 ## Design lineage
 

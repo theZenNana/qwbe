@@ -58,7 +58,7 @@ export const cube: CubeDefinition = {
     publishes: ["booktags/settings.changed"],
   },
 
-  create: ({ store, bus }: CubeTools) => ({
+  create: ({ store, bus, catalogue }: CubeTools) => ({
     group,
 
     commands: [
@@ -79,7 +79,18 @@ export const cube: CubeDefinition = {
       list: () =>
         Effect.gen(function* () {
           yield* requirePermission("booktags/settings:read")
-          return yield* store.all<SettingRow>(TABLE)
+          const rows = yield* store.all<SettingRow>(TABLE)
+          // Replay: the bus is fire-and-forget and skips a subscriber that is switched off,
+          // so a setting changed while bookmarks was down would never reach it. The first
+          // request after any toggle re-publishes the CURRENT values -- the subscriber's
+          // cache update is idempotent, so a redundant event is harmless. The kernel's
+          // catalogue() reports enablement live; there is no signal INTO create, so the edge
+          // is the only place a re-publish can be triggered from.
+          const bookmarksOn = catalogue().some((c) => c.name === "booktags/bookmarks" && c.enabled)
+          if (bookmarksOn) {
+            for (const row of rows) yield* bus.publish("booktags/settings.changed", { key: row.key, value: row.value })
+          }
+          return rows
         }),
 
       set: ({ path, payload }: { path: { key: string }; payload: typeof SettingSet.Type }) =>

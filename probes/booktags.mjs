@@ -54,6 +54,11 @@ try {
     cubes.find((c) => c.name === "booktags/settings")?.prefix === "booktags-settings",
     `prefix=${cubes.find((c) => c.name === "booktags/settings")?.prefix}`,
   )
+  score.check(
+    "a non-cube directory next to the children (assets/, no index.ts) is ignored, not imported",
+    server.alive && !names.includes("booktags/assets"),
+    "server booted, assets not in the catalogue",
+  )
 
   // --- migration of the flat cube's data ---
   score.check(

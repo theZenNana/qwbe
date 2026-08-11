@@ -17,13 +17,24 @@
 import Link from "next/link"
 import { useEffect, useState } from "react"
 import { Shell } from "../app/Shell"
-import { type CubeInfo, catalogue, type LinksFor, linkGroup, linksFor, one, type Paged, type Summary } from "../lib/api"
+import {
+  type CubeInfo,
+  catalogue,
+  type LinksFor,
+  linkGroup,
+  linksFor,
+  one,
+  type Paged,
+  type Summary,
+  screenPath,
+} from "../lib/api"
 
 const HIDDEN = new Set(["type", "deleted"])
 
-export function DetailPage({ cube, id }: { cube: string; id: string }) {
+export function DetailPage({ cube, id, routeName }: { cube: string; id: string; routeName?: string }) {
   const [row, setRow] = useState<Record<string, unknown> | null>(null)
   const [info, setInfo] = useState<CubeInfo | null>(null)
+  const [catalog, setCatalog] = useState<Array<CubeInfo>>([])
   const [links, setLinks] = useState<LinksFor | null>(null)
   const [tab, setTab] = useState<string | null>(null)
   const [groupRows, setGroupRows] = useState<Paged<Summary> | null>(null)
@@ -35,10 +46,16 @@ export function DetailPage({ cube, id }: { cube: string; id: string }) {
     one(cube, id)
       .then(setRow)
       .catch((e: Error) => setError(e.message))
+    // The catalogue identity (routeName for a child, e.g. `booktags/bookmarks`) is what the
+    // kernel knows the cube as; `cube` is only the HTTP prefix it serves under.
+    const identity = routeName ?? cube
     catalogue()
-      .then((c) => setInfo(c.find((x) => x.name === cube) ?? null))
+      .then((c) => {
+        setCatalog(c)
+        setInfo(c.find((x) => x.name === identity) ?? null)
+      })
       .catch(() => undefined)
-  }, [cube, id])
+  }, [cube, id, routeName])
 
   useEffect(() => {
     if (!info?.entity) return
@@ -61,12 +78,22 @@ export function DetailPage({ cube, id }: { cube: string; id: string }) {
 
   const fields = row ? Object.keys(row).filter((k) => !HIDDEN.has(k)) : []
   const currentGroup = links?.groups.find((g) => g.cube === tab)
+  const identity = routeName ?? cube
+
+  // A field whose value is a mounted cube's name renders as a link to that cube's screen --
+  // "navigate back to it" is the product behaviour of a bookmark. Detected by shape, not by
+  // name: any cube field that matches a catalogue entry links, any other value is text.
+  const cubeLink = (value: unknown): string | null => {
+    if (typeof value !== "string" || value === "") return null
+    const target = catalog.find((c) => c.name === value)
+    return target ? screenPath(target) : null
+  }
 
   return (
     <Shell>
       <p className="mic">
-        <Link href={`/${cube}`}>
-          {"<-"} {cube}
+        <Link href={`/${identity}`}>
+          {"<-"} {identity}
         </Link>
       </p>
       {/* `name` joined this list when the ERP pack arrived: a company row has no `title`, so its
@@ -90,6 +117,8 @@ export function DetailPage({ cube, id }: { cube: string; id: string }) {
                   <td>
                     {row[f] === null || row[f] === "" ? (
                       <span className="mic">--</span>
+                    ) : cubeLink(row[f]) !== null ? (
+                      <Link href={cubeLink(row[f]) as string}>{String(row[f])}</Link>
                     ) : Array.isArray(row[f]) ? (
                       (row[f] as Array<unknown>).join(", ")
                     ) : (

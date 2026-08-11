@@ -14,8 +14,7 @@
 // rival package claiming `bookmarks`, which example-plugin already owns, must not be misread
 // as drift.
 
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs"
-import { tmpdir } from "node:os"
+import { existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { diskDrift } from "../web/lib/drift.ts"
 import { plantRivalStore } from "./drift-store.mjs"

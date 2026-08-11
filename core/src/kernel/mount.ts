@@ -22,7 +22,7 @@ import {
 } from "@effect/platform"
 import { Effect, Layer } from "effect"
 import type { MountedCube } from "./discovery.ts"
-import { checkRouteOwnership, DuplicateGroupError, groupIdOf, routePrefixOf } from "./routes.ts"
+import { checkRouteOwnership, routePrefixOf } from "./routes.ts"
 
 export { checkRouteOwnership, DuplicateGroupError, PrefixCollisionError, RouteOwnershipError } from "./routes.ts"
 

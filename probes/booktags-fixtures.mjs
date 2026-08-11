@@ -67,4 +67,19 @@ export const hierarchyBehaviour = async ({ api, score, H }) => {
     `tags=${tagsOff.status} bookmarks=${bmOn.status}`,
   )
   await post(api, H, "/settings/cubes/booktags%2Ftags", { enabled: true })
+
+  // The bus skips a switched-off subscriber, so a setting changed while bookmarks was down
+  // would never arrive. The settings cube replays current values on the first list() after
+  // the sibling is back -- the sequence below is the whole reason the replay exists.
+  await post(api, H, "/settings/cubes/booktags%2Fbookmarks", { enabled: false })
+  await post(api, H, "/booktags-settings/enforceTargetCube", { value: "relaxed" })
+  await post(api, H, "/settings/cubes/booktags%2Fbookmarks", { enabled: true })
+  await api.call("/booktags-settings", { headers: H })
+  const staleUrl = await post(api, H, "/bookmarks", { label: "z", targetCube: "notes", url: "https://x" })
+  score.check(
+    "a setting changed while bookmarks was off still reaches it (replay on list)",
+    staleUrl.status === 200,
+    `http=${staleUrl.status}`,
+  )
+  await post(api, H, "/booktags-settings/enforceTargetCube", { value: "strict" })
 }

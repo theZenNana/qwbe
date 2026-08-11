@@ -28,6 +28,7 @@ export const discover = (): ReadonlyArray<{ name: string; plugin: string | null;
 
   const scan = (dir: string, plugin: string | null, parent: string | null): void => {
     for (const name of subdirectories(dir)) {
+      const nested = join(dir, name)
       const specifier = parent
         ? plugin
           ? `../../plugins/${plugin}/cubes/${parent}/${name}/index.ts`
@@ -35,9 +36,13 @@ export const discover = (): ReadonlyArray<{ name: string; plugin: string | null;
         : plugin
           ? `../../plugins/${plugin}/cubes/${name}/index.ts`
           : `../cubes/${name}/index.ts`
+      // Only directories that actually export a cube are scanned. A parent may hold assets/,
+      // fixtures/ or migrations/ next to its children -- those are NOT cubes, and importing
+      // their index.ts would stop the boot. A cube directory without index.ts is caught as
+      // BrokenCubeError at load time, exactly like a flat one.
+      if (!existsSync(join(nested, "index.ts"))) continue
       const full = parent ? `${parent}/${name}` : name
       found.push({ name: full, plugin, specifier })
-      const nested = join(dir, name)
       if (parent) {
         // One level only (DIRECTION.md section 2.4). Deeper directories are refused loudly.
         const deep = subdirectories(nested).filter((d) => existsSync(join(nested, d, "index.ts")))

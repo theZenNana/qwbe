@@ -1,12 +1,22 @@
-// One-time data migrations between store file names, run at mount before any cube opens its
-// database.
+// Data migrations between store files, DECLARED by packages and executed by the kernel.
 //
 // Split out of discovery.ts on 2026-08-11 when the hierarchy work pushed that file past its
-// size cap. The rule is the config's: split the file, don't raise the number.
+// size cap. Rewritten the same day after review: no list of cube names lives here any more --
+// a migration is a `dataMigration` entry in a package's manifest, checked at mount against the
+// mounted set and the package's provenance.
+//
+// The rules that keep a plugin from reaching outside itself:
+//   - `toCube` must be a mounted cube of the declaring package;
+//   - `fromCube` is a bare name whose file sits in the data directory -- the kernel derives the
+//     path, a manifest can never name one;
+//   - preflight runs for EVERY migration and EVERY companion file (.sqlite, -wal, -shm) before
+//     a single byte moves;
+//   - a failed move rolls the whole batch back.
 
 import { existsSync, renameSync } from "node:fs"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
+import { type DataMigration, storeFileName } from "./manifest.ts"
 
 const here = dirname(fileURLToPath(import.meta.url))
 const dataDir = process.env.QWBE_DATA_DIR ?? join(here, "..", "..", "..", "data")
@@ -22,29 +32,66 @@ export class MigrationConflictError extends Error {
   }
 }
 
-/**
- * Each entry renames an old cube's file to a new cube's file -- the schema is unchanged, only
- * the owning identity moved (flat `bookmarks` -> `booktags/bookmarks`).
- *
- * Refuses rather than guesses: the rename happens only when the old file exists and the new
- * one does not. Both existing is a human decision, not a heuristic.
- */
-const DATA_MIGRATIONS: ReadonlyArray<{ readonly from: string; readonly to: string }> = [
-  { from: "bookmarks.sqlite", to: "booktags--bookmarks.sqlite" },
-  { from: "tags.sqlite", to: "booktags--tags.sqlite" },
-]
+export class MigrationFailedError extends Error {
+  constructor(from: string, to: string, cause: string) {
+    super(`Data migration failed moving "${from}" to "${to}" and was rolled back: ${cause}`)
+    this.name = "MigrationFailedError"
+  }
+}
 
-export const migrateDataFiles = (): void => {
-  for (const { from, to } of DATA_MIGRATIONS) {
-    const oldPath = join(dataDir, from)
-    const newPath = join(dataDir, to)
-    if (!existsSync(oldPath)) continue
-    if (existsSync(newPath)) throw new MigrationConflictError(from, to)
-    renameSync(oldPath, newPath)
-    // WAL companions travel with the database -- renaming only the main file would leave
-    // uncommitted pages behind attached to a name nothing opens any more.
-    for (const suffix of ["-wal", "-shm"]) {
-      if (existsSync(`${oldPath}${suffix}`)) renameSync(`${oldPath}${suffix}`, `${newPath}${suffix}`)
+export class MigrationOwnershipError extends Error {
+  constructor(reason: string) {
+    super(`Data migration refused by the ownership rules: ${reason}`)
+    this.name = "MigrationOwnershipError"
+  }
+}
+
+type Move = { readonly fromPath: string; readonly toPath: string }
+
+/** The three files that travel together: the database and its WAL companions. */
+const companions = (base: string): ReadonlyArray<string> =>
+  [base, `${base}-wal`, `${base}-shm`].filter((p) => existsSync(p))
+
+/**
+ * Plan, preflight, move, rollback.
+ *
+ * Preflight is a SEPARATE pass over the entire batch: every source must exist and every
+ * destination must not, for every companion of every migration. Only when the whole plan is
+ * clean does the first `renameSync` run. A rename that still throws rolls back what has
+ * already moved, so the data directory never holds a half-applied batch.
+ */
+export const migrateDataFiles = (migrations: ReadonlyArray<DataMigration>): void => {
+  if (migrations.length === 0) return
+
+  const plan: Array<Move> = []
+  for (const m of migrations) {
+    const fromBase = join(dataDir, storeFileName(m.fromCube))
+    const toBase = join(dataDir, storeFileName(m.toCube))
+    if (!existsSync(fromBase)) continue // nothing to migrate -- the old file simply is not here
+    if (existsSync(toBase)) throw new MigrationConflictError(m.fromCube, m.toCube)
+    for (const fromPath of companions(fromBase)) {
+      const toPath = `${toBase}${fromPath.slice(fromBase.length)}`
+      if (existsSync(toPath)) throw new MigrationConflictError(fromPath, toPath)
+      plan.push({ fromPath, toPath })
     }
+  }
+
+  const done: Array<Move> = []
+  try {
+    for (const mv of plan) {
+      renameSync(mv.fromPath, mv.toPath)
+      done.push(mv)
+    }
+  } catch (e) {
+    const failed = plan[done.length] as Move
+    for (const mv of done.reverse()) {
+      try {
+        renameSync(mv.toPath, mv.fromPath)
+      } catch {
+        // A rollback that itself fails is logged, not thrown over the original error.
+        console.error(`migration rollback could not restore "${mv.toPath}" -> "${mv.fromPath}"`)
+      }
+    }
+    throw new MigrationFailedError(failed.fromPath, failed.toPath, (e as Error).message)
   }
 }

@@ -13,6 +13,7 @@
 // third party, so neither side knows the other exists. See `space.ts`.
 
 import type { Effect } from "effect"
+import { Schema } from "effect"
 import type { SummaryRow } from "./entity.ts"
 import type { Page, PageRequest } from "./pagination.ts"
 import type { RequiredCubeError, StateFileError, UnknownCubeError } from "./state.ts"
@@ -187,6 +188,15 @@ export type Manifest = {
    * be skipped by whoever holds it. Before this existed, every cube could run every command.
    */
   readonly runsCommands?: boolean
+  /**
+   * Data-file migrations this package declares, run at mount before any store opens.
+   *
+   * Declared here -- in the declarative manifest, not in `create` -- because migration is a
+   * package-level claim about where its data moved, not executable behaviour. The kernel
+   * executes it after checking every entry against the mounted set and the package
+   * provenance, so a plugin cannot ask for `auth.sqlite`.
+   */
+  readonly dataMigration?: ReadonlyArray<DataMigration>
 }
 
 /** What a credential provider offers, and a consumer receives. Never the hash itself. */
@@ -419,6 +429,37 @@ export const fullName = (m: Pick<Manifest, "name" | "parent">): string => (m.par
 /** The store file is path-safe: `booktags/bookmarks` -> `booktags--bookmarks.sqlite`. */
 export const storeFileName = (cube: string): string => `${cube.replace(/\//g, "--")}.sqlite`
 
+/**
+ * ONE identity -> ONE path, in every direction the kernel needs.
+ *
+ * The compound identity `<parent>/<child>` is a TYPE-level fact (`fullName`), but paths are
+ * strings. These three functions are the only legal transformations between them -- a `split("/")`
+ * or a `replace("/", "-")` anywhere else is a divergent reimplementation, and reviewers found
+ * them drifting apart between kernel and web.
+ *
+ *   screenPath  -- the web route a cube's screen lives at: `/booktags/bookmarks`, `/notes`
+ *   prefixOf    -- the first HTTP segment a cube serves under: `bookmarks`, `booktags-settings`
+ */
+export const screenPath = (name: string, parent?: string): string => (parent ? `/${parent}/${name}` : `/${name}`)
+export const leafOf = (full: string): string => (full.includes("/") ? (full.split("/")[1] as string) : full)
+export const parentOf = (full: string): string | undefined => (full.includes("/") ? full.split("/")[0] : undefined)
+
+/**
+ * A data-file migration, DECLARED by the package (parent manifest), executed by the kernel.
+ *
+ * The kernel knows nothing about `bookmarks` or `booktags` -- it renames `fromFile` to
+ * `storeFileName(toCube)` and nothing else. `toCube` must resolve to a mounted cube of THIS
+ * package, and `fromFile` must be exactly the file of a cube with the same package provenance.
+ * Both rules are checked at mount (`validateManifest` + `mount`); a manifest cannot name a
+ * path, and cannot reach outside its own package.
+ */
+export type DataMigration = {
+  /** The old file's cube identity as a bare name (e.g. `bookmarks` for `bookmarks.sqlite`). */
+  readonly fromCube: string
+  /** The cube identity the data belongs to now; MUST be mounted and in the same package. */
+  readonly toCube: string
+}
+
 export const validateManifest = (directory: string, m: Manifest): void => {
   const reasons: Array<string> = []
   const full = fullName(m)
@@ -500,3 +541,19 @@ export type CubeStore = {
 export type CubeBus = {
   readonly publish: (event: string, payload: unknown) => Effect.Effect<void, never, never>
 }
+
+// --- bus payload contracts ---------------------------------------------------------------------
+//
+// An event name is a string by design ("the listener does not import the publisher"), but a
+// string is not a contract. A payload that is cast (`payload as { key: string }`) trusts the
+// publisher with no verification -- exactly the lie the rest of this kernel exists to refuse.
+// So the payloads that cross cube boundaries get a Schema here, decoded at the subscriber's
+// edge. A malformed payload dies at decode, not inside a handler.
+
+/** Payload of `booktags/settings.changed`: one setting, by key and string value. */
+export const BooktagsSettingChanged = Schema.Struct({
+  key: Schema.String,
+  value: Schema.String,
+}).annotations({ identifier: "BooktagsSettingChanged" })
+
+export const decodeBooktagsSettingChanged = Schema.decodeUnknownSync(BooktagsSettingChanged)

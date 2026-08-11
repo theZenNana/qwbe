@@ -30,13 +30,16 @@ import {
   type CredentialVerifier,
   type CubeDefinition,
   type CubeParts,
+  type DataMigration,
   fullName,
+  leafOf,
   type Manifest,
+  parentOf,
   type Subscription,
   validateCommands,
   validateManifest,
 } from "./manifest.ts"
-import { migrateDataFiles } from "./migrate.ts"
+import { MigrationOwnershipError, migrateDataFiles } from "./migrate.ts"
 import { activeLinks, type SpaceDefinition } from "./space.ts"
 import { type Switches, switchesFrom } from "./state.ts"
 import { checkUniqueTables, storeFor } from "./store.ts"
@@ -77,8 +80,18 @@ export const loadDefinitions = async (): Promise<
     )
   }
 
+  // A child cannot be requested without its parent -- the mask would make it unreachable and
+  // the state file could not even express it. The parent is included silently rather than
+  // refused, because the request's INTENT is clear; a refusal would teach nothing.
+  const expanded = new Set(requested)
+  for (const name of requested) {
+    const p = parentOf(name)
+    if (p && !expanded.has(p)) expanded.add(p)
+  }
+  const finalRequested = [...expanded]
+
   const out: Array<{ name: string; plugin: string | null; definition: CubeDefinition }> = []
-  for (const entry of onDisk.filter((c) => requested.includes(c.name))) {
+  for (const entry of onDisk.filter((c) => finalRequested.includes(c.name))) {
     let mod: Record<string, unknown>
     try {
       mod = (await import(entry.specifier)) as Record<string, unknown>
@@ -94,9 +107,9 @@ export const loadDefinitions = async (): Promise<
     // about itself. A cube cannot lie about who it is. For a child the layout check extends
     // to the parent: `booktags/bookmarks` must declare `parent: "booktags"` and sit in the
     // `booktags` directory -- both halves come from disk, never from the manifest alone.
-    const leaf = entry.name.includes("/") ? entry.name.split("/")[1] : entry.name
-    const declaredParent = entry.name.includes("/") ? entry.name.split("/")[0] : undefined
-    validateManifest(leaf as string, definition.manifest)
+    const leaf = leafOf(entry.name)
+    const declaredParent = parentOf(entry.name)
+    validateManifest(leaf, definition.manifest)
     const m = definition.manifest
     if (m.parent !== declaredParent) {
       throw new BrokenCubeError(
@@ -138,7 +151,32 @@ export const mount = (
   definitions: ReadonlyArray<{ name: string; plugin: string | null; definition: CubeDefinition }>,
   spaces: ReadonlyArray<SpaceDefinition>,
 ): MountedSystem => {
-  migrateDataFiles()
+  // Data migrations are DECLARED by packages and executed here, before any store opens.
+  // The ownership rules run against the mounted set, not against what a manifest asks for:
+  //   - `toCube` must be a mounted cube, and of the SAME package as the declarer;
+  //   - the declarer must itself be mounted (a migration runs only when its destination is).
+  const mounted = new Map(definitions.map((d) => [d.name, d.plugin]))
+  const migrations: Array<DataMigration> = []
+  for (const { name, plugin, definition } of definitions) {
+    for (const m of definition.manifest.dataMigration ?? []) {
+      const toPlugin = mounted.get(m.toCube)
+      if (toPlugin === undefined) {
+        throw new MigrationOwnershipError(
+          `"${name}" declares ${m.fromCube} -> ${m.toCube}, but "${m.toCube}" is not mounted. ` +
+            `A migration runs only when its destination is.`,
+        )
+      }
+      if (toPlugin !== plugin) {
+        throw new MigrationOwnershipError(
+          `"${name}" declares ${m.fromCube} -> ${m.toCube}, but "${m.toCube}" belongs to ` +
+            `${toPlugin === null ? "core" : `plugin "${toPlugin}"`} -- not to the declaring package.`,
+        )
+      }
+      migrations.push(m)
+    }
+  }
+  migrateDataFiles(migrations)
+
   const manifests = definitions.map((d) => d.definition.manifest)
 
   checkUniqueTables(manifests.map((m) => ({ name: fullName(m), tables: m.tables })))

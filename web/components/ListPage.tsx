@@ -10,7 +10,7 @@
 
 import Link from "next/link"
 import { useEffect, useState } from "react"
-import { type CubeInfo, catalogue, list, type Paged } from "../lib/api"
+import { type CubeInfo, catalogue, list, type Paged, screenPath } from "../lib/api"
 
 const META = new Set(["id", "type", "createdAt", "deleted"])
 
@@ -39,9 +39,9 @@ export function ListPage({ routeName, back }: { routeName: string; back?: string
   }, [routeName, offset])
 
   const columns = page && page.rows.length > 0 ? Object.keys(page.rows[0]!).filter((k) => !META.has(k)) : []
-  // Row detail lives under the cube's HTTP prefix -- the same route the detail page has
-  // always used, standalone or child alike.
-  const rowHref = (id: string) => `/${info?.prefix ?? routeName}/${id}`
+  // Row detail lives on the cube's SCREEN path: standalone `/<name>/<id>`, a child at
+  // `/<parent>/<child>/<id>` -- the third segment is the row, matched by [cube]/[id]/[row].
+  const rowHref = (id: string) => (info ? `${screenPath(info)}/${id}` : `/${routeName}/${id}`)
 
   return (
     <>
