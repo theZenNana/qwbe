@@ -150,13 +150,13 @@ export const list = (cube: string, offset = 0, limit = 10) =>
 
 export const one = (cube: string, id: string) => request<Record<string, unknown>>(`/${cube}/${id}`)
 
-/** The web route for a cube screen: standalone cubes at `/<name>`, children grouped under
- *  their parent at `/<parent>/<child>` -- one sidebar entry per hierarchy. */
-export const screenPath = (c: CubeInfo): string => (c.parent ? `/${c.parent}/${c.name.split("/")[1]}` : `/${c.name}`)
-
 /** The leaf of a compound cube name (`booktags/bookmarks` -> `bookmarks`); bare names pass
  *  through. The ONE place the split lives in this app -- mirrors the kernel's `leafOf`. */
 export const leafName = (full: string): string => (full.includes("/") ? (full.split("/")[1] as string) : full)
+
+/** The web route for a cube screen: standalone cubes at `/<name>`, children grouped under
+ *  their parent at `/<parent>/<child>` -- one sidebar entry per hierarchy. */
+export const screenPath = (c: CubeInfo): string => (c.parent ? `/${c.parent}/${leafName(c.name)}` : `/${c.name}`)
 
 export type LinksFor = {
   entity: string

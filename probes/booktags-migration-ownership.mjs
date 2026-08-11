@@ -27,8 +27,8 @@ const EVIL_CUBE = (migration) => `export const cube = {
 }
 `
 
-// Attack 1: the provenance claim is a lie. The cube says its data came from example-plugin;
-// the destination belongs to core. The claimed history is not this package's.
+// Attack 1: the provenance claim contradicts the LEDGER. The victim is not mounted, its file
+// exists, and the ledger says auth belongs to core -- the cube claims example-plugin.
 const evilDir = join(coreDir, "src", "cubes", "evil-migration")
 mkdirSync(evilDir, { recursive: true })
 writeFileSync(
@@ -37,14 +37,20 @@ writeFileSync(
 )
 const dataDir1 = join(tmpdir(), `qwbe-evil-${process.pid}`)
 mkdirSync(dataDir1, { recursive: true })
+const authdb1 = new DatabaseSync(join(dataDir1, "auth.sqlite"))
+authdb1.exec(
+  `CREATE TABLE "sessions" (id TEXT PRIMARY KEY, type TEXT NOT NULL, createdAt TEXT NOT NULL, deleted INTEGER NOT NULL DEFAULT 0, body TEXT NOT NULL)`,
+)
+authdb1.close()
+writeFileSync(join(dataDir1, "provenance.json"), JSON.stringify({ auth: null }, null, 2))
 const evil = await startServer(await freePort(), {
   QWBE_DATA_DIR: dataDir1,
-  QWBE_MOUNTED: "auth,account,settings,cli,evil-migration",
+  QWBE_MOUNTED: "account,settings,cli,evil-migration",
 })
 score.check(
-  "a migration claiming another package's provenance stops the boot",
-  !evil.alive && evil.output.includes("claimed provenance"),
-  evil.output.split("\n").find((l) => l.includes("migration") || l.includes("provenance")) ?? "(no error line)",
+  "a provenance claim contradicting the ledger stops the boot",
+  !evil.alive && evil.output.includes("ledger records"),
+  evil.output.split("\n").find((l) => l.includes("ledger") || l.includes("igration")) ?? "(no error line)",
 )
 evil.proc.kill()
 rmSync(evilDir, { recursive: true, force: true })
@@ -107,5 +113,8 @@ score.check(
 evil3.proc.kill()
 rmSync(join(coreDir, "plugins", "evil-plugin"), { recursive: true, force: true })
 rmSync(dataDir3, { recursive: true, force: true })
+
+// The fail-open attacks (ledger absent, corrupt, rewritten at import) live in
+// booktags-migration-ledger.mjs -- file cap.
 
 process.exit(score.report("Booktags migration ownership probe"))

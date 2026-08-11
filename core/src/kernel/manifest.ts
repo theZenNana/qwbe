@@ -463,20 +463,19 @@ export type DataMigration = {
   /**
    * The old file's cube identity as a bare name (e.g. `bookmarks` for `bookmarks.sqlite`).
    *
-   * Guarded two ways at mount: it must NOT be the name of a currently-mounted cube of another
-   * package (a mounted cube's file is LIVE, not legacy), and when `fromPlugin` is given it must
-   * equal the destination's provenance -- so the claim "this file used to belong to my package"
-   * is checked against the package, not trusted from the manifest.
+   * Guarded at mount: it must NOT be the name of a currently-mounted cube of another package
+   * (a mounted cube's file is LIVE, not legacy), and its ledger record must match `fromPlugin`.
    */
   readonly fromCube: string
   /** The cube identity the data belongs to now; MUST be mounted and in the same package. */
   readonly toCube: string
   /**
-   * Optional: which package the old cube belonged to (`null` = core). When declared, the kernel
-   * checks it against the destination's provenance -- a mismatch means the manifest is claiming
-   * history that is not its own.
+   * REQUIRED: which package the old cube belonged to (`null` = core). The kernel checks the
+   * claim against its provenance ledger -- written at mount, never by a manifest. A source
+   * with no ledger record is refused unless the operator authorizes the pre-ledger claim
+   * (QWBE_LEGACY_MIGRATIONS) -- the package being checked does not get that vote.
    */
-  readonly fromPlugin?: string | null
+  readonly fromPlugin: string | null
 }
 
 export const validateManifest = (directory: string, m: Manifest): void => {

@@ -20,7 +20,12 @@ const api = client(PORT)
 
 plantLegacyBookmarks(dataDir)
 
-const server = await startServer(PORT, { QWBE_DATA_DIR: dataDir })
+// The planted file is PRE-LEDGER history: no provenance.json exists, so the migration needs
+// the operator's explicit authorization -- exactly the path a real pre-ledger upgrade takes.
+const server = await startServer(PORT, {
+  QWBE_DATA_DIR: dataDir,
+  QWBE_LEGACY_MIGRATIONS: "bookmarks:example-plugin,tags:example-plugin",
+})
 if (!server.alive) {
   console.error(`server did not start:\n${server.output}`)
   process.exit(1)

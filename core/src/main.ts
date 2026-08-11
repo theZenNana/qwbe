@@ -13,7 +13,7 @@ import { HttpApiBuilder, HttpApiSwagger, HttpMiddleware, HttpServer } from "@eff
 import { NodeHttpServer, NodeRuntime } from "@effect/platform-node"
 import { Layer } from "effect"
 import { loadDefinitions, mount } from "./kernel/discovery.ts"
-import { writeLedger } from "./kernel/ledger.ts"
+import { readLedger, writeLedger } from "./kernel/ledger.ts"
 import { buildApi, buildHandlers, checkCubes, rejectDisabled } from "./kernel/mount.ts"
 import { type RegistryEntry, registryFrom } from "./kernel/registry.ts"
 import { loadSpaces } from "./kernel/space.ts"
@@ -26,6 +26,12 @@ const fail = (e: Error, code: number): never => {
 }
 
 // --- 1. discovery: level 0 (cubes + plugins) and level 1 (spaces) ---
+//
+// The ledger snapshot is taken FIRST, before `loadDefinitions` imports a single plugin
+// module. A plugin's top-level code runs at import and can rewrite data/provenance.json --
+// but it cannot rewrite this snapshot, and the migration checks below trust the snapshot.
+const ledgerRead = readLedger()
+const ledgerSnapshot = ledgerRead.state === "ok" ? ledgerRead.ledger : {}
 
 const definitions = await loadDefinitions().catch((e: Error) => fail(e, 2))
 const spaces = await loadSpaces().catch((e: Error) => fail(e, 2))
@@ -34,7 +40,7 @@ const spaces = await loadSpaces().catch((e: Error) => fail(e, 2))
 
 let system: ReturnType<typeof mount>
 try {
-  system = mount(definitions, spaces)
+  system = mount(definitions, spaces, ledgerSnapshot)
 } catch (e) {
   fail(e as Error, 2)
 }

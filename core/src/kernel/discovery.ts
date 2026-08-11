@@ -22,6 +22,7 @@ import { discover } from "./scan.ts"
 export { BrokenCubeError, DoubleCapabilityError, DoublePrivilegeError, DuplicateCubeError } from "./errors-discovery.ts"
 
 import { BrokenCubeError, DoubleCapabilityError, DoublePrivilegeError } from "./errors-discovery.ts"
+import type { Ledger } from "./ledger.ts"
 import {
   type Catalogue,
   type CommandInfo,
@@ -39,7 +40,8 @@ import {
   validateCommands,
   validateManifest,
 } from "./manifest.ts"
-import { checkMigrationOwnership, migrateDataFiles } from "./migrate.ts"
+import { migrateDataFiles } from "./migrate.ts"
+import { checkMigrationOwnership } from "./migrate-ownership.ts"
 import { activeLinks, type SpaceDefinition } from "./space.ts"
 import { type Switches, switchesFrom } from "./state.ts"
 import { checkUniqueTables, storeFor } from "./store.ts"
@@ -150,11 +152,12 @@ export type MountedSystem = {
 export const mount = (
   definitions: ReadonlyArray<{ name: string; plugin: string | null; definition: CubeDefinition }>,
   spaces: ReadonlyArray<SpaceDefinition>,
+  ledger: Ledger,
 ): MountedSystem => {
-  // Data migrations are DECLARED by packages, validated against the mounted set (a plugin
-  // cannot reach outside itself -- see checkMigrationOwnership), and executed before any
-  // store opens.
-  migrateDataFiles(checkMigrationOwnership(definitions))
+  // Data migrations are DECLARED by packages, validated against the mounted set AND the
+  // ledger snapshot taken BEFORE any plugin module was imported (main.ts) -- a plugin's
+  // top-level code can rewrite the file on disk, but it cannot rewrite the snapshot.
+  migrateDataFiles(checkMigrationOwnership(definitions, ledger))
 
   const manifests = definitions.map((d) => d.definition.manifest)
 
