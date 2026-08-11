@@ -20,41 +20,23 @@
 
 import { HttpApiEndpoint, HttpApiGroup } from "@effect/platform"
 import { Effect, Schema } from "effect"
+import { type CubeTools, defineCube } from "qwbe-core/cube"
+import { CommandInfo, CommandResult, Invocation } from "../../http-contracts.ts"
 import { Authorization, CurrentUser, requirePermission } from "../../kernel/auth-contract.ts"
 import { BadRequest, Forbidden } from "../../kernel/errors.ts"
-import type { CubeDefinition, CubeTools } from "../../kernel/manifest.ts"
-
-const CommandInfo = Schema.Struct({
-  name: Schema.String,
-  summary: Schema.String,
-  permission: Schema.String,
-  /** Whether the caller may actually run it — so the UI can grey out what it cannot use. */
-  allowed: Schema.Boolean,
-}).annotations({ identifier: "CommandInfo" })
-
-const Invocation = Schema.Struct({
-  /** e.g. "notes:recent 5" — split on whitespace, never handed to a shell. */
-  line: Schema.String,
-}).annotations({ identifier: "Invocation" })
-
-const Result = Schema.Struct({
-  command: Schema.String,
-  output: Schema.String,
-  ok: Schema.Boolean,
-}).annotations({ identifier: "Result" })
 
 const group = HttpApiGroup.make("cli")
   .add(HttpApiEndpoint.get("commands")`/cli/commands`.addSuccess(Schema.Array(CommandInfo)).addError(Forbidden))
   .add(
     HttpApiEndpoint.post("exec")`/cli/exec`
       .setPayload(Invocation)
-      .addSuccess(Result)
+      .addSuccess(CommandResult)
       .addError(BadRequest)
       .addError(Forbidden),
   )
   .middleware(Authorization)
 
-export const cube: CubeDefinition = {
+export const cube = defineCube(group, {
   manifest: {
     name: "cli",
     tables: [],
@@ -94,8 +76,6 @@ export const cube: CubeDefinition = {
     }
 
     return {
-      group,
-
       commands: [
         {
           name: "cli:help",
@@ -165,4 +145,4 @@ export const cube: CubeDefinition = {
       },
     }
   },
-}
+})

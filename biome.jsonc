@@ -24,6 +24,8 @@
       "!**/coverage",
       "!**/generated",
       "!**/*.generated.*",
+      "!core/src/qwbe-contract-*",
+      "!web/next-env.d.ts",
       "!data",
       "!screenshots",
       "!package-lock.json"
@@ -81,11 +83,9 @@
       }
     },
     {
-      // The kernel composes HttpApi groups discovered at runtime — exactly the case Effect's
-      // types cannot express (see the comment on `buildApi` in mount.ts). The `any` there is a
-      // documented price, not an oversight; flagging it every run trains everyone to ignore the
-      // linter.
-      "includes": ["core/src/kernel/mount.ts"],
+      // One audited adapter composes HttpApi groups discovered at runtime. Concrete groups are
+      // typed and validated before entry; no erased type leaves this file.
+      "includes": ["core/src/runtime-composition.ts"],
       "linter": {
         "rules": {
           "suspicious": {

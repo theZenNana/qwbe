@@ -6,10 +6,10 @@
 
 import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema } from "@effect/platform"
 import { Effect, Schema } from "effect"
+import { type CubeTools, defineCube } from "qwbe-core/cube"
 import { Authorization, requirePermission } from "../../../../../src/kernel/auth-contract.ts"
 import { EntityMeta, type SummaryRow } from "../../../../../src/kernel/entity.ts"
 import { Forbidden, NotFound } from "../../../../../src/kernel/errors.ts"
-import type { CubeDefinition, CubeTools } from "../../../../../src/kernel/manifest.ts"
 import { PageOf, PageParams, pageRequest } from "../../../../../src/kernel/pagination.ts"
 
 const TABLE = "tags"
@@ -46,7 +46,7 @@ const summary = (t: TagRow): SummaryRow => ({
   details: [{ key: "bookmarkId", value: t.bookmarkId }],
 })
 
-export const cube: CubeDefinition = {
+export const cube = defineCube(group, {
   manifest: {
     name: "tags",
     parent: "booktags",
@@ -62,8 +62,6 @@ export const cube: CubeDefinition = {
   },
 
   create: ({ store, bus }: CubeTools) => ({
-    group,
-
     handlers: {
       list: ({ urlParams }: { urlParams: typeof PageParams.Type }) =>
         Effect.gen(function* () {
@@ -101,4 +99,4 @@ export const cube: CubeDefinition = {
         }),
     },
   }),
-}
+})

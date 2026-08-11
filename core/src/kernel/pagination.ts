@@ -10,6 +10,8 @@
 
 import { Schema } from "effect"
 
+export { PageOf } from "../http-contracts.ts"
+
 export const DEFAULT_LIMIT = 25
 export const MAX_LIMIT = 200
 
@@ -73,15 +75,6 @@ export const PageParams = Schema.Struct({
 })
 
 /** Response shape. `total` is in the schema, so it shows up in the emitted OpenAPI. */
-export const PageOf = <A, I, R>(element: Schema.Schema<A, I, R>) =>
-  Schema.Struct({
-    rows: Schema.Array(element),
-    total: Schema.Number,
-    offset: Schema.Number,
-    limit: Schema.Number,
-    sortedBy: Schema.String,
-  })
-
 /**
  * Normalise a request. The limit is capped HARD at `MAX_LIMIT`.
  *

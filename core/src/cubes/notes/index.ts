@@ -11,10 +11,10 @@
 
 import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema } from "@effect/platform"
 import { Effect, Schema } from "effect"
+import { type CubeTools, defineCube } from "qwbe-core/cube"
 import { Authorization, CurrentUser, requirePermission } from "../../kernel/auth-contract.ts"
 import { EntityMeta, type SummaryRow } from "../../kernel/entity.ts"
 import { Forbidden, NotFound } from "../../kernel/errors.ts"
-import type { CubeDefinition, CubeTools } from "../../kernel/manifest.ts"
 import { PageOf, PageParams, pageRequest } from "../../kernel/pagination.ts"
 
 const TABLE = "notes"
@@ -55,7 +55,7 @@ const summary = (n: NoteRow): SummaryRow => ({
   ],
 })
 
-export const cube: CubeDefinition = {
+export const cube = defineCube(group, {
   manifest: {
     name: "notes",
     tables: [TABLE],
@@ -72,8 +72,6 @@ export const cube: CubeDefinition = {
   },
 
   create: ({ store, bus }: CubeTools) => ({
-    group,
-
     commands: [
       {
         name: "notes:count",
@@ -148,4 +146,4 @@ export const cube: CubeDefinition = {
         }),
     },
   }),
-}
+})

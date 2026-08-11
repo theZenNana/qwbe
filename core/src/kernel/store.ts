@@ -228,6 +228,7 @@ export const storeFor = (
       Effect.sync(() => {
         const d = check(table)
         const r = d.prepare(`SELECT * FROM "${table}" WHERE id = ? AND deleted = 0`).get(id)
+        // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion -- QWB-19 store adapter decodes persisted JSON before satisfying the caller's row type
         return r ? (decode(r as Record<string, unknown>) as A) : undefined
       }),
 
@@ -257,7 +258,7 @@ export const storeFor = (
         const d = check(table)
         const current = d.prepare(`SELECT * FROM "${table}" WHERE id = ?`).get(id)
         if (!current) return undefined
-        const merged = { ...decode(current as Record<string, unknown>), ...patch }
+        const merged = { ...decode(current), ...patch }
         const { id: _i, type, createdAt, deleted, ...body } = merged
         d.prepare(`UPDATE "${table}" SET type = ?, createdAt = ?, deleted = ?, body = ? WHERE id = ?`).run(
           String(type),

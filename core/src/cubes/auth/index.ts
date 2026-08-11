@@ -18,10 +18,11 @@
 
 import { createHash, randomBytes } from "node:crypto"
 import { HttpApiEndpoint, HttpApiGroup } from "@effect/platform"
-import { type Context, Effect, Layer, Redacted, Schema } from "effect"
+import { type Context, Effect, Layer, Redacted } from "effect"
+import { type CubeTools, defineCube } from "qwbe-core/cube"
+import { Credentials, Me, Ok, SessionToken } from "../../http-contracts.ts"
 import { Authorization, CurrentUser } from "../../kernel/auth-contract.ts"
 import { Unauthorized } from "../../kernel/errors.ts"
-import type { CubeDefinition, CubeTools } from "../../kernel/manifest.ts"
 import { Registry } from "../../kernel/registry.ts"
 
 const SESSIONS = "sessions"
@@ -40,25 +41,6 @@ const sha256 = (s: string) => createHash("sha256").update(s).digest("hex")
  * When it becomes real, hashing moves behind the account cube's own endpoint.
  */
 // --- contract ---
-
-const Credentials = Schema.Struct({
-  username: Schema.String,
-  password: Schema.String,
-}).annotations({ identifier: "Credentials" })
-
-const SessionToken = Schema.Struct({
-  token: Schema.String,
-  expiresAt: Schema.String,
-}).annotations({ identifier: "SessionToken" })
-
-const Me = Schema.Struct({
-  id: Schema.String,
-  username: Schema.String,
-  roles: Schema.Array(Schema.String),
-  permissions: Schema.Array(Schema.String),
-}).annotations({ identifier: "Me" })
-
-const Ok = Schema.Struct({ ok: Schema.Boolean }).annotations({ identifier: "Ok" })
 
 // `login` is the ONLY public endpoint in the whole system. `mount.ts` verifies that against
 // the real contract: any other cube with an unauthenticated endpoint stops the server.
@@ -85,7 +67,7 @@ const group = HttpApiGroup.make("auth")
 const detail = (summary: { details: ReadonlyArray<{ key: string; value: string }> }, key: string) =>
   summary.details.find((d) => d.key === key)?.value ?? ""
 
-export const cube: CubeDefinition = {
+export const cube = defineCube(group, {
   manifest: {
     name: "auth",
     tables: [SESSIONS],
@@ -167,7 +149,6 @@ export const cube: CubeDefinition = {
     )
 
     return {
-      group,
       layers: AuthorizationLive,
 
       handlers: {
@@ -218,4 +199,4 @@ export const cube: CubeDefinition = {
       },
     }
   },
-}
+})

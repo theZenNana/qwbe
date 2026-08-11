@@ -125,6 +125,13 @@ export const plantSources = () => {
   )
   writeFileSync(join(ghostDir, "index.ts"), "// no cubes/ directory at all\n")
 
+  // Structurally valid package whose cube cannot pass the repository's strict TypeScript gate.
+  // Installation must refuse it before either the store shelf or destination becomes visible.
+  const badTypesDir = join(sources, "badtypes")
+  mkdirSync(badTypesDir, { recursive: true })
+  writeFileSync(join(badTypesDir, "qwbe-package.json"), JSON.stringify({ name: "badtypes", kind: "cube" }))
+  writeFileSync(join(badTypesDir, "index.ts"), "const contract: string = 42\nexport { contract }\n")
+
   return {
     sources,
     goodDir,
@@ -138,5 +145,6 @@ export const plantSources = () => {
     filePath,
     fifoDir,
     ghostDir,
+    badTypesDir,
   }
 }

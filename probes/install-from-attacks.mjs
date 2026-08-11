@@ -46,6 +46,13 @@ export const reviewAttacks = async ({ api, admin, store, fixtures }) => {
     `http=${ghost.status}`,
   )
 
+  const badTypes = await post({ path: fixtures.badTypesDir })
+  say(
+    "a TypeScript-invalid cube is refused before publication",
+    badTypes.status === 400 && String(badTypes.body?.message).includes("TypeScript contract gate"),
+    `http=${badTypes.status}`,
+  )
+
   // The shelf trust attack: stage the good package, EDIT the staged copy, then offer the
   // original source again. The shelf's fingerprint is recomputed from disk, so the edit must
   // answer as "different content" - not inherit the provenance stamp.

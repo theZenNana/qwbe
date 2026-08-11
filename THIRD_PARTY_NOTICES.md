@@ -30,7 +30,10 @@ Package source and license text are available from the npm package identified be
 | @effect/rpc | 0.75.1 | MIT |
 | @effect/sql | 0.51.1 | MIT |
 | @effect/workflow | 0.18.2 | MIT |
+| @emnapi/core | 1.11.1 | MIT |
+| @emnapi/runtime | 1.11.1 | MIT |
 | @emnapi/runtime | 1.11.3 | MIT |
+| @emnapi/wasi-threads | 1.2.2 | MIT |
 | @eslint-community/eslint-utils | 4.10.1 | MIT |
 | @eslint-community/regexpp | 4.12.2 | MIT |
 | @eslint/config-array | 0.23.5 | Apache-2.0 |
@@ -81,6 +84,7 @@ Package source and license text are available from the npm package identified be
 | @msgpackr-extract/msgpackr-extract-linux-arm64 | 3.0.4 | MIT |
 | @msgpackr-extract/msgpackr-extract-linux-x64 | 3.0.4 | MIT |
 | @msgpackr-extract/msgpackr-extract-win32-x64 | 3.0.4 | MIT |
+| @napi-rs/wasm-runtime | 1.1.4 | MIT |
 | @next/env | 16.3.0 | MIT |
 | @next/swc-darwin-arm64 | 16.3.0 | MIT |
 | @next/swc-darwin-x64 | 16.3.0 | MIT |
@@ -141,6 +145,7 @@ Package source and license text are available from the npm package identified be
 | @textlint/regexp-string-matcher | 2.0.2 | MIT |
 | @textlint/resolver | 15.8.0 | MIT |
 | @textlint/types | 15.8.0 | MIT |
+| @tybys/wasm-util | 0.10.2 | MIT |
 | @types/esrecurse | 4.3.1 | MIT |
 | @types/estree | 1.0.9 | MIT |
 | @types/json-schema | 7.0.15 | MIT |
