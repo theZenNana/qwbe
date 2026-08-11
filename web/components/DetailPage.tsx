@@ -43,18 +43,19 @@ export function DetailPage({ cube, id, routeName }: { cube: string; id: string; 
   const LIMIT = 5
 
   useEffect(() => {
-    one(cube, id)
-      .then(setRow)
-      .catch((e: Error) => setError(e.message))
     // The catalogue identity (routeName for a child, e.g. `booktags/bookmarks`) is what the
-    // kernel knows the cube as; `cube` is only the HTTP prefix it serves under.
+    // kernel knows the cube as; the HTTP prefix comes from the catalogue too -- a child whose
+    // leaf name is taken serves under `<parent>-<name>`, so the leaf must never be assumed.
     const identity = routeName ?? cube
     catalogue()
       .then((c) => {
         setCatalog(c)
-        setInfo(c.find((x) => x.name === identity) ?? null)
+        const found = c.find((x) => x.name === identity) ?? null
+        setInfo(found)
+        return one(found?.prefix ?? cube, id)
       })
-      .catch(() => undefined)
+      .then(setRow)
+      .catch((e: Error) => setError(e.message))
   }, [cube, id, routeName])
 
   useEffect(() => {

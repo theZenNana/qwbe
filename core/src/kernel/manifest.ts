@@ -13,7 +13,6 @@
 // third party, so neither side knows the other exists. See `space.ts`.
 
 import type { Effect } from "effect"
-import { Schema } from "effect"
 import type { SummaryRow } from "./entity.ts"
 import type { Page, PageRequest } from "./pagination.ts"
 import type { RequiredCubeError, StateFileError, UnknownCubeError } from "./state.ts"
@@ -444,6 +443,12 @@ export const screenPath = (name: string, parent?: string): string => (parent ? `
 export const leafOf = (full: string): string => (full.includes("/") ? (full.split("/")[1] as string) : full)
 export const parentOf = (full: string): string | undefined => (full.includes("/") ? full.split("/")[0] : undefined)
 
+/** The first segment of an HTTP path -- the segment the on/off switch matches on. */
+export const pathPrefix = (path: string): string | undefined => path.split("/").filter(Boolean)[0]
+
+/** The dash form used for route prefixes: `booktags/settings` -> `booktags-settings`. */
+export const dashForm = (full: string): string => full.replace("/", "-")
+
 /**
  * A data-file migration, DECLARED by the package (parent manifest), executed by the kernel.
  *
@@ -454,10 +459,23 @@ export const parentOf = (full: string): string | undefined => (full.includes("/"
  * path, and cannot reach outside its own package.
  */
 export type DataMigration = {
-  /** The old file's cube identity as a bare name (e.g. `bookmarks` for `bookmarks.sqlite`). */
+  /**
+   * The old file's cube identity as a bare name (e.g. `bookmarks` for `bookmarks.sqlite`).
+   *
+   * Guarded two ways at mount: it must NOT be the name of a currently-mounted cube of another
+   * package (a mounted cube's file is LIVE, not legacy), and when `fromPlugin` is given it must
+   * equal the destination's provenance -- so the claim "this file used to belong to my package"
+   * is checked against the package, not trusted from the manifest.
+   */
   readonly fromCube: string
   /** The cube identity the data belongs to now; MUST be mounted and in the same package. */
   readonly toCube: string
+  /**
+   * Optional: which package the old cube belonged to (`null` = core). When declared, the kernel
+   * checks it against the destination's provenance -- a mismatch means the manifest is claiming
+   * history that is not its own.
+   */
+  readonly fromPlugin?: string | null
 }
 
 export const validateManifest = (directory: string, m: Manifest): void => {
@@ -541,19 +559,3 @@ export type CubeStore = {
 export type CubeBus = {
   readonly publish: (event: string, payload: unknown) => Effect.Effect<void, never, never>
 }
-
-// --- bus payload contracts ---------------------------------------------------------------------
-//
-// An event name is a string by design ("the listener does not import the publisher"), but a
-// string is not a contract. A payload that is cast (`payload as { key: string }`) trusts the
-// publisher with no verification -- exactly the lie the rest of this kernel exists to refuse.
-// So the payloads that cross cube boundaries get a Schema here, decoded at the subscriber's
-// edge. A malformed payload dies at decode, not inside a handler.
-
-/** Payload of `booktags/settings.changed`: one setting, by key and string value. */
-export const BooktagsSettingChanged = Schema.Struct({
-  key: Schema.String,
-  value: Schema.String,
-}).annotations({ identifier: "BooktagsSettingChanged" })
-
-export const decodeBooktagsSettingChanged = Schema.decodeUnknownSync(BooktagsSettingChanged)

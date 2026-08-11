@@ -12,7 +12,7 @@
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { type ReactNode, useEffect, useState } from "react"
-import { type CubeInfo, catalogue, logout, screenPath } from "../lib/api"
+import { type CubeInfo, catalogue, leafName, logout, screenPath } from "../lib/api"
 import { session } from "../lib/session"
 
 export function Shell({ children }: { children: ReactNode }) {
@@ -51,7 +51,7 @@ export function Shell({ children }: { children: ReactNode }) {
       {/* The name is its own element rather than a bare text node, so it can be
           addressed exactly -- by a test, or by anything else reading the DOM. */}
       <span>
-        <span data-cube={c.name}>{c.name.split("/").pop()}</span>
+        <span data-cube={c.name}>{leafName(c.name)}</span>
         {c.plugin && <span className="mic"> - plugin</span>}
       </span>
       <span className={`pastila ${c.enabled ? "viu" : "stins"}`}>{c.enabled ? "on" : "off"}</span>

@@ -15,6 +15,7 @@ import { Authorization, requirePermission } from "../../../../../src/kernel/auth
 import { EntityMeta } from "../../../../../src/kernel/entity.ts"
 import { Forbidden, NotFound } from "../../../../../src/kernel/errors.ts"
 import type { CubeDefinition, CubeTools } from "../../../../../src/kernel/manifest.ts"
+import { decodeCubeEnabled } from "../events.ts"
 
 const TABLE = "settings"
 
@@ -58,8 +59,27 @@ export const cube: CubeDefinition = {
     publishes: ["booktags/settings.changed"],
   },
 
-  create: ({ store, bus, catalogue }: CubeTools) => ({
+  create: ({ store, bus }: CubeTools) => ({
     group,
+
+    // The kernel announces a re-enabled cube on `qwbe/cube.enabled`. When the bookmarks
+    // sibling comes back on, this cube RE-PUBLISHES its current settings -- the bus is
+    // fire-and-forget, so anything set while the sibling was off never reached it. The
+    // subscriber's cache update is idempotent, so a redundant event is harmless.
+    subscriptions: [
+      {
+        event: "qwbe/cube.enabled",
+        handle: (payload) =>
+          Effect.gen(function* () {
+            const { cube } = decodeCubeEnabled(payload)
+            if (cube !== "booktags/bookmarks") return
+            const rows = yield* store.all<SettingRow>(TABLE)
+            for (const row of rows) {
+              yield* bus.publish("booktags/settings.changed", { key: row.key, value: row.value })
+            }
+          }),
+      },
+    ],
 
     commands: [
       {
@@ -79,18 +99,7 @@ export const cube: CubeDefinition = {
       list: () =>
         Effect.gen(function* () {
           yield* requirePermission("booktags/settings:read")
-          const rows = yield* store.all<SettingRow>(TABLE)
-          // Replay: the bus is fire-and-forget and skips a subscriber that is switched off,
-          // so a setting changed while bookmarks was down would never reach it. The first
-          // request after any toggle re-publishes the CURRENT values -- the subscriber's
-          // cache update is idempotent, so a redundant event is harmless. The kernel's
-          // catalogue() reports enablement live; there is no signal INTO create, so the edge
-          // is the only place a re-publish can be triggered from.
-          const bookmarksOn = catalogue().some((c) => c.name === "booktags/bookmarks" && c.enabled)
-          if (bookmarksOn) {
-            for (const row of rows) yield* bus.publish("booktags/settings.changed", { key: row.key, value: row.value })
-          }
-          return rows
+          return yield* store.all<SettingRow>(TABLE)
         }),
 
       set: ({ path, payload }: { path: { key: string }; payload: typeof SettingSet.Type }) =>

@@ -113,8 +113,12 @@ The flat sidebar keeps working for standalone cubes -- `notes` is unchanged.
 - A standalone `bookmarks` and the child `booktags/bookmarks`: **both may exist**. The
   compound name is a different key in every map (switches, catalogue, commands, permissions).
   Their HTTP routes are their own business; if both claim `/bookmarks` the API composition
-  fails loudly at startup, which is correct -- a route collision is a defect, not a namespace
-  to arbitrate.
+  fails loudly at startup (`PrefixCollisionError`), which is correct -- a route collision is
+  a defect, not a namespace to arbitrate. The one sanctioned exception is the child whose
+  LEAF name is taken by a mounted cube (`booktags/settings` next to core `settings`): it
+  serves under `<parent>-<name>` by design -- unique by construction, still matched exactly
+  by the switch -- so the collision never forms. Anything else that still collides stops
+  the boot.
 - Permission/command prefixes can never collide, because each is derived from the unique
   compound name.
 

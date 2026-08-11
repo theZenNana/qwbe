@@ -98,4 +98,38 @@ score.check(
 childPullsParent.proc.kill()
 
 rmSync(dataDir2, { recursive: true, force: true })
+
+// The ownership walls (a migration pointing at another package's data, a plugin pointing at
+// the LIVE auth cube) live in booktags-migration-ownership.mjs -- file cap.
+
+// Preflight refusal is the easy half. This is the hard one: the plan PASSES and a rename
+// fails -- here because the data directory went read-only between planting and boot. With a
+// full preflight over every companion a mid-batch failure is HARD to stage from outside
+// (every staged obstruction is caught as a conflict first), and that difficulty is the
+// feature. What must still hold: the error names the rollback, and nothing moved.
+import { chmodSync } from "node:fs"
+
+const dataDir4 = join(tmpdir(), `qwbe-midmove-${process.pid}`)
+mkdirSync(dataDir4, { recursive: true })
+const flat4 = new DatabaseSync(join(dataDir4, "bookmarks.sqlite"))
+flat4.exec(
+  `CREATE TABLE "bookmarks" (id TEXT PRIMARY KEY, type TEXT NOT NULL, createdAt TEXT NOT NULL, deleted INTEGER NOT NULL DEFAULT 0, body TEXT NOT NULL)`,
+)
+flat4.close()
+chmodSync(dataDir4, 0o555)
+const midMove = await startServer(await freePort(), { QWBE_DATA_DIR: dataDir4 })
+chmodSync(dataDir4, 0o755)
+score.check(
+  "a rename failing after preflight stops the boot with the rollback named",
+  !midMove.alive && midMove.output.includes("rolled back"),
+  midMove.output.split("\n").find((l) => l.includes("igration")) ?? "(no error line)",
+)
+score.check(
+  "the batch did not move: source file still in place, destination absent",
+  existsSync(join(dataDir4, "bookmarks.sqlite")) && !existsSync(join(dataDir4, "booktags--bookmarks.sqlite")),
+  "nothing moved",
+)
+midMove.proc.kill()
+rmSync(dataDir4, { recursive: true, force: true })
+
 process.exit(score.report("Booktags migration probe"))

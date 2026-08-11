@@ -10,7 +10,7 @@
 import Link from "next/link"
 import { use, useEffect, useState } from "react"
 import { ListPage } from "../../components/ListPage"
-import { type CubeInfo, catalogue, screenPath } from "../../lib/api"
+import { type CubeInfo, catalogue, leafName, screenPath } from "../../lib/api"
 import { Shell } from "../Shell"
 
 export default function List({ params }: { params: Promise<{ cube: string }> }) {
@@ -44,7 +44,7 @@ export default function List({ params }: { params: Promise<{ cube: string }> }) 
               {children.map((c) => (
                 <tr key={c.name}>
                   <td>
-                    <Link href={screenPath(c)}>{c.name.split("/")[1]}</Link>
+                    <Link href={screenPath(c)}>{leafName(c.name)}</Link>
                   </td>
                   <td className="mic">{c.entity ?? "screen"}</td>
                   <td>

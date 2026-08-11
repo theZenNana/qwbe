@@ -30,16 +30,16 @@ import {
   type CredentialVerifier,
   type CubeDefinition,
   type CubeParts,
-  type DataMigration,
   fullName,
   leafOf,
   type Manifest,
   parentOf,
+  pathPrefix,
   type Subscription,
   validateCommands,
   validateManifest,
 } from "./manifest.ts"
-import { MigrationOwnershipError, migrateDataFiles } from "./migrate.ts"
+import { checkMigrationOwnership, migrateDataFiles } from "./migrate.ts"
 import { activeLinks, type SpaceDefinition } from "./space.ts"
 import { type Switches, switchesFrom } from "./state.ts"
 import { checkUniqueTables, storeFor } from "./store.ts"
@@ -151,31 +151,10 @@ export const mount = (
   definitions: ReadonlyArray<{ name: string; plugin: string | null; definition: CubeDefinition }>,
   spaces: ReadonlyArray<SpaceDefinition>,
 ): MountedSystem => {
-  // Data migrations are DECLARED by packages and executed here, before any store opens.
-  // The ownership rules run against the mounted set, not against what a manifest asks for:
-  //   - `toCube` must be a mounted cube, and of the SAME package as the declarer;
-  //   - the declarer must itself be mounted (a migration runs only when its destination is).
-  const mounted = new Map(definitions.map((d) => [d.name, d.plugin]))
-  const migrations: Array<DataMigration> = []
-  for (const { name, plugin, definition } of definitions) {
-    for (const m of definition.manifest.dataMigration ?? []) {
-      const toPlugin = mounted.get(m.toCube)
-      if (toPlugin === undefined) {
-        throw new MigrationOwnershipError(
-          `"${name}" declares ${m.fromCube} -> ${m.toCube}, but "${m.toCube}" is not mounted. ` +
-            `A migration runs only when its destination is.`,
-        )
-      }
-      if (toPlugin !== plugin) {
-        throw new MigrationOwnershipError(
-          `"${name}" declares ${m.fromCube} -> ${m.toCube}, but "${m.toCube}" belongs to ` +
-            `${toPlugin === null ? "core" : `plugin "${toPlugin}"`} -- not to the declaring package.`,
-        )
-      }
-      migrations.push(m)
-    }
-  }
-  migrateDataFiles(migrations)
+  // Data migrations are DECLARED by packages, validated against the mounted set (a plugin
+  // cannot reach outside itself -- see checkMigrationOwnership), and executed before any
+  // store opens.
+  migrateDataFiles(checkMigrationOwnership(definitions))
 
   const manifests = definitions.map((d) => d.definition.manifest)
 
@@ -289,7 +268,7 @@ export const mount = (
         required: m.required === true,
         system: plugin === null,
         plugin,
-        prefix: firstPath?.split("/").filter(Boolean)[0],
+        prefix: firstPath ? pathPrefix(firstPath) : undefined,
         publishes: m.publishes ?? [],
         sortable: m.sortable ?? [],
         links: liveLinks()
@@ -332,6 +311,14 @@ export const mount = (
 
   // Every cube is created and every subscription registered -- publishing is now safe.
   bus.seal()
+
+  // A re-enabled cube may have missed events published while it was off. The kernel announces
+  // the re-enablement on the bus; any cube whose events matter to a sibling subscribes and
+  // replays its CURRENT values. The kernel publishes the fact, never the payload -- it knows
+  // nothing about what a setting contains.
+  switches._wireOnEnable((cube) => {
+    Effect.runSync(bus.for("qwbe").publish("qwbe/cube.enabled", { cube }))
+  })
 
   return { cubes, switches, bus, permissions, commands, catalogue, liveLinks, isEnabled }
 }

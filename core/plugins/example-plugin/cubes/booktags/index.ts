@@ -38,8 +38,8 @@ export const cube: CubeDefinition = {
     // Declared in the manifest -- never executed by the cube -- and the kernel checks every
     // entry against the mounted set and this package's provenance before touching a byte.
     dataMigration: [
-      { fromCube: "bookmarks", toCube: "booktags/bookmarks" },
-      { fromCube: "tags", toCube: "booktags/tags" },
+      { fromCube: "bookmarks", toCube: "booktags/bookmarks", fromPlugin: "example-plugin" },
+      { fromCube: "tags", toCube: "booktags/tags", fromPlugin: "example-plugin" },
     ],
   },
 

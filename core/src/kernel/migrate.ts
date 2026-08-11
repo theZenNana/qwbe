@@ -16,7 +16,7 @@
 import { existsSync, renameSync } from "node:fs"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
-import { type DataMigration, storeFileName } from "./manifest.ts"
+import { type DataMigration, type Manifest, storeFileName } from "./manifest.ts"
 
 const here = dirname(fileURLToPath(import.meta.url))
 const dataDir = process.env.QWBE_DATA_DIR ?? join(here, "..", "..", "..", "data")
@@ -33,8 +33,14 @@ export class MigrationConflictError extends Error {
 }
 
 export class MigrationFailedError extends Error {
-  constructor(from: string, to: string, cause: string) {
-    super(`Data migration failed moving "${from}" to "${to}" and was rolled back: ${cause}`)
+  constructor(from: string, to: string, cause: string, rollbackFailed: boolean) {
+    super(
+      rollbackFailed
+        ? `Data migration failed moving "${from}" to "${to}": ${cause}. ` +
+            `The rollback ALSO failed for at least one file (logged above) -- the data directory ` +
+            `may hold a partial batch. Inspect it before restarting.`
+        : `Data migration failed moving "${from}" to "${to}" and the batch was rolled back: ${cause}`,
+    )
     this.name = "MigrationFailedError"
   }
 }
@@ -47,6 +53,57 @@ export class MigrationOwnershipError extends Error {
 }
 
 type Move = { readonly fromPath: string; readonly toPath: string }
+
+/**
+ * Validate every declared migration against the mounted set, and return the ones that pass.
+ *
+ * The ownership rules run against what is ACTUALLY mounted, not what a manifest asks for:
+ *   - `toCube` must be a mounted cube, and of the SAME package as the declarer;
+ *   - `fromCube` must NOT be a currently-mounted cube of another package -- a live cube's
+ *     file is not legacy data, and moving it would be theft, not migration;
+ *   - `fromPlugin`, when declared, must equal the destination's provenance.
+ */
+export const checkMigrationOwnership = (
+  definitions: ReadonlyArray<{ name: string; plugin: string | null; definition: { manifest: Manifest } }>,
+): Array<DataMigration> => {
+  const mounted = new Map(definitions.map((d) => [d.name, d.plugin]))
+  const migrations: Array<DataMigration> = []
+  for (const { name, plugin, definition } of definitions) {
+    for (const m of definition.manifest.dataMigration ?? []) {
+      const toPlugin = mounted.get(m.toCube)
+      if (toPlugin === undefined) {
+        throw new MigrationOwnershipError(
+          `"${name}" declares ${m.fromCube} -> ${m.toCube}, but "${m.toCube}" is not mounted. ` +
+            `A migration runs only when its destination is.`,
+        )
+      }
+      if (toPlugin !== plugin) {
+        throw new MigrationOwnershipError(
+          `"${name}" declares ${m.fromCube} -> ${m.toCube}, but "${m.toCube}" belongs to ` +
+            `${toPlugin === null ? "core" : `plugin "${toPlugin}"`} -- not to the declaring package.`,
+        )
+      }
+      const fromMounted = mounted.get(m.fromCube)
+      if (fromMounted !== undefined && fromMounted !== plugin) {
+        throw new MigrationOwnershipError(
+          `"${name}" declares ${m.fromCube} -> ${m.toCube}, but "${m.fromCube}" is a mounted cube of ` +
+            `${fromMounted === null ? "core" : `plugin "${fromMounted}"`} -- its file is live, not legacy. ` +
+            `A package can only migrate its OWN history.`,
+        )
+      }
+      if (m.fromPlugin !== undefined && m.fromPlugin !== toPlugin) {
+        throw new MigrationOwnershipError(
+          `"${name}" declares ${m.fromCube} came from ` +
+            `${m.fromPlugin === null ? "core" : `plugin "${m.fromPlugin}"`}, but the destination ` +
+            `"${m.toCube}" belongs to ${toPlugin === null ? "core" : `plugin "${toPlugin}"`}. ` +
+            `The claimed provenance is not this package's.`,
+        )
+      }
+      migrations.push(m)
+    }
+  }
+  return migrations
+}
 
 /** The three files that travel together: the database and its WAL companions. */
 const companions = (base: string): ReadonlyArray<string> =>
@@ -68,10 +125,14 @@ export const migrateDataFiles = (migrations: ReadonlyArray<DataMigration>): void
     const fromBase = join(dataDir, storeFileName(m.fromCube))
     const toBase = join(dataDir, storeFileName(m.toCube))
     if (!existsSync(fromBase)) continue // nothing to migrate -- the old file simply is not here
-    if (existsSync(toBase)) throw new MigrationConflictError(m.fromCube, m.toCube)
+    // EVERY destination companion is checked, not only the ones the source has: a stale
+    // `booktags--bookmarks.sqlite-wal` left from an aborted run would survive next to the
+    // migrated database and corrupt the first read.
+    for (const suffix of ["", "-wal", "-shm"]) {
+      if (existsSync(`${toBase}${suffix}`)) throw new MigrationConflictError(m.fromCube, `${m.toCube}${suffix}`)
+    }
     for (const fromPath of companions(fromBase)) {
       const toPath = `${toBase}${fromPath.slice(fromBase.length)}`
-      if (existsSync(toPath)) throw new MigrationConflictError(fromPath, toPath)
       plan.push({ fromPath, toPath })
     }
   }
@@ -84,14 +145,17 @@ export const migrateDataFiles = (migrations: ReadonlyArray<DataMigration>): void
     }
   } catch (e) {
     const failed = plan[done.length] as Move
+    let rollbackFailed = false
     for (const mv of done.reverse()) {
       try {
         renameSync(mv.toPath, mv.fromPath)
       } catch {
-        // A rollback that itself fails is logged, not thrown over the original error.
+        // A rollback that itself fails is reported in the error, not hidden: the operator
+        // must know the directory may be partial.
+        rollbackFailed = true
         console.error(`migration rollback could not restore "${mv.toPath}" -> "${mv.fromPath}"`)
       }
     }
-    throw new MigrationFailedError(failed.fromPath, failed.toPath, (e as Error).message)
+    throw new MigrationFailedError(failed.fromPath, failed.toPath, (e as Error).message, rollbackFailed)
   }
 }

@@ -41,6 +41,10 @@ export const plantSources = () => {
       .replaceAll("PPP_COLON", "dirbookmarks:")
       .replaceAll("PPP_EVENT", "dirbookmarks.created")
       .replaceAll("../../../../../src/", "../../../../src/")
+      // The sibling-contract import belongs to the package, not the cube: the flat copy has
+      // no sibling, so the import goes and the decode is inlined as the shape it checks.
+      .replace(/^\s*import \{ decodeBooktagsSettingChanged \} from "\.\.\/events\.ts"\n/m, "")
+      .replaceAll("decodeBooktagsSettingChanged(payload)", "payload as { key: string; value: string }")
       .replace(/^\s*parent: "booktags",\n/m, ""),
   )
   mkdirSync(join(goodDir, "cubes", "dirbookmarks"), { recursive: true })

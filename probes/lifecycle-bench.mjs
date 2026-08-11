@@ -66,6 +66,10 @@ export const plantLifecycleStore = () => {
     .replaceAll("PPP_COLON", `${PKG_CUBE}:`)
     .replaceAll("PPP_EVENT", `${PKG_CUBE}.created`)
     .replaceAll("../../../../../src/", "../../../../src/")
+    // The sibling-contract import belongs to the package, not the cube: the flat copy has
+    // no sibling, so the import goes and the decode is inlined as the shape it checks.
+    .replace(/^\s*import \{ decodeBooktagsSettingChanged \} from "\.\.\/events\.ts"\n/m, "")
+    .replaceAll("decodeBooktagsSettingChanged(payload)", "payload as { key: string; value: string }")
     .replace(/^\s*parent: "booktags",\n/m, "")
   if (renamed === source) throw new Error('example-plugin no longer names its cube "bookmarks" - rewrite missed')
   writeFileSync(indexAt, renamed)

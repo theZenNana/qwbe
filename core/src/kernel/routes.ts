@@ -6,6 +6,7 @@
 // the match exact instead of hopeful.
 
 import type { MountedCube } from "./discovery.ts"
+import { dashForm, pathPrefix } from "./manifest.ts"
 
 export class RouteOwnershipError extends Error {
   constructor(problems: ReadonlyArray<{ cube: string; path: string; prefix: string }>) {
@@ -47,7 +48,7 @@ export class DuplicateGroupError extends Error {
 export const routePrefixOf = (c: MountedCube): string | undefined => {
   const group = c.parts.group as { endpoints?: Record<string, { path?: string }> }
   const first = Object.values(group.endpoints ?? {})[0]
-  return first?.path?.split("/").filter(Boolean)[0]
+  return first?.path ? pathPrefix(first.path) : undefined
 }
 
 /** The group identifier the composed API matches handlers by. */
@@ -65,11 +66,11 @@ export const checkRouteOwnership = (cubes: ReadonlyArray<MountedCube>): void => 
   const problems: Array<{ cube: string; path: string; prefix: string }> = []
   // A cube with no endpoints owns no routes -- a parent is exactly this case.
   for (const c of cubes) {
-    const allowed = new Set([c.manifest.name, c.name.replace("/", "-")])
+    const allowed = new Set([c.manifest.name, dashForm(c.name)])
     const group = c.parts.group as { endpoints?: Record<string, { path?: string }> }
     for (const e of Object.values(group.endpoints ?? {})) {
       const path = e.path ?? ""
-      const prefix = path.split("/").filter(Boolean)[0] ?? ""
+      const prefix = pathPrefix(path) ?? ""
       if (!allowed.has(prefix)) {
         problems.push({ cube: c.name, path, prefix })
       }

@@ -15,12 +15,9 @@ import { Effect, Schema } from "effect"
 import { Authorization, requirePermission } from "../../../../../src/kernel/auth-contract.ts"
 import { EntityMeta, type SummaryRow } from "../../../../../src/kernel/entity.ts"
 import { BadRequest, Forbidden } from "../../../../../src/kernel/errors.ts"
-import {
-  type CubeDefinition,
-  type CubeTools,
-  decodeBooktagsSettingChanged,
-} from "../../../../../src/kernel/manifest.ts"
+import type { CubeDefinition, CubeTools } from "../../../../../src/kernel/manifest.ts"
 import { PageOf, PageParams, pageRequest } from "../../../../../src/kernel/pagination.ts"
+import { decodeBooktagsSettingChanged } from "../events.ts"
 
 const TABLE = "bookmarks"
 const CACHE = "settings-cache"
