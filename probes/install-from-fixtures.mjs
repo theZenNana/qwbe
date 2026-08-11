@@ -18,11 +18,31 @@ export const plantSources = () => {
   // The valid one: a renamed copy of the example bookmarks cube, living OUTSIDE any store -
   // that is the whole point of the feature.
   const goodDir = join(sources, "dirplugin")
-  cpSync(join(pluginsDir, "example-plugin", "cubes", "bookmarks"), join(goodDir, "cubes", "bookmarks"), {
+  cpSync(join(pluginsDir, "example-plugin", "cubes", "booktags", "bookmarks"), join(goodDir, "cubes", "bookmarks"), {
     recursive: true,
   })
   const cubeIndex = join(goodDir, "cubes", "bookmarks", "index.ts")
-  writeFileSync(cubeIndex, readFileSync(cubeIndex, "utf8").replaceAll("bookmarks", "dirbookmarks"))
+  // The source is a CHILD of booktags now: it declares `parent` and its imports reach one
+  // directory deeper. A standalone copy is neither, so the fixture rewrites both -- this is
+  // what the same cube looks like without a parent, which is exactly what a planted
+  // standalone install needs.
+  writeFileSync(
+    cubeIndex,
+    readFileSync(cubeIndex, "utf8")
+      // Placeholders first: the compound prefix and the event name contain the bare name,
+      // so renaming the bare name first would rename them twice ("dirdirbookmarks").
+      .replaceAll("booktags/bookmarks:", "PPP_COLON")
+      .replaceAll("booktags/bookmarks.created", "PPP_EVENT")
+      .replaceAll("bookmarks", "dirbookmarks")
+      // The sibling's cache table is owned by the original cube; a mounted copy must own
+      // another one, or the kernel refuses both for sharing a table. AFTER the bare rename,
+      // so the new name is not renamed again.
+      .replaceAll('"settings-cache"', '"dirbookmarks-cache"')
+      .replaceAll("PPP_COLON", "dirbookmarks:")
+      .replaceAll("PPP_EVENT", "dirbookmarks.created")
+      .replaceAll("../../../../../src/", "../../../../src/")
+      .replace(/^\s*parent: "booktags",\n/m, ""),
+  )
   mkdirSync(join(goodDir, "cubes", "dirbookmarks"), { recursive: true })
   cpSync(join(goodDir, "cubes", "bookmarks"), join(goodDir, "cubes", "dirbookmarks"), { recursive: true })
   rmSync(join(goodDir, "cubes", "bookmarks"), { recursive: true, force: true })
@@ -54,14 +74,14 @@ export const plantSources = () => {
   symlinkSync(join(pluginsDir, "example-plugin"), join(escapeDir, "sneaky"))
 
   // A source that would bring a cube name already on disk. The duplicate check runs against
-  // the STAGED copy (staging precedes it in the kernel), so this one carries real bytes.
+  // the STAGED copy (staging precedes it in the kernel), so this one carries real bytes --
+  // a copy of `notes` renamed only where its own prefix demands, because the example cube
+  // is a child of `booktags` now and no longer clashes with anything when installed flat.
   const clashDir = join(sources, "clashplugin")
-  cpSync(join(pluginsDir, "example-plugin", "cubes", "bookmarks"), join(clashDir, "cubes", "bookmarks"), {
-    recursive: true,
-  })
+  cpSync(join(pluginsDir, "..", "src", "cubes", "notes"), join(clashDir, "cubes", "notes"), { recursive: true })
   writeFileSync(
     join(clashDir, "qwbe-package.json"),
-    JSON.stringify({ name: "clashplugin", kind: "plugin", cubes: ["bookmarks"] }),
+    JSON.stringify({ name: "clashplugin", kind: "plugin", cubes: ["notes"] }),
   )
 
   // Same name as the good one, different content - after the good one is staged, must refuse.

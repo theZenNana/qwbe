@@ -3,7 +3,7 @@
 // Route ownership is what makes prefix-based switching sound. Review demonstrated the hole it
 // closes: a cube declaring `/notes/backdoor` kept answering after `notes` was switched off,
 // because the middleware matches on the first path segment and the segment was not its own.
-// `publicEndpoints` is the other half — an endpoint with no Authorization middleware answers
+// `publicEndpoints` is the other half -- an endpoint with no Authorization middleware answers
 // without a token, which is legitimate for `auth:login` and a hole anywhere else.
 
 import assert from "node:assert/strict"
@@ -25,6 +25,7 @@ const cube = (
 ): MountedCube =>
   ({
     manifest: { name, tables: [], requiresAuth: true } as Manifest,
+    name,
     parts: {
       group: {
         endpoints: Object.fromEntries(endpoints.map((e) => [e.name, e])),
@@ -133,8 +134,8 @@ describe("publicEndpoints", () => {
 
 describe("buildHandlers", () => {
   // The branch that only a type error pointed at: `Layer.mergeAll` wants a non-empty tuple, and
-  // a mount with zero cubes is a state the switches can produce. Nothing else exercises it —
-  // every probe starts a server WITH cubes — so it is asserted here rather than left to a day
+  // a mount with zero cubes is a state the switches can produce. Nothing else exercises it --
+  // every probe starts a server WITH cubes -- so it is asserted here rather than left to a day
   // when someone turns the last one off and the server does not come up.
   it("answers with an empty layer when there is no cube to handle anything", () => {
     const layer = buildHandlers({}, [])

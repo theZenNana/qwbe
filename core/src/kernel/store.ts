@@ -4,7 +4,7 @@
 //
 // The previous iteration had one shared JSON store with a flat namespace. Nothing in the type
 // stopped cube `notes` from asking for the `accounts` table; only a regex caught it, and only
-// when the table name was a literal — `store.all(computedName)` walked straight through.
+// when the table name was a literal -- `store.all(computedName)` walked straight through.
 //
 //     FORBIDDEN = it exists, but someone tells you off afterwards   (regex over source)
 //     IMPOSSIBLE = there is no path, however hard you try           (no handle to open)
@@ -13,7 +13,7 @@
 // A different cube's data is not in a table this connection can see: it is in another FILE,
 // and this store never opens it. Asking for a foreign table throws, loudly and by name.
 //
-// HONEST LIMIT — this is LINT, NOT A SANDBOX.
+// HONEST LIMIT -- this is LINT, NOT A SANDBOX.
 //
 // An adversarial review demonstrated the hole rather than describing it: a cube can write
 // `import { storeFor } from "../../kernel/store.ts"` and build itself a store for someone
@@ -24,11 +24,11 @@
 // `.dependency-cruiser.cjs` now forbids both routes, so the honest claim is: a careless cube
 // cannot reach another's data by accident, and a deliberate one is caught by the boundary
 // check rather than by the runtime. Inside one process under one uid, that is the whole of
-// what is achievable — a real barrier means a separate process or file permissions per cube.
+// what is achievable -- a real barrier means a separate process or file permissions per cube.
 // Saying "impossible" here would have been a lie, and lies of that kind are exactly what this
 // prototype is meant to avoid.
 //
-// Uses `node:sqlite`, built into Node — no native dependency to build, and real SQL. Which
+// Uses `node:sqlite`, built into Node -- no native dependency to build, and real SQL. Which
 // means paging is real too: LIMIT/OFFSET plus COUNT, not a slice taken in memory.
 
 import { randomBytes } from "node:crypto"
@@ -37,7 +37,7 @@ import { dirname, join } from "node:path"
 import { DatabaseSync } from "node:sqlite"
 import { fileURLToPath } from "node:url"
 import { Effect } from "effect"
-import type { CubeStore } from "./manifest.ts"
+import { type CubeStore, storeFileName } from "./manifest.ts"
 import type { Page, PageRequest } from "./pagination.ts"
 
 const here = dirname(fileURLToPath(import.meta.url))
@@ -50,7 +50,7 @@ const connect = (cube: string): DatabaseSync => {
   const existing = connections.get(cube)
   if (existing) return existing
   if (!existsSync(dataDir)) mkdirSync(dataDir, { recursive: true })
-  const db = new DatabaseSync(join(dataDir, `${cube}.sqlite`))
+  const db = new DatabaseSync(join(dataDir, storeFileName(cube)))
   db.exec("PRAGMA journal_mode = WAL")
   connections.set(cube, db)
   return db
@@ -67,7 +67,7 @@ export const closeAll = (): void => {
  *
  * Values are stored as a JSON blob rather than typed columns. That is a prototype shortcut and
  * it is the reason `sortBy` and `where` below use `json_extract`. It keeps a cube from having
- * to write migrations before it can exist — when this becomes real, the blob becomes columns
+ * to write migrations before it can exist -- when this becomes real, the blob becomes columns
  * and only this file changes.
  */
 const ensureTable = (db: DatabaseSync, table: string): void => {
@@ -97,7 +97,7 @@ const decode = (row: Record<string, unknown>): Record<string, unknown> => ({
  * The first version used a module-level counter starting at 0. It was shared across every cube
  * (one sequence for all files, not one per table) and it reset on every restart. Reproduced by
  * an adversarial review and confirmed here: restart the server three times and login dies
- * permanently —
+ * permanently --
  *
  *     restart 0  login 200
  *     restart 1  login 200
@@ -105,7 +105,7 @@ const decode = (row: Record<string, unknown>): Record<string, unknown> => ({
  *
  * because `newId("ses")` handed out `ses-0001` again over a row that already existed. Nothing
  * repaired itself; every later start hit the same id. The shared sequence also explains why the
- * first note in a fresh database was `note-0004` — the counter had already spent three ids on
+ * first note in a fresh database was `note-0004` -- the counter had already spent three ids on
  * accounts and sessions.
  *
  * Random removes the state that caused it. 8 hex characters is 4 billion per prefix, which is
@@ -126,7 +126,7 @@ export class ForeignTableError extends Error {
       `Cube "${cube}" asked for table "${table}", which it does not own. ` +
         `It owns: [${own.join(", ")}]. ` +
         `Another cube's data is reached through the registry (search / summary), never through ` +
-        `the store. If you genuinely need this table, declare it in your manifest — but then it ` +
+        `the store. If you genuinely need this table, declare it in your manifest -- but then it ` +
         `is yours, and nobody else may own it.`,
     )
     this.name = "ForeignTableError"
@@ -150,7 +150,7 @@ export const storeFor = (
    *
    * Sorting reads the stored row, not the response, so without a list a caller could order by a
    * column that never leaves the cube. Demonstrated: `GET /account?sortBy=passwordHash` returned
-   * 200 as an ordinary reader — closing the summary leak did not fix it, because ordering never
+   * 200 as an ordinary reader -- closing the summary leak did not fix it, because ordering never
    * went through the summary. That is an oracle on a value the caller cannot see.
    *
    * Ignoring rather than rejecting is deliberate: the permitted set is published in the
@@ -171,7 +171,7 @@ export const storeFor = (
 
   /** `sortBy` and `where` may name a JSON field, so they cannot be bound parameters.
    *  Meta columns are used directly; anything else goes through `json_extract` with the
-   *  field name bound — so a field name can never become SQL. */
+   *  field name bound -- so a field name can never become SQL. */
   const orderClause = (sortBy: string | undefined, descending: boolean) => {
     const dir = descending ? "DESC" : "ASC"
     const fallback = { sql: `ORDER BY createdAt ${dir}`, params: [] as Array<string>, applied: "createdAt" }
@@ -179,7 +179,7 @@ export const storeFor = (
     if (META_COLUMNS.has(sortBy)) {
       return { sql: `ORDER BY "${sortBy}" ${dir}`, params: [] as Array<string>, applied: sortBy }
     }
-    // Not on the cube's published list → default order, and the response says so via `sortedBy`,
+    // Not on the cube's published list -> default order, and the response says so via `sortedBy`,
     // so the caller can see the request was not honoured instead of being quietly misled.
     if (!sortableFields.has(sortBy)) return fallback
     return { sql: `ORDER BY json_extract(body, ?) ${dir}`, params: [`$.${sortBy}`], applied: sortBy }
@@ -281,10 +281,10 @@ export const storeFor = (
  * Two cubes cannot own the same table.
  *
  * Without this check, `notes` could declare `tables: ["accounts"]` and walk around the whole
- * mechanism — legally, with a valid manifest. That is exactly the shape of failure worth
+ * mechanism -- legally, with a valid manifest. That is exactly the shape of failure worth
  * guarding against: the loophole is legal, so nobody reads it as a problem.
  *
- * Note that with a file per cube the collision is only a naming one — but a shared name is
+ * Note that with a file per cube the collision is only a naming one -- but a shared name is
  * how the confusion starts, so it is refused anyway.
  */
 export class DuplicateTableError extends Error {

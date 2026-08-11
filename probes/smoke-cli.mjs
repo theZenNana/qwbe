@@ -1,4 +1,4 @@
-// The CLI gate and the on/off switches — the two longest stretches of the smoke probe.
+// The CLI gate and the on/off switches -- the two longest stretches of the smoke probe.
 //
 // Split out of `smoke.mjs` on 3 Aug 2026, when it stood at 8418 characters against a 6000 cap.
 // The probe measures a system that has grown; the file measuring it grew with it. Splitting on
@@ -12,7 +12,8 @@ export const cliAndSwitches = async ({ api, score, H, me }) => {
   const commands = await api.call("/cli/commands", { headers: H })
   score.check(
     "commands are aggregated from every cube, plugin included",
-    commands.body?.some((c) => c.name === "notes:count") && commands.body?.some((c) => c.name === "bookmarks:count"),
+    commands.body?.some((c) => c.name === "notes:count") &&
+      commands.body?.some((c) => c.name === "booktags/bookmarks:count"),
     `${commands.body?.length} commands`,
   )
 
@@ -59,7 +60,7 @@ export const cliAndSwitches = async ({ api, score, H, me }) => {
   score.check(
     "a command is gated by its own permission, per caller",
     readerRuns.status === 200,
-    `reader may run settings:cubes (read permission) → http=${readerRuns.status}`,
+    `reader may run settings:cubes (read permission) -> http=${readerRuns.status}`,
   )
 
   // --- switching a cube off ---
@@ -67,7 +68,7 @@ export const cliAndSwitches = async ({ api, score, H, me }) => {
   await api.call("/settings/cubes/notes", { method: "POST", headers: H, body: JSON.stringify({ enabled: false }) })
   const after = await api.call("/notes?limit=1", { headers: H })
   score.check(
-    "cube switched off → its routes 404",
+    "cube switched off -> its routes 404",
     before.status === 200 && after.status === 404,
     `before=${before.status} after=${after.status}`,
   )
@@ -95,5 +96,5 @@ export const cliAndSwitches = async ({ api, score, H, me }) => {
 
   await api.call("/settings/cubes/notes", { method: "POST", headers: H, body: JSON.stringify({ enabled: true }) })
   const back = await api.call("/notes?limit=1", { headers: H })
-  score.check("switched back on → routes return", back.status === 200, `http=${back.status}`)
+  score.check("switched back on -> routes return", back.status === 200, `http=${back.status}`)
 }

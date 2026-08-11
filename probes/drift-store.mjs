@@ -13,9 +13,9 @@ import { join } from "node:path"
 export const plantRivalStore = (examplePluginAt) => {
   const store = mkdtempSync(join(tmpdir(), "qwbe-drift-store-"))
 
-  // Only the first cube goes on the shelf: the plugin's second cube (`tags`) would collide with
-  // the mounted in-repo one if the copy were ever installed.
-  cpSync(join(examplePluginAt, "cubes", "bookmarks"), join(store, "example-plugin", "cubes", "bookmarks"), {
+  // The whole hierarchy goes on the shelf: the package declares `booktags` and must carry it,
+  // or the refusal becomes "declares a cube it does not carry" instead of "already installed".
+  cpSync(join(examplePluginAt, "cubes", "booktags"), join(store, "example-plugin", "cubes", "booktags"), {
     recursive: true,
   })
   writeFileSync(
@@ -24,7 +24,9 @@ export const plantRivalStore = (examplePluginAt) => {
       name: "example-plugin",
       kind: "plugin",
       summary: "the example, on the shelf",
-      cubes: ["bookmarks"],
+      // What the plugin REALLY brings now: the hierarchy root, not a flat bookmarks. The
+      // drift check compares this list against mounted names.
+      cubes: ["booktags"],
     }),
   )
 

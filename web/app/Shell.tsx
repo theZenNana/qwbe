@@ -3,7 +3,7 @@
 // THE SHELL. The sidebar is drawn from the CATALOGUE, never from a list of routes in code.
 //
 // This is the frontend half of the invariant: a new directory appears in the backend and a tab
-// appears here — no build, no line changed. Switch a cube off and its tab goes grey. Nowhere in
+// appears here -- no build, no line changed. Switch a cube off and its tab goes grey. Nowhere in
 // this whole app is the word "notes" or "account" written.
 //
 // Cubes that arrived in a plugin are marked, because "where did this come from" is the first
@@ -12,7 +12,7 @@
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { type ReactNode, useEffect, useState } from "react"
-import { type CubeInfo, catalogue, logout } from "../lib/api"
+import { type CubeInfo, catalogue, logout, screenPath } from "../lib/api"
 import { session } from "../lib/session"
 
 export function Shell({ children }: { children: ReactNode }) {
@@ -34,30 +34,44 @@ export function Shell({ children }: { children: ReactNode }) {
 
   // Cubes holding an entity get the generic list screen; a cube may also declare `screen` for
   // one of its own (`projects` owns no table, but its screen is the whole cube). The rest
-  // (auth, links, settings, cli) are infrastructure — they have nothing to show.
-  const withScreen = (cubes ?? []).filter((c) => c.entity || c.screen)
-  const infrastructure = (cubes ?? []).filter((c) => !c.entity && !c.screen)
+  // (auth, links, settings, cli) are infrastructure -- they have nothing to show.
+  //
+  // Children are NOT listed flat: they are drawn under their parent (docs/booktags-hierarchy.md
+  // section 6) -- one sidebar entry per hierarchy, not one per module.
+  const withScreen = (cubes ?? []).filter((c) => (c.entity || c.screen) && !c.parent)
+  const infrastructure = (cubes ?? []).filter((c) => !c.entity && !c.screen && !c.parent)
+  const childrenOf = (name: string) => (cubes ?? []).filter((c) => c.parent === name)
+
+  const tabFor = (c: CubeInfo) => (
+    <Link
+      key={c.name}
+      href={screenPath(c)}
+      className={`tab ${path === screenPath(c) ? "activ" : ""} ${c.enabled ? "" : "stins"}`}
+    >
+      {/* The name is its own element rather than a bare text node, so it can be
+          addressed exactly -- by a test, or by anything else reading the DOM. */}
+      <span>
+        <span data-cube={c.name}>{c.name.split("/").pop()}</span>
+        {c.plugin && <span className="mic"> - plugin</span>}
+      </span>
+      <span className={`pastila ${c.enabled ? "viu" : "stins"}`}>{c.enabled ? "on" : "off"}</span>
+    </Link>
+  )
 
   return (
     <div className="cadru">
       <nav className="bara">
         <h1>Qwbe</h1>
         {cubes === null && <div className="mic">loading…</div>}
-        {withScreen.map((c) => (
-          <Link
-            key={c.name}
-            href={`/${c.name}`}
-            className={`tab ${path === `/${c.name}` ? "activ" : ""} ${c.enabled ? "" : "stins"}`}
-          >
-            {/* The name is its own element rather than a bare text node, so it can be
-                addressed exactly — by a test, or by anything else reading the DOM. */}
-            <span>
-              <span data-cube={c.name}>{c.name}</span>
-              {c.plugin && <span className="mic"> · plugin</span>}
-            </span>
-            <span className={`pastila ${c.enabled ? "viu" : "stins"}`}>{c.enabled ? "on" : "off"}</span>
-          </Link>
-        ))}
+        {withScreen.map((c) => {
+          const children = childrenOf(c.name)
+          return (
+            <div key={c.name}>
+              {tabFor(c)}
+              {children.length > 0 && <div style={{ paddingLeft: 14 }}>{children.map(tabFor)}</div>}
+            </div>
+          )
+        })}
 
         {infrastructure.length > 0 && (
           <>

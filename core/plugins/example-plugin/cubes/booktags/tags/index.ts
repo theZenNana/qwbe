@@ -1,21 +1,16 @@
-// The second cube of the example plugin.
+// The second child of Booktags -- classifies its sibling's bookmarks.
 //
-// It exists because QWB-14 needs the example to be what real plugins are: MORE THAN ONE cube in
-// one plugin, and a connection between its own cubes declared by neither - the link lives in
-// `core/src/spaces/workspace/`, like every other relation. A tag points at the bookmark it
-// labels; `bookmarks` does not know tags exist, and this cube does not know what a Bookmark is
-// beyond the entity name in the space file.
-//
-// Same rules as the sibling: own database file, permissions aggregated into `auth`, real CRUD
-// over HTTP.
+// It does not know what a Bookmark is beyond the entity name in the space file: the link
+// lives in `core/src/spaces/workspace/`, declared by neither side, exactly as when both were
+// flat cubes. The hierarchy changes WHO OWNS them, not how they connect.
 
 import { HttpApiEndpoint, HttpApiGroup } from "@effect/platform"
 import { Effect, Schema } from "effect"
-import { Authorization, requirePermission } from "../../../../src/kernel/auth-contract.ts"
-import { EntityMeta, type SummaryRow } from "../../../../src/kernel/entity.ts"
-import { Forbidden } from "../../../../src/kernel/errors.ts"
-import type { CubeDefinition, CubeTools } from "../../../../src/kernel/manifest.ts"
-import { PageOf, PageParams, pageRequest } from "../../../../src/kernel/pagination.ts"
+import { Authorization, requirePermission } from "../../../../../src/kernel/auth-contract.ts"
+import { EntityMeta, type SummaryRow } from "../../../../../src/kernel/entity.ts"
+import { Forbidden } from "../../../../../src/kernel/errors.ts"
+import type { CubeDefinition, CubeTools } from "../../../../../src/kernel/manifest.ts"
+import { PageOf, PageParams, pageRequest } from "../../../../../src/kernel/pagination.ts"
 
 const TABLE = "tags"
 const ENTITY = "Tag"
@@ -48,15 +43,16 @@ const summary = (t: TagRow): SummaryRow => ({
 export const cube: CubeDefinition = {
   manifest: {
     name: "tags",
+    parent: "booktags",
     tables: [TABLE],
     entity: ENTITY,
     sortable: ["label"],
     requiresAuth: true,
     permissions: [
-      { name: "tags:read", roles: ["admin", "reader"] },
-      { name: "tags:write", roles: ["admin"] },
+      { name: "booktags/tags:read", roles: ["admin", "reader"] },
+      { name: "booktags/tags:write", roles: ["admin"] },
     ],
-    publishes: ["tags.created"],
+    publishes: ["booktags/tags.created"],
   },
 
   create: ({ store, bus }: CubeTools) => ({
@@ -65,15 +61,15 @@ export const cube: CubeDefinition = {
     handlers: {
       list: ({ urlParams }: { urlParams: typeof PageParams.Type }) =>
         Effect.gen(function* () {
-          yield* requirePermission("tags:read")
+          yield* requirePermission("booktags/tags:read")
           return yield* store.page<TagRow>(TABLE, pageRequest(urlParams))
         }),
 
       create: ({ payload }: { payload: typeof TagCreate.Type }) =>
         Effect.gen(function* () {
-          yield* requirePermission("tags:write")
+          yield* requirePermission("booktags/tags:write")
           const t = (yield* store.insert(TABLE, ENTITY, "tag", payload)) as TagRow
-          yield* bus.publish("tags.created", { id: t.id, title: t.label })
+          yield* bus.publish("booktags/tags.created", { id: t.id, title: t.label })
           return t
         }),
     },

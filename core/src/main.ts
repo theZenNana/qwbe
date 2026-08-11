@@ -5,7 +5,7 @@
 // which cubes exist. It finds them on disk at startup.
 //
 //   node src/main.ts                                   every cube in cubes/ and plugins/
-//   QWBE_MOUNTED=auth,settings node src/main.ts       only those two — the rest do not exist
+//   QWBE_MOUNTED=auth,settings node src/main.ts       only those two -- the rest do not exist
 //   rm -rf src/cubes/notes && node src/main.ts         starts, with nothing edited anywhere
 
 import { createServer } from "node:http"
@@ -53,17 +53,17 @@ try {
 if (dangling.length > 0) {
   console.warn(
     `\n⚠ ${dangling.length} link(s) point nowhere and are inactive:\n` +
-      dangling.map((d) => `    space "${d.space}": ${d.from} → ${d.to} — ${d.reason}`).join("\n") +
+      dangling.map((d) => `    space "${d.space}": ${d.from} -> ${d.to} -- ${d.reason}`).join("\n") +
       `\n  Either a typo, or the cube holding that entity was removed. The system runs without them.\n`,
   )
 }
 
 const api = buildApi(system!.cubes)
 
-const bySource = system!.cubes.map((c) => (c.plugin ? `${c.manifest.name}(${c.plugin})` : c.manifest.name))
+const bySource = system!.cubes.map((c) => (c.plugin ? `${c.name}(${c.plugin})` : c.name))
 console.log(
   `cubes: mounting [${bySource.join(", ")}] on port ${PORT}\n` +
-    `       spaces: ${spaces.map((s) => s.name).join(", ") || "none"} · ` +
+    `       spaces: ${spaces.map((s) => s.name).join(", ") || "none"} - ` +
     `${system!.liveLinks().length} live link(s)\n` +
     `       permissions aggregated from manifests: ${system!.permissions.size}\n` +
     `       commands aggregated from manifests: ${system!.commands().length}\n` +
@@ -77,18 +77,18 @@ console.log(
 // --- 4. layers ---
 
 const entries: ReadonlyArray<RegistryEntry> = system!.cubes.map((c) => ({
-  name: c.manifest.name,
+  name: c.name,
   entity: c.manifest.entity,
   relational: c.parts.relational,
 }))
 
-const RegistryLive = registryFrom(entries, system!.liveLinks, system!.switches.isEnabled)
+const RegistryLive = registryFrom(entries, system!.liveLinks, system!.isEnabled)
 
 // Layers contributed by cubes. In practice: `AuthorizationLive` from the auth cube. With auth
-// unmounted the list is empty — and then no cube asks for the tag either, because `checkCubes`
+// unmounted the list is empty -- and then no cube asks for the tag either, because `checkCubes`
 // would already have stopped startup.
 //
-// They get the registry too: the auth cube reads user data the same way any cube would —
+// They get the registry too: the auth cube reads user data the same way any cube would --
 // through the registry, never by opening the account cube's database.
 const CubeLayers = system!.cubes
   .map((c) => c.parts.layers)
@@ -99,7 +99,7 @@ const HandlersLive = buildHandlers(api, system!.cubes).pipe(Layer.provide(Regist
 
 // Two spreads of an unknown-length array were being asked of types that want a fixed shape:
 // `pipe` takes a fixed list of steps, `mergeAll` a non-empty tuple. The cast said "trust me,
-// there is one" — and a cast is a promise the compiler cannot keep. Written out, the branch is
+// there is one" -- and a cast is a promise the compiler cannot keep. Written out, the branch is
 // visible: no cube layers, no extra `provide`.
 const withHandlers = HttpApiBuilder.api(api).pipe(Layer.provide(HandlersLive))
 const [firstCubeLayer, ...restCubeLayers] = CubeLayers
@@ -111,7 +111,7 @@ const ApiLive =
 // --- 5. the server ---
 
 const ServerLive = HttpApiBuilder.serve((app) =>
-  HttpMiddleware.logger(rejectDisabled(system!.cubes, system!.switches.isEnabled)(app)),
+  HttpMiddleware.logger(rejectDisabled(system!.cubes, system!.isEnabled)(app)),
 ).pipe(
   Layer.provide(HttpApiSwagger.layer({ path: "/docs" })),
   Layer.provide(HttpApiBuilder.middlewareOpenApi({ path: "/openapi.json" })),

@@ -2,7 +2,7 @@
 
 import assert from "node:assert/strict"
 import { describe, it } from "node:test"
-import { validateManifest } from "../../../../src/kernel/manifest.ts"
+import { validateManifest } from "../../../../../src/kernel/manifest.ts"
 import { cube } from "./index.ts"
 
 describe("tags manifest", () => {
