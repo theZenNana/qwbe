@@ -138,6 +138,11 @@ rename. Both directions are checked before touching anything; a collision (both 
 startup with a named error rather than a guess. The schema is unchanged (same tables, same
 bodies) -- only the file name moves, so the migration is a rename, not a transform.
 
+Ownership comes from the kernel-written `data/provenance.json` ledger. A deployment whose data
+predates that ledger must authorize the first migration boot explicitly with
+`QWBE_LEGACY_MIGRATIONS="bookmarks:example-plugin,tags:example-plugin"`; the variable is removed
+after that successful boot. Unknown or corrupt provenance stops startup.
+
 Compatibility: the old flat cubes are gone from the plugin, so there is nothing to be
 compatible with. `notes` proves standalone cubes still work; criterion 10 is covered by the
 flat-plugin path staying in discovery.

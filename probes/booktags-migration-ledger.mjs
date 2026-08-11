@@ -73,6 +73,24 @@ score.check(
   "file untouched",
 )
 evil4b.proc.kill()
+
+// Attack 4c: valid JSON with an invalid ledger SHAPE is corrupt too. A cast would accept it.
+writeFileSync(join(dataDir4, "provenance.json"), JSON.stringify({ auth: 42 }))
+const evil4c = await startServer(await freePort(), {
+  QWBE_DATA_DIR: dataDir4,
+  QWBE_MOUNTED: "account,settings,cli,evil-migration",
+})
+score.check(
+  "ledger with a non-string owner is corrupt and stops boot",
+  !evil4c.alive && evil4c.output.includes("invalid package owner"),
+  evil4c.output.split("\n").find((l) => l.includes("owner") || l.includes("ledger")) ?? "(no error line)",
+)
+score.check(
+  "auth.sqlite was NOT moved (ledger shape invalid)",
+  existsSync(join(dataDir4, "auth.sqlite")) && !existsSync(join(dataDir4, "evil-migration.sqlite")),
+  "file untouched",
+)
+evil4c.proc.kill()
 rmSync(join(coreDir, "plugins", "evil-plugin"), { recursive: true, force: true })
 rmSync(dataDir4, { recursive: true, force: true })
 
@@ -91,10 +109,15 @@ const evilPlugin5 = join(coreDir, "plugins", "evil-plugin", "cubes", "evil-migra
 mkdirSync(evilPlugin5, { recursive: true })
 writeFileSync(
   join(evilPlugin5, "index.ts"),
-  `import { writeFileSync } from "node:fs"
+  `import { existsSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
-// The attack: rewrite the ledger at import, claiming auth for this plugin.
-writeFileSync(join(process.env.QWBE_DATA_DIR, "provenance.json"), JSON.stringify({ auth: "evil-plugin" }))
+// The attack poisons only boot 1. Boot 2 proves a rejected import cannot leave authority
+// behind for the next process.
+const marker = join(process.env.QWBE_DATA_DIR, "poisoned-once")
+if (!existsSync(marker)) {
+  writeFileSync(join(process.env.QWBE_DATA_DIR, "provenance.json"), JSON.stringify({ auth: "evil-plugin" }))
+  writeFileSync(marker, "yes")
+}
 export const cube = {
   manifest: {
     name: "evil-migration",
@@ -112,7 +135,7 @@ const evil5 = await startServer(await freePort(), {
 })
 score.check(
   "a plugin rewriting the ledger at import is caught by the pre-import snapshot",
-  !evil5.alive && evil5.output.includes("ledger records"),
+  !evil5.alive && evil5.output.includes("ledger changed after the trusted pre-import snapshot"),
   evil5.output.split("\n").find((l) => l.includes("ledger") || l.includes("igration")) ?? "(no error line)",
 )
 score.check(
@@ -121,6 +144,21 @@ score.check(
   "file untouched",
 )
 evil5.proc.kill()
+const evil5second = await startServer(await freePort(), {
+  QWBE_DATA_DIR: dataDir5,
+  QWBE_MOUNTED: "account,settings,cli,evil-migration",
+})
+score.check(
+  "boot 2 refuses the ledger poison left by the rejected first boot",
+  !evil5second.alive,
+  evil5second.output.split("\n").find((l) => l.includes("ledger") || l.includes("igration")) ?? "(no error line)",
+)
+score.check(
+  "auth.sqlite is still untouched after the second boot",
+  existsSync(join(dataDir5, "auth.sqlite")) && !existsSync(join(dataDir5, "evil-migration.sqlite")),
+  "file untouched twice",
+)
+evil5second.proc.kill()
 rmSync(join(coreDir, "plugins", "evil-plugin"), { recursive: true, force: true })
 rmSync(dataDir5, { recursive: true, force: true })
 

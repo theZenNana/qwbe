@@ -13,7 +13,18 @@
 // Written AFTER a successful mount (main.ts), atomically (tmp + rename), so the ledger always
 // describes a state that really ran -- and a crash mid-write never leaves a torn file behind.
 
-import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs"
+import { randomUUID } from "node:crypto"
+import {
+  closeSync,
+  existsSync,
+  fsyncSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 
@@ -23,6 +34,25 @@ const dataDir = process.env.QWBE_DATA_DIR ?? join(here, "..", "..", "..", "data"
 const ledgerPath = join(dataDir, "provenance.json")
 
 export type Ledger = Record<string, string | null>
+export type LedgerSnapshot = { state: "absent" } | { state: "ok"; ledger: Ledger }
+
+const CUBE_IDENTITY = /^[a-z][a-z0-9-]*(?:\/[a-z][a-z0-9-]*)?$/
+const PACKAGE_NAME = /^[a-z][a-z0-9-]*$/
+
+const decodeLedger = (value: unknown): Ledger => {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new Error("expected an object mapping cube identities to package names or null")
+  }
+  const ledger: Ledger = {}
+  for (const [cube, plugin] of Object.entries(value)) {
+    if (!CUBE_IDENTITY.test(cube)) throw new Error(`invalid cube identity ${JSON.stringify(cube)}`)
+    if (plugin !== null && (typeof plugin !== "string" || !PACKAGE_NAME.test(plugin))) {
+      throw new Error(`invalid package owner for ${JSON.stringify(cube)}`)
+    }
+    ledger[cube] = plugin
+  }
+  return ledger
+}
 
 export class LedgerCorruptError extends Error {
   constructor(cause: string) {
@@ -42,21 +72,72 @@ export class LedgerCorruptError extends Error {
  *   - INVALID -- present but unreadable: STOPS the boot, because "cannot read" must never
  *     degrade silently into "nothing recorded".
  */
-export const readLedger = (): { state: "absent" } | { state: "ok"; ledger: Ledger } => {
+export const readLedger = (): LedgerSnapshot => {
   if (!existsSync(ledgerPath)) return { state: "absent" }
   try {
-    return { state: "ok", ledger: JSON.parse(readFileSync(ledgerPath, "utf8")) as Ledger }
+    return { state: "ok", ledger: decodeLedger(JSON.parse(readFileSync(ledgerPath, "utf8")) as unknown) }
   } catch (e) {
     throw new LedgerCorruptError((e as Error).message)
   }
 }
 
-/** Atomic: the rename is the commit. A torn write is a file that never existed. */
-export const writeLedger = (entries: ReadonlyArray<{ name: string; plugin: string | null }>): void => {
-  const current = readLedger()
-  const next: Ledger = { ...(current.state === "ok" ? current.ledger : {}) }
+const sameLedger = (left: Ledger, right: Ledger): boolean =>
+  JSON.stringify(Object.entries(left).sort()) === JSON.stringify(Object.entries(right).sort())
+
+/** Atomic replacement plus file/directory fsync: a successful return is crash-durable. */
+const replaceLedger = (ledger: Ledger): void => {
+  mkdirSync(dataDir, { recursive: true })
+  const tmp = `${ledgerPath}.${process.pid}.${randomUUID()}.tmp`
+  let fd: number | undefined
+  try {
+    fd = openSync(tmp, "wx", 0o600)
+    writeFileSync(fd, `${JSON.stringify(ledger, null, 2)}\n`, "utf8")
+    fsyncSync(fd)
+    closeSync(fd)
+    fd = undefined
+    renameSync(tmp, ledgerPath)
+    const directory = openSync(dataDir, "r")
+    try {
+      fsyncSync(directory)
+    } finally {
+      closeSync(directory)
+    }
+  } finally {
+    if (fd !== undefined) closeSync(fd)
+    rmSync(tmp, { force: true })
+  }
+}
+
+export class LedgerTamperedError extends Error {
+  constructor() {
+    super("The provenance ledger changed after the trusted pre-import snapshot. The trusted snapshot was restored.")
+    this.name = "LedgerTamperedError"
+  }
+}
+
+/** Detect import-time mutation and restore the trusted state before refusing boot. */
+export const verifyLedgerUnchanged = (snapshot: LedgerSnapshot): void => {
+  let current: LedgerSnapshot
+  try {
+    current = readLedger()
+  } catch {
+    replaceLedger(snapshot.state === "ok" ? snapshot.ledger : {})
+    throw new LedgerTamperedError()
+  }
+  const unchanged =
+    snapshot.state === current.state &&
+    (snapshot.state === "absent" || (current.state === "ok" && sameLedger(snapshot.ledger, current.ledger)))
+  if (unchanged) return
+  replaceLedger(snapshot.state === "ok" ? snapshot.ledger : {})
+  throw new LedgerTamperedError()
+}
+
+/** Commit mounted ownership from the trusted snapshot; never re-read plugin-mutated state. */
+export const writeLedger = (
+  snapshot: LedgerSnapshot,
+  entries: ReadonlyArray<{ name: string; plugin: string | null }>,
+): void => {
+  const next: Ledger = { ...(snapshot.state === "ok" ? snapshot.ledger : {}) }
   for (const e of entries) next[e.name] = e.plugin
-  const tmp = `${ledgerPath}.tmp`
-  writeFileSync(tmp, JSON.stringify(next, null, 2))
-  renameSync(tmp, ledgerPath)
+  replaceLedger(next)
 }

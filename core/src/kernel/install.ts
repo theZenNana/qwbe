@@ -40,7 +40,7 @@ import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statS
 import { dirname, join, resolve, sep } from "node:path"
 import { fileURLToPath } from "node:url"
 import { InstallError, PROVENANCE, stageAndInstall as stageAndInstallFor } from "./install-from.ts"
-import type { CubeInstaller, CubePackage } from "./manifest.ts"
+import { type CubeInstaller, type CubePackage, identitySegments } from "./manifest.ts"
 
 export { InstallError }
 
@@ -243,7 +243,7 @@ export const installerFor = (): CubeInstaller => ({
     // Discovery predates the package slug grammar and mounts any non-hidden directory. This
     // read capability must describe that state without turning the whole settings catalogue
     // into a 500. Write operations below remain strict and still call checkName.
-    const segments = cube.split("/")
+    const segments = identitySegments(cube)
     if (segments.some((s) => !NAME.test(s)) || (plugin !== null && !NAME.test(plugin))) return false
     const base = plugin ? join(pluginsDir, plugin, "cubes") : cubesDir
     return existsSync(under(base, join(base, ...segments)))

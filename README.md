@@ -210,13 +210,29 @@ When a cube's identity moves (flat `bookmarks` -> `booktags/bookmarks`), its sto
 follow. The migration is DECLARED in the parent package's manifest, never executed by the cube:
 
 ```ts
-dataMigration: [{ fromCube: "bookmarks", toCube: "booktags/bookmarks" }]
+dataMigration: [
+  {
+    fromCube: "bookmarks",
+    toCube: "booktags/bookmarks",
+    fromPlugin: "example-plugin",
+  },
+]
 ```
 
 The kernel runs it at mount, before any store opens, under strict rules: `toCube` must be a
 mounted cube of the same package, every companion file (.sqlite, -wal, -shm) is preflighted
 before the first byte moves, and a failed move rolls the whole batch back. A manifest cannot
 name a path, and a plugin cannot reach outside its own package.
+
+The kernel records ownership in `data/provenance.json`. Existing installations created before
+that ledger need one explicit operator authorization for the Booktags rename:
+
+```bash
+QWBE_LEGACY_MIGRATIONS="bookmarks:example-plugin,tags:example-plugin" npm start
+```
+
+Use it only for the first successful migration boot, then remove it. Missing, malformed or
+unrecorded provenance stops startup; the kernel never guesses ownership.
 
 ## The cubes
 

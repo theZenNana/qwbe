@@ -444,6 +444,9 @@ export const screenPath = (name: string, parent?: string): string => (parent ? `
 export const leafOf = (full: string): string => (full.includes("/") ? (full.split("/")[1] as string) : full)
 export const parentOf = (full: string): string | undefined => (full.includes("/") ? full.split("/")[0] : undefined)
 
+/** Path-safe identity segments for discovery/install filesystem joins. */
+export const identitySegments = (full: string): ReadonlyArray<string> => full.split("/")
+
 /** The first segment of an HTTP path -- the segment the on/off switch matches on. */
 export const pathPrefix = (path: string): string | undefined => path.split("/").filter(Boolean)[0]
 

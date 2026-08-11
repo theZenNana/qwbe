@@ -13,7 +13,7 @@ import { HttpApiBuilder, HttpApiSwagger, HttpMiddleware, HttpServer } from "@eff
 import { NodeHttpServer, NodeRuntime } from "@effect/platform-node"
 import { Layer } from "effect"
 import { loadDefinitions, mount } from "./kernel/discovery.ts"
-import { readLedger, writeLedger } from "./kernel/ledger.ts"
+import { readLedger, verifyLedgerUnchanged, writeLedger } from "./kernel/ledger.ts"
 import { buildApi, buildHandlers, checkCubes, rejectDisabled } from "./kernel/mount.ts"
 import { type RegistryEntry, registryFrom } from "./kernel/registry.ts"
 import { loadSpaces } from "./kernel/space.ts"
@@ -32,9 +32,18 @@ const fail = (e: Error, code: number): never => {
 // but it cannot rewrite this snapshot, and the migration checks below trust the snapshot.
 const ledgerRead = readLedger()
 const ledgerSnapshot = ledgerRead.state === "ok" ? ledgerRead.ledger : {}
+const failAfterSnapshot = (e: Error, code: number): never => {
+  try {
+    verifyLedgerUnchanged(ledgerRead)
+  } catch {
+    // verifyLedgerUnchanged restored the trusted state; preserve the originating failure.
+  }
+  return fail(e, code)
+}
 
-const definitions = await loadDefinitions().catch((e: Error) => fail(e, 2))
-const spaces = await loadSpaces().catch((e: Error) => fail(e, 2))
+const definitions = await loadDefinitions().catch((e: Error) => failAfterSnapshot(e, 2))
+const spaces = await loadSpaces().catch((e: Error) => failAfterSnapshot(e, 2))
+verifyLedgerUnchanged(ledgerRead)
 
 // --- 2. mount: unique tables, single privilege, switches, per-cube tools ---
 
@@ -42,7 +51,7 @@ let system: ReturnType<typeof mount>
 try {
   system = mount(definitions, spaces, ledgerSnapshot)
 } catch (e) {
-  fail(e as Error, 2)
+  failAfterSnapshot(e as Error, 2)
 }
 
 // --- 3. life rules. Any failure and the server does NOT start ---
@@ -51,7 +60,7 @@ let dangling: ReadonlyArray<{ space: string; from: string; to: string; reason: s
 try {
   dangling = checkCubes(system!.cubes, spaces)
 } catch (e) {
-  fail(e as Error, 1)
+  failAfterSnapshot(e as Error, 1)
 }
 
 // A link whose other end is gone is a warning, never fatal: a cube must be removable by
@@ -69,7 +78,11 @@ const api = buildApi(system!.cubes)
 
 // The provenance ledger is written only after a mount that passed every life rule -- the
 // record must always describe a system that really ran, and a manifest cannot write it.
-writeLedger(system!.cubes.map((c) => ({ name: c.name, plugin: c.plugin })))
+verifyLedgerUnchanged(ledgerRead)
+writeLedger(
+  ledgerRead,
+  system!.cubes.map((c) => ({ name: c.name, plugin: c.plugin })),
+)
 
 const bySource = system!.cubes.map((c) => (c.plugin ? `${c.name}(${c.plugin})` : c.name))
 console.log(
