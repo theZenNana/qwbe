@@ -19,6 +19,7 @@ export default function CubeAgent({ params }: { params: Promise<{ cube: string }
   const [trace, setTrace] = useState<AgentTrace | null>(null)
   const [goal, setGoal] = useState("")
   const [result, setResult] = useState("")
+  const [model, setModel] = useState("")
   const [error, setError] = useState("")
 
   useEffect(() => {
@@ -35,7 +36,7 @@ export default function CubeAgent({ params }: { params: Promise<{ cube: string }
   return (
     <Shell>
       <h2>Agent for {cube}</h2>
-      <p className="subtitlu">Isolated ActiveGraph runtime. No LLM and no cross-cube context.</p>
+      <p className="subtitlu">Isolated ActiveGraph runtime. LiteLLM access, no cross-cube context.</p>
       {error && <div className="eroare">{error}</div>}
       <div className="panou">
         <h3>Status</h3>
@@ -51,16 +52,18 @@ export default function CubeAgent({ params }: { params: Promise<{ cube: string }
           setError("")
           runAgentGoal(cube, goal)
             .then(async (next) => {
-              setResult(next.object.text)
+              setResult(next.answer)
+              setModel(`${next.model}; ${next.usage.promptTokens} + ${next.usage.completionTokens} tokens`)
               setTrace(await agentTrace(cube))
             })
             .catch((failure: Error) => setError(failure.message))
         }}
       >
-        <h3>Deterministic goal</h3>
+        <h3>Ask cube agent</h3>
         <input value={goal} onChange={(event) => setGoal(event.target.value)} aria-label="Agent goal" required />
         <button type="submit">Run</button>
-        {result && <p>Captured: {result}</p>}
+        {result && <p>{result}</p>}
+        {model && <p className="mic">{model}</p>}
       </form>
       <div className="panou">
         <h3>Trace</h3>

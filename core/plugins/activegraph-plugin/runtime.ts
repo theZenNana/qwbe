@@ -9,10 +9,12 @@ const python = process.env.QWBE_ACTIVEGRAPH_PYTHON ?? resolve(pluginDir, "../../
 const data =
   process.env.QWBE_AGENTLAB_DATA ??
   resolve(process.env.QWBE_DATA_DIR ?? resolve(pluginDir, "../../../data"), "agentlab")
-const TIMEOUT_MS = 5_000
+const PROCESS_TIMEOUT_MS = 5_000
+const GOAL_TIMEOUT_MS = 90_000
 const processLock = Effect.unsafeMakeSemaphore(1)
 
 const unavailable = (message: string) => new AgentUnavailable({ message })
+const ProcessFailure = Schema.Struct({ error: Schema.String })
 
 export const invokeAgent = <A, I>(
   command: "health" | "context" | "goal" | "trace",
@@ -25,8 +27,8 @@ export const invokeAgent = <A, I>(
       Command.feed(JSON.stringify(payload)),
       Command.string,
       Effect.timeoutFail({
-        duration: TIMEOUT_MS,
-        onTimeout: () => unavailable(`ActiveGraph timed out after ${TIMEOUT_MS}ms`),
+        duration: command === "goal" ? GOAL_TIMEOUT_MS : PROCESS_TIMEOUT_MS,
+        onTimeout: () => unavailable(`ActiveGraph ${command} timed out`),
       }),
       Effect.mapError((error) =>
         error instanceof AgentUnavailable ? error : unavailable(`ActiveGraph process failed: ${error.message}`),
@@ -36,6 +38,9 @@ export const invokeAgent = <A, I>(
           try: () => JSON.parse(stdout) as unknown,
           catch: () => unavailable("ActiveGraph returned malformed JSON"),
         }),
+      ),
+      Effect.flatMap((body) =>
+        Schema.is(ProcessFailure)(body) ? Effect.fail(unavailable(body.error)) : Effect.succeed(body),
       ),
       Effect.flatMap(Schema.decodeUnknown(schema)),
       Effect.mapError((error) =>

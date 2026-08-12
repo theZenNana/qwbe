@@ -1,0 +1,5 @@
+{
+  "name": "activegraph-plugin",
+  "kind": "plugin",
+  "cubes": ["agentlab"]
+}

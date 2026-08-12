@@ -3,13 +3,21 @@
 
 import { chmodSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
+import { startFakeLlm } from "./activegraph-llm.mjs"
 import { client, dropScratch, freePort, makeScore, scratchDataDir, startServer, stopServer } from "./lib.mjs"
 
 const port = await freePort()
+const llmPort = await freePort()
 const data = scratchDataDir("activegraph")
 const score = makeScore()
 const api = client(port)
-const server = await startServer(port, { QWBE_DATA_DIR: data })
+const llm = await startFakeLlm(llmPort)
+const server = await startServer(port, {
+  QWBE_DATA_DIR: data,
+  QWBE_LITELLM_BASE_URL: `http://127.0.0.1:${llmPort}/v1`,
+  QWBE_LITELLM_API_KEY: "probe-key",
+  QWBE_AGENT_MODEL: "sub/k3",
+})
 
 if (!server.alive) {
   dropScratch(data)
@@ -26,7 +34,7 @@ try {
   const health = await api.call("/agentlab/health", { headers: admin.headers })
   score.check(
     "isolated ActiveGraph runtime answers through Qwbe",
-    health.status === 200 && health.body?.activegraph === "1.10.0" && health.body?.llm === false,
+    health.status === 200 && health.body?.activegraph === "1.10.0" && health.body?.llm === true,
     `http=${health.status} version=${health.body?.activegraph}`,
   )
 
@@ -56,12 +64,20 @@ try {
     body: JSON.stringify({ goal: "inspect my own contract" }),
   })
   score.check(
-    "deterministic goal runs without LLM or external network",
+    "goal runs through the configured isolated LiteLLM model",
     goal.status === 200 &&
       goal.body?.cube === "agentlab" &&
       goal.body?.object?.text === "inspect my own contract" &&
-      goal.body?.llm === false,
+      goal.body?.answer.includes("agentlab only") &&
+      goal.body?.model === "sub/k3" &&
+      goal.body?.llm === true,
     `http=${goal.status}`,
+  )
+  score.check(
+    "model receives only the agentlab system scope with a bounded response",
+    llm.request()?.model === "sub/k3" &&
+      llm.request()?.max_tokens === 800 &&
+      llm.request()?.messages?.[0]?.content.includes("no filesystem, shell, network, or cross-cube tools"),
   )
 
   const trace = await api.call("/agentlab/trace", { headers: admin.headers })
@@ -73,6 +89,7 @@ try {
   )
 } finally {
   await stopServer(server)
+  await llm.close()
   dropScratch(data)
 }
 

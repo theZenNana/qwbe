@@ -10,6 +10,9 @@ node_modules/
 # committed by accident once — pointing at a path that exists on exactly one machine.
 node_modules
 /.qwb-activegraph-venv/
+**/__pycache__/
+data/
+data.qwb26-random-backup-20260811/
 data/*.sqlite
 data/*.sqlite-wal
 data/*.sqlite-shm

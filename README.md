@@ -8,8 +8,8 @@ Licensed under the [MIT License](./LICENSE). The three package manifests stay
 `private: true` because this repository is not published as three npm packages;
 that flag does not make the source license private.
 
-Implemented now: six core cubes, one example plugin (a runtime hierarchy), one relation
-space, package lifecycle, runtime permissions, metadata-driven screens, CLI commands, paging
+Implemented now: six core cubes, two plugins (a runtime hierarchy and an isolated agent pilot),
+one relation space, package lifecycle, runtime permissions, metadata-driven screens, CLI commands, paging
 and declared data-file migrations. Not implemented: application namespaces beyond one
 hierarchy level, external rules, workflows, schema migrations, multi-tenancy or process
 isolation. Those belong to the roadmap in `wiki/qwbe/DIRECTION.md`, not to current capability.
@@ -20,12 +20,13 @@ Two steps, both from the project root. Node 22.18 or newer - the API and tests e
 directly through Node type stripping.
 
 ```bash
-npm run setup        # npm ci at root/core/web, creates data/, checks the Node version
+npm run setup        # npm ci, isolated ActiveGraph Python environment, creates data/
 npm start            # API on :4500 and the web app on :4510, in one terminal
 ```
 
-`npm start` prefixes every log line with `[api]` or `[web]`, and Ctrl-C stops both. Neither
-script adds a dependency: they are plain Node, `scripts/setup.mjs` and `scripts/start.mjs`.
+`npm start` prefixes every log line with `[api]` or `[web]`, and Ctrl-C stops both. The
+ActiveGraph plugin needs Python 3.11+; setup installs its pinned dependencies only inside
+`.qwb-activegraph-venv`.
 
 Root tooling, `core/`, and `web/` are independent npm packages with one committed lockfile each.
 `npm run compliance` regenerates `sbom.spdx.json` and `THIRD_PARTY_NOTICES.md` from those exact
@@ -248,6 +249,7 @@ unrecorded provenance stops startup; the kernel never guesses ownership.
 | `booktags/bookmarks` | **plugin** | child: bookmarks pointing at a real mounted cube |
 | `booktags/tags` | **plugin** | child: labels a bookmark. The link to `Bookmark` lives in the workspace space, declared by neither cube |
 | `booktags/settings` | **plugin** | child: the hierarchy's own setting, shared with the bookmarks sibling over the bus |
+| `agentlab` | **plugin** | API-only ActiveGraph pilot; isolated LiteLLM context, goal and trace surface |
 
 ## Design lineage
 

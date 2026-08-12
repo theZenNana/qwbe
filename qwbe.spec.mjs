@@ -12,7 +12,9 @@
 // test was running. Serial, therefore — one worker, one startup, stable data.
 
 import { spawn } from "node:child_process"
-import { rmSync } from "node:fs"
+import { mkdtempSync, rmSync } from "node:fs"
+import { createServer } from "node:http"
+import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { expect, test } from "@playwright/test"
@@ -22,6 +24,7 @@ test.describe.configure({ mode: "serial" })
 const here = dirname(fileURLToPath(import.meta.url))
 const PORT_API = 4520
 const PORT_WEB = 4521
+const PORT_LLM = 4522
 const API = `http://127.0.0.1:${PORT_API}`
 const WEB = `http://127.0.0.1:${PORT_WEB}`
 
@@ -29,6 +32,8 @@ let apiProc
 let webProc
 let bookmarkId
 let tagId
+let dataDir
+let llmProc
 
 const wait = (ms) => new Promise((r) => setTimeout(r, ms))
 
@@ -46,41 +51,31 @@ const waitForResponse = async (url, tries = 150) => {
 
 test.beforeAll(async () => {
   test.setTimeout(240_000)
-
-  for (const f of [
-    "auth.sqlite",
-    "account.sqlite",
-    "notes.sqlite",
-    "bookmarks.sqlite",
-    "booktags--bookmarks.sqlite",
-    "booktags--settings.sqlite",
-    "booktags--tags.sqlite",
-    "auth.sqlite-wal",
-    "account.sqlite-wal",
-    "notes.sqlite-wal",
-    "bookmarks.sqlite-wal",
-    "booktags--bookmarks.sqlite-wal",
-    "booktags--settings.sqlite-wal",
-    "booktags--tags.sqlite-wal",
-    "auth.sqlite-shm",
-    "account.sqlite-shm",
-    "notes.sqlite-shm",
-    "bookmarks.sqlite-shm",
-    "booktags--bookmarks.sqlite-shm",
-    "booktags--settings.sqlite-shm",
-    "booktags--tags.sqlite-shm",
-    "switches.json",
-  ]) {
-    rmSync(join(here, "data", f), { force: true })
-  }
+  dataDir = mkdtempSync(join(tmpdir(), "qwbe-e2e-"))
+  llmProc = createServer((request, response) => {
+    request.resume()
+    request.on("end", () => {
+      response.writeHead(200, { "content-type": "text/event-stream" })
+      response.end(
+        `data: ${JSON.stringify({ choices: [{ delta: { content: "I know agentlab only; notes is outside my scope." } }] })}\n\n` +
+          `data: ${JSON.stringify({ choices: [], usage: { prompt_tokens: 71, completion_tokens: 12 } })}\n\n` +
+          "data: [DONE]\n\n",
+      )
+    })
+  })
+  await new Promise((resolve, reject) => llmProc.listen(PORT_LLM, "127.0.0.1", resolve).once("error", reject))
 
   apiProc = spawn(process.execPath, ["src/main.ts"], {
     cwd: join(here, "core"),
     env: {
       ...process.env,
       QWBE_PORT: String(PORT_API),
+      QWBE_DATA_DIR: dataDir,
       QWBE_ADMIN_PASSWORD: "admin",
       QWBE_READER_PASSWORD: "reader",
+      QWBE_LITELLM_BASE_URL: `http://127.0.0.1:${PORT_LLM}/v1`,
+      QWBE_LITELLM_API_KEY: "e2e-key",
+      QWBE_AGENT_MODEL: "sub/k3",
     },
     stdio: "ignore",
   })
@@ -133,6 +128,8 @@ test.beforeAll(async () => {
 test.afterAll(() => {
   webProc?.kill("SIGTERM")
   apiProc?.kill("SIGTERM")
+  llmProc?.close()
+  if (dataDir) rmSync(dataDir, { recursive: true, force: true })
 })
 
 const signIn = async (page) => {
@@ -177,9 +174,10 @@ test("an API-only cube exposes its isolated agent through generic catalogue meta
   await expect(page.getByText(/ActiveGraph 1\.10\.0/)).toBeVisible({ timeout: 20_000 })
   await expect(page.getByText("scope: agentlab; cross-cube: false")).toBeVisible()
 
-  await page.getByRole("textbox", { name: "Agent goal" }).fill("inspect only agentlab")
+  await page.getByRole("textbox", { name: "Agent goal" }).fill("Can you access notes?")
   await page.getByRole("button", { name: "Run" }).click()
-  await expect(page.getByText("Captured: inspect only agentlab")).toBeVisible({ timeout: 20_000 })
+  await expect(page.getByText("I know agentlab only; notes is outside my scope.")).toBeVisible({ timeout: 20_000 })
+  await expect(page.getByText("sub/k3; 71 + 12 tokens")).toBeVisible()
   await expect(page.getByText(/goal\.created.*object\.created/)).toBeVisible()
 })
 

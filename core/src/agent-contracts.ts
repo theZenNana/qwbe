@@ -19,8 +19,11 @@ export const AgentGoalResult = Schema.Struct({
   cube: Schema.String,
   state: Schema.Literal("idle"),
   goal: Schema.String,
+  answer: Schema.String,
+  model: Schema.String,
+  usage: Schema.Struct({ promptTokens: Schema.Number, completionTokens: Schema.Number }),
   object: Schema.Struct({ type: Schema.String, cube: Schema.String, text: Schema.String }),
-  llm: Schema.Boolean,
+  llm: Schema.Literal(true),
 }).annotations({ identifier: "AgentGoalResult" })
 
 export const AgentTrace = Schema.Struct({
