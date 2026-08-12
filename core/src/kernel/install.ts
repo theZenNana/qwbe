@@ -40,7 +40,8 @@ import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statS
 import { dirname, join, resolve, sep } from "node:path"
 import { fileURLToPath } from "node:url"
 import { InstallError, PROVENANCE, stageAndInstall as stageAndInstallFor } from "./install-from.ts"
-import { type CubeInstaller, type CubePackage, identitySegments } from "./manifest.ts"
+import type { CubeInstaller, CubePackage } from "./manifest.ts"
+import { identitySegments } from "./manifest-validation.ts"
 
 export { InstallError }
 

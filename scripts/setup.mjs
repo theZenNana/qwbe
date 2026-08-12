@@ -99,38 +99,40 @@ install(".")
 install("core")
 install("web")
 
-// --- 3. isolated Python plugin dependencies --------------------------------------------------
+// --- 3. plugin environments ------------------------------------------------------------------
+//
+// Deliberately conditional. A plugin can bring any external runtime with it -- an interpreter,
+// a virtual environment, its own pinned packages -- and the kernel's standard setup must not
+// install any of that: a Qwbe without the plugin has to work, so the plugin's toolchain cannot
+// become a requirement of the base install. What setup DOES, when the plugin happens to be on
+// disk, is delegate to the plugin's own `setup.mjs`, so an in-repo plugin stays one command to
+// install. The plugin owns the command, the versions and the failure messages.
 
-step(3, 4, "ActiveGraph plugin environment")
-const agentPlugin = join(root, "core/plugins/activegraph-plugin")
-const agentVenv = join(root, ".qwb-activegraph-venv")
-const python = process.platform === "win32" ? "python" : "python3"
-const agentPython = process.platform === "win32" ? join(agentVenv, "Scripts/python.exe") : join(agentVenv, "bin/python")
-const pythonVersion = spawnSync(python, ["--version"], { encoding: "utf8" })
-if (pythonVersion.status !== 0) {
-  console.error("\nThe ActiveGraph plugin needs Python 3.11 or newer. No system package was installed.\n")
-  process.exit(1)
-}
-const pythonParts = parseVersion(`${pythonVersion.stdout}${pythonVersion.stderr}`.replace(/^Python\s+/, "").trim())
-if (isOlder(pythonParts, [3, 11, 0])) {
-  console.error(`\nThe ActiveGraph plugin needs Python 3.11 or newer -- found ${pythonParts.join(".")}.\n`)
-  process.exit(1)
-}
-if (!existsSync(agentPython)) {
-  const made = spawnSync(python, ["-m", "venv", agentVenv], { stdio: "inherit" })
-  if (made.status !== 0) process.exit(made.status ?? 1)
-}
-const installed = spawnSync(agentPython, ["-m", "pip", "install", "-r", join(agentPlugin, "requirements.lock")], {
-  stdio: "inherit",
-})
-if (installed.status !== 0) process.exit(installed.status ?? 1)
+import { readdirSync } from "node:fs"
 
-// --- 3. data directory -----------------------------------------------------------------------
+const pluginsDir = join(root, "core/plugins")
+const pluginSetups = existsSync(pluginsDir)
+  ? readdirSync(pluginsDir, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory() && existsSync(join(pluginsDir, entry.name, "setup.mjs")))
+      .map((entry) => join(pluginsDir, entry.name, "setup.mjs"))
+  : []
+
+if (pluginSetups.length === 0) {
+  step(3, 4, "plugin environments")
+  console.log("      no plugin with its own setup.mjs -- nothing to prepare")
+}
+for (const [index, setup] of pluginSetups.entries()) {
+  step(3 + index, 3 + pluginSetups.length, `plugin environment (${setup.split("/").at(-2)})`)
+  const ran = spawnSync(process.execPath, [setup], { stdio: "inherit", env: childEnv })
+  if (ran.status !== 0) process.exit(ran.status ?? 1)
+}
+
+// --- data directory --------------------------------------------------------------------------
 //
 // The kernel creates it too, at first write. Creating it here means a fresh checkout looks
 // finished after setup instead of after the first request.
 
-step(4, 4, "data directory")
+step(3 + pluginSetups.length, 3 + pluginSetups.length, "data directory")
 const dataDir = process.env.QWBE_DATA_DIR ?? join(root, "data")
 if (existsSync(dataDir)) {
   console.log(`      ${dataDir} — already there`)

@@ -83,6 +83,8 @@ def health() -> dict[str, object]:
     return {
         "cube": cube_scope(),
         "state": "ready",
+        # The generic contract's opaque self-description, shown by the shell as-is.
+        "runtime": f"activegraph {activegraph.__version__}",
         "activegraph": activegraph.__version__,
         "llm": bool(os.environ.get("QWBE_LITELLM_BASE_URL") and os.environ.get("QWBE_LITELLM_API_KEY")),
     }

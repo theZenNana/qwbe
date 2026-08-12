@@ -37,7 +37,8 @@ import { dirname, join } from "node:path"
 import { DatabaseSync } from "node:sqlite"
 import { fileURLToPath } from "node:url"
 import { Effect } from "effect"
-import { type CubeStore, storeFileName } from "./manifest.ts"
+import type { CubeStore } from "./manifest.ts"
+import { storeFileName } from "./manifest-validation.ts"
 import type { Page, PageRequest } from "./pagination.ts"
 
 const here = dirname(fileURLToPath(import.meta.url))

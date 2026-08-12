@@ -9,14 +9,8 @@ import { describe, it } from "node:test"
 
 import { Effect } from "effect"
 
-import {
-  type CommandSpec,
-  InvalidManifestError,
-  type Manifest,
-  type PermissionSpec,
-  validateCommands,
-  validateManifest,
-} from "./manifest.ts"
+import type { CommandSpec, Manifest, PermissionSpec } from "./manifest.ts"
+import { InvalidManifestError, validateCommands, validateManifest } from "./manifest-validation.ts"
 
 const manifest = (over: Partial<Manifest> = {}): Manifest => ({
   name: "notes",

@@ -171,7 +171,7 @@ test("an API-only cube exposes its isolated agent through generic catalogue meta
 
   await page.getByRole("link", { name: "Open agent for agentlab" }).click()
   await expect(page.getByRole("heading", { name: "Agent for agentlab" })).toBeVisible()
-  await expect(page.getByText(/ActiveGraph 1\.10\.0/)).toBeVisible({ timeout: 20_000 })
+  await expect(page.getByText(/ready - activegraph 1\.10\.0/i)).toBeVisible({ timeout: 20_000 })
   await expect(page.getByText("scope: agentlab; cross-cube: false")).toBeVisible()
 
   await page.getByRole("textbox", { name: "Agent goal" }).fill("Can you access notes?")

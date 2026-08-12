@@ -8,7 +8,7 @@ Licensed under the [MIT License](./LICENSE). The three package manifests stay
 `private: true` because this repository is not published as three npm packages;
 that flag does not make the source license private.
 
-Implemented now: six core cubes, two plugins (a runtime hierarchy and an isolated agent pilot),
+Implemented now: six core cubes, two plugins (a runtime hierarchy and an agent-surface pilot),
 one relation space, package lifecycle, runtime permissions, metadata-driven screens, CLI commands, paging
 and declared data-file migrations. Not implemented: application namespaces beyond one
 hierarchy level, external rules, workflows, schema migrations, multi-tenancy or process
@@ -20,13 +20,12 @@ Two steps, both from the project root. Node 22.18 or newer - the API and tests e
 directly through Node type stripping.
 
 ```bash
-npm run setup        # npm ci, isolated ActiveGraph Python environment, creates data/
+npm run setup        # npm ci, plugin environments (only for plugins on disk), creates data/
 npm start            # API on :4500 and the web app on :4510, in one terminal
 ```
 
-`npm start` prefixes every log line with `[api]` or `[web]`, and Ctrl-C stops both. The
-ActiveGraph plugin needs Python 3.11+; setup installs its pinned dependencies only inside
-`.qwb-activegraph-venv`.
+`npm start` prefixes every log line with `[api]` or `[web]`, and Ctrl-C stops both. A plugin
+that needs its own toolchain brings its own `setup.mjs`; the base install requires only Node.
 
 Root tooling, `core/`, and `web/` are independent npm packages with one committed lockfile each.
 `npm run compliance` regenerates `sbom.spdx.json` and `THIRD_PARTY_NOTICES.md` from those exact
@@ -249,7 +248,34 @@ unrecorded provenance stops startup; the kernel never guesses ownership.
 | `booktags/bookmarks` | **plugin** | child: bookmarks pointing at a real mounted cube |
 | `booktags/tags` | **plugin** | child: labels a bookmark. The link to `Bookmark` lives in the workspace space, declared by neither cube |
 | `booktags/settings` | **plugin** | child: the hierarchy's own setting, shared with the bookmarks sibling over the bus |
-| `agentlab` | **plugin** | API-only ActiveGraph pilot; isolated LiteLLM context, goal and trace surface |
+| `agentlab` | **plugin** | agent pilot: declares `agent: true` and serves the generic agent surface (below) |
+
+## The generic agent surface
+
+A cube can expose an agent or any other external runtime by declaring one capability in its
+manifest:
+
+```ts
+manifest: { name: "mycube", agent: true, /* ... */ }
+```
+
+That single declaration is the whole contract between kernel, catalogue, API and UI:
+
+- the cube must serve four routes under its own prefix -- `GET /<cube>/health`,
+  `GET /<cube>/context`, `POST /<cube>/goals`, `GET /<cube>/trace` -- against the shared
+  schemas in `core/src/agent-contracts.ts` (`qwbe-core/agent`). The mount gate checks the REAL
+  endpoint list: declaring `agent: true` without the full surface refuses the cube at startup.
+  A button with nothing behind it cannot exist.
+- the catalogue publishes `agent: true` and the shell draws an "agent" link plus the generic
+  `/agent/<cube>` screen from that alone -- no per-cube code in the web app, no parallel
+  contracts written by hand.
+- the screen reports the three states the contract defines: `ready` (health answered),
+  `unavailable` (the surface answered 503 -- not configured or not started) and `error`
+  (the surface did not answer its own contract).
+
+The kernel never learns what sits behind the surface: interpreter, model, wire format and
+versions stay inside the plugin's directory. The pilot under `core/plugins/` consumes only
+this contract -- its runtime can be moved out of the repository without touching the kernel.
 
 ## Design lineage
 

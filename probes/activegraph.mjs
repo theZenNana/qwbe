@@ -42,6 +42,17 @@ try {
   const agentlab = cubes.body?.find?.((cube) => cube.name === "agentlab")
   score.check("catalogue publishes the generic agent capability", agentlab?.agent === true)
 
+  // The kernel half of the contract: the four generic routes exist under the cube's prefix
+  // and nothing about the pilot's runtime leaks into the kernel's own contract.
+  const openapi = await api.call("/openapi.json")
+  const paths = Object.keys(openapi.body?.paths ?? {})
+  const surface = ["/agentlab/health", "/agentlab/context", "/agentlab/goals", "/agentlab/trace"]
+  score.check(
+    "all four generic agent routes are published",
+    surface.every((path) => paths.includes(path)),
+    `missing=${surface.filter((path) => !paths.includes(path)).join(",") || "none"}`,
+  )
+
   const context = await api.call("/agentlab/context", { headers: admin.headers })
   score.check(
     "agent context is scoped to one cube",

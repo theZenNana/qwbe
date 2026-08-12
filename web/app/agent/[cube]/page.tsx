@@ -1,10 +1,20 @@
 "use client"
 
+// THE GENERIC AGENT route -- one screen for every cube whose manifest declares `agent: true`,
+// including plugins nobody has written yet. Everything drawn here comes from the shared
+// contract (`qwbe-core/agent` via lib/contracts.ts) and the catalogue: nothing on this page
+// knows which runtime sits behind the cube.
+//
+// The three states are the contract's own: `ready` (health answered), `unavailable`
+// (the surface answered 503 -- not configured, not started) and `error` (the surface did
+// not answer its own contract at all).
+
 import { use, useEffect, useState } from "react"
 import {
   type AgentContext,
   type AgentHealth,
   type AgentTrace,
+  ApiError,
   agentContext,
   agentHealth,
   agentTrace,
@@ -12,10 +22,15 @@ import {
 } from "../../../lib/api"
 import { Shell } from "../../Shell"
 
+type AgentState =
+  | { readonly kind: "checking" }
+  | { readonly kind: "ready"; readonly health: AgentHealth; readonly context: AgentContext | null }
+  | { readonly kind: "unavailable"; readonly message: string }
+  | { readonly kind: "error"; readonly message: string }
+
 export default function CubeAgent({ params }: { params: Promise<{ cube: string }> }) {
   const { cube } = use(params)
-  const [health, setHealth] = useState<AgentHealth | null>(null)
-  const [context, setContext] = useState<AgentContext | null>(null)
+  const [state, setState] = useState<AgentState>({ kind: "checking" })
   const [trace, setTrace] = useState<AgentTrace | null>(null)
   const [goal, setGoal] = useState("")
   const [result, setResult] = useState("")
@@ -23,28 +38,48 @@ export default function CubeAgent({ params }: { params: Promise<{ cube: string }
   const [error, setError] = useState("")
 
   useEffect(() => {
-    Promise.all([agentHealth(cube), agentContext(cube), agentTrace(cube)])
-      .then(([nextHealth, nextContext, nextTrace]) => {
-        setHealth(nextHealth)
-        setContext(nextContext)
-        setTrace(nextTrace)
-        setError("")
+    agentHealth(cube)
+      .then(async (health) => {
+        // Context and trace matter only once the runtime is alive; asking a down surface
+        // for them would bury the real state under two more failures.
+        const context = await agentContext(cube).catch(() => null)
+        setState({ kind: "ready", health, context })
+        setTrace(await agentTrace(cube).catch(() => null))
       })
-      .catch((failure: Error) => setError(failure.message))
+      .catch((failure: Error) =>
+        setState(
+          failure instanceof ApiError && failure.status === 503
+            ? { kind: "unavailable", message: failure.message }
+            : { kind: "error", message: failure.message },
+        ),
+      )
   }, [cube])
 
   return (
     <Shell>
       <h2>Agent for {cube}</h2>
-      <p className="subtitlu">Isolated ActiveGraph runtime. LiteLLM access, no cross-cube context.</p>
-      {error && <div className="eroare">{error}</div>}
+      <p className="subtitlu">This cube exposes an external runtime through the generic agent surface.</p>
       <div className="panou">
         <h3>Status</h3>
-        <div>{health ? `${health.state} - ActiveGraph ${health.activegraph}` : "checking"}</div>
-        <div className="mic">
-          scope: {context?.cube ?? cube}; cross-cube: {String(context?.crossCube ?? false)}
-        </div>
+        {state.kind === "checking" && <div>checking</div>}
+        {state.kind === "ready" && (
+          <>
+            <div>
+              <span className="pastila viu">ready</span> - {state.health.runtime}
+            </div>
+            <div className="mic">
+              scope: {state.context?.cube ?? cube}; cross-cube: {String(state.context?.crossCube ?? false)}
+            </div>
+          </>
+        )}
+        {state.kind === "unavailable" && (
+          <div>
+            <span className="pastila stins">unavailable</span> <span className="mic">{state.message}</span>
+          </div>
+        )}
+        {state.kind === "error" && <div className="eroare">{state.message}</div>}
       </div>
+      {error && <div className="eroare">{error}</div>}
       <form
         className="panou"
         onSubmit={(event) => {
@@ -53,15 +88,27 @@ export default function CubeAgent({ params }: { params: Promise<{ cube: string }
           runAgentGoal(cube, goal)
             .then(async (next) => {
               setResult(next.answer)
-              setModel(`${next.model}; ${next.usage.promptTokens} + ${next.usage.completionTokens} tokens`)
-              setTrace(await agentTrace(cube))
+              setModel(
+                next.model
+                  ? `${next.model}; ${next.usage?.promptTokens ?? 0} + ${next.usage?.completionTokens ?? 0} tokens`
+                  : "",
+              )
+              setTrace(await agentTrace(cube).catch(() => null))
             })
             .catch((failure: Error) => setError(failure.message))
         }}
       >
         <h3>Ask cube agent</h3>
-        <input value={goal} onChange={(event) => setGoal(event.target.value)} aria-label="Agent goal" required />
-        <button type="submit">Run</button>
+        <input
+          value={goal}
+          onChange={(event) => setGoal(event.target.value)}
+          aria-label="Agent goal"
+          required
+          disabled={state.kind !== "ready"}
+        />
+        <button type="submit" disabled={state.kind !== "ready"}>
+          Run
+        </button>
         {result && <p>{result}</p>}
         {model && <p className="mic">{model}</p>}
       </form>

@@ -1,7 +1,7 @@
 import { resolve } from "node:path"
 import { Command, type CommandExecutor } from "@effect/platform"
 import { Effect, Schema } from "effect"
-import { AgentUnavailable } from "./agent-contract.ts"
+import { AgentUnavailable } from "qwbe-core/agent"
 
 const pluginDir = import.meta.dirname
 const script = resolve(pluginDir, "agent.py")
@@ -16,6 +16,9 @@ const processLock = Effect.unsafeMakeSemaphore(1)
 const unavailable = (message: string) => new AgentUnavailable({ message })
 const ProcessFailure = Schema.Struct({ error: Schema.String })
 
+/** The plugin's half of the agent contract: the kernel's generic surface above, the
+ *  ActiveGraph subprocess below. The two never mix -- the subprocess's version string,
+ *  storage layout and LLM plumbing stay inside this directory. */
 export const invokeAgent = <A, I>(
   command: "health" | "context" | "goal" | "trace",
   payload: object,
@@ -28,15 +31,15 @@ export const invokeAgent = <A, I>(
       Command.string,
       Effect.timeoutFail({
         duration: command === "goal" ? GOAL_TIMEOUT_MS : PROCESS_TIMEOUT_MS,
-        onTimeout: () => unavailable(`ActiveGraph ${command} timed out`),
+        onTimeout: () => unavailable(`agent runtime ${command} timed out`),
       }),
       Effect.mapError((error) =>
-        error instanceof AgentUnavailable ? error : unavailable(`ActiveGraph process failed: ${error.message}`),
+        error instanceof AgentUnavailable ? error : unavailable(`agent runtime process failed: ${error.message}`),
       ),
       Effect.flatMap((stdout) =>
         Effect.try({
           try: () => JSON.parse(stdout) as unknown,
-          catch: () => unavailable("ActiveGraph returned malformed JSON"),
+          catch: () => unavailable("agent runtime returned malformed JSON"),
         }),
       ),
       Effect.flatMap((body) =>
@@ -46,7 +49,7 @@ export const invokeAgent = <A, I>(
       Effect.mapError((error) =>
         error instanceof AgentUnavailable
           ? error
-          : unavailable(`ActiveGraph response violated its contract: ${error.message}`),
+          : unavailable(`agent runtime response violated its contract: ${error.message}`),
       ),
     ),
   )
