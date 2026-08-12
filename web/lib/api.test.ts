@@ -15,13 +15,13 @@ describe("request response contract", () => {
     globalThis.fetch = async () =>
       Response.json([
         {
-          name: "agentlab",
+          name: "future-agent-cube",
           parent: null,
-          prefix: "agentlab",
+          prefix: "future-agent-cube",
           enabled: true,
           required: false,
           system: false,
-          plugin: "activegraph-plugin",
+          plugin: "some-plugin",
           onDisk: true,
           entity: null,
           screen: false,

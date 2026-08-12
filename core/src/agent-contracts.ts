@@ -1,8 +1,8 @@
 // The GENERIC agent contract: what "this cube exposes an agent or another external runtime"
 // means in Qwbe, once, for kernel, catalogue, API, web and every present or future plugin.
 //
-// The kernel knows nothing about what sits behind the surface -- a Python subprocess, an HTTP
-// service, an LLM provider. A plugin declares the capability in its manifest (`agent: true`),
+// The kernel knows nothing about what sits behind the surface -- a subprocess, an HTTP
+// service, a model provider. A plugin declares the capability in its manifest (`agent: true`),
 // serves the four routes below under its own prefix, and the shell draws the generic
 // `/agent/<cube>` screen from this contract alone. Nothing cube- or runtime-specific may
 // enter this file: the day a runtime name appears here, every plugin pays for one plugin's
