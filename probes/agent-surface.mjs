@@ -6,8 +6,9 @@
 //   3. the system boots and serves with NO agent plugin on disk at all.
 //
 // Both fixture plugins live only in a scratch copy of core/plugins for the duration of the
-// run. The pilot probe (activegraph.mjs) covers the runtime-specific behaviour; this one
-// covers what every agent plugin gets -- and what happens when there is none.
+// run. The pilot plugin with its real runtime moved out of the repository on QWB-28
+// (qwbe-packs/plugins/activegraph) and carries its own probe pair; this one covers what
+// every agent plugin gets -- and what happens when there is none.
 
 import { cpSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
@@ -22,7 +23,7 @@ const score = makeScore()
 // Move the real plugins aside, work in an empty plugins directory, restore in `finally`.
 // The server reads plugins from disk at boot, so a fixture plugin is a directory, not a mock.
 cpSync(realPlugins, stashDir, { recursive: true })
-for (const entry of ["activegraph-plugin", "example-plugin"]) {
+for (const entry of ["example-plugin"]) {
   rmSync(join(realPlugins, entry), { recursive: true, force: true })
 }
 

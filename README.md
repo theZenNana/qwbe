@@ -248,7 +248,6 @@ unrecorded provenance stops startup; the kernel never guesses ownership.
 | `booktags/bookmarks` | **plugin** | child: bookmarks pointing at a real mounted cube |
 | `booktags/tags` | **plugin** | child: labels a bookmark. The link to `Bookmark` lives in the workspace space, declared by neither cube |
 | `booktags/settings` | **plugin** | child: the hierarchy's own setting, shared with the bookmarks sibling over the bus |
-| `agentlab` | **plugin** | agent pilot: declares `agent: true` and serves the generic agent surface (below) |
 
 ## The generic agent surface
 
@@ -274,8 +273,9 @@ That single declaration is the whole contract between kernel, catalogue, API and
   (the surface did not answer its own contract).
 
 The kernel never learns what sits behind the surface: interpreter, model, wire format and
-versions stay inside the plugin's directory. The pilot under `core/plugins/` consumes only
-this contract -- its runtime can be moved out of the repository without touching the kernel.
+versions stay inside the plugin's directory. The first consumer of this contract was the
+ActiveGraph pilot, which moved out of the repository on QWB-28 -- installed from an external
+directory via `install-from`, it touches nothing here.
 
 ## Design lineage
 

@@ -9,7 +9,6 @@ node_modules/
 # also as a plain name: a symlink named node_modules is not a directory to git, and one was
 # committed by accident once — pointing at a path that exists on exactly one machine.
 node_modules
-/.qwb-activegraph-venv/
 **/__pycache__/
 data/
 data.qwb26-random-backup-20260811/

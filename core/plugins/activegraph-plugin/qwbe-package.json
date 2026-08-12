@@ -1,6 +1,0 @@
-{
-  "name": "activegraph-plugin",
-  "kind": "plugin",
-  "summary": "ActiveGraph agent pilot: one cube (agentlab) on the generic agent surface",
-  "cubes": ["agentlab"]
-}
