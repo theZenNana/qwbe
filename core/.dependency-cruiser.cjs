@@ -132,7 +132,10 @@ module.exports = {
 
   options: {
     doNotFollow: { path: "node_modules" },
-    exclude: { path: "node_modules" },
+    // `.venv` is an installed plugin's Python runtime (QWB-28), and probes/ inside installed
+    // packages are the source package's own tooling, not mounted code -- neither is kernel
+    // source. Both are gitignored as install artefacts (QWB-29).
+    exclude: { path: "node_modules|\\.venv|/probes/" },
     tsPreCompilationDeps: true,
     enhancedResolveOptions: {
       exportsFields: ["exports"],

@@ -48,3 +48,11 @@ web/tsconfig.tsbuildinfo
 
 # Configurația locală de agent. Directorul e real, conținutul e per-mașină.
 .claude/
+
+# Artefacte de instalare (QWB-27/28/29). Pachetele instalate prin install-from sunt date
+# runtime per masina: copia din core/plugins se reconstruieste din store la boot, store-ul
+# se populeaza din directorul-sursa al administratorului. Niciuna nu e sursa de comis.
+# example-plugin ramane comis -- e fixture al repo-ului, nu pachet instalat.
+core/store/
+core/plugins/*/
+!core/plugins/example-plugin/

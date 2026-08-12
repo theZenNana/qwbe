@@ -16,7 +16,9 @@
 //      absent. This probe keeps that promise honest.)
 //   2. The mounted cube list still answers, and nothing on it claims to be waiting for disk.
 
-import { client, dropScratch, freePort, makeScore, scratchDataDir, startServer, stopServer } from "./lib.mjs"
+import { existsSync, readdirSync } from "node:fs"
+import { join } from "node:path"
+import { client, coreDir, dropScratch, freePort, makeScore, scratchDataDir, startServer, stopServer } from "./lib.mjs"
 
 const port = await freePort()
 const dataDir = scratchDataDir("store")
@@ -29,11 +31,22 @@ try {
   if (!server.alive) throw new Error(`server did not start:\n${server.output}`)
   const session = await api.login()
 
+  // The honest answer is whatever the shelf on disk holds: empty in a clean checkout, the
+  // installed packages after an install-from (QWB-29 runs this probe with a plugin present).
+  // Comparing against the directory -- not against a hardcoded empty list -- keeps both true.
+  const shelfDir = join(coreDir, "store")
+  const onDisk = existsSync(shelfDir)
+    ? readdirSync(shelfDir, { withFileTypes: true })
+        .filter((e) => e.isDirectory() && !e.name.startsWith("."))
+        .map((e) => e.name)
+        .sort()
+    : []
   const packages = await api.call("/settings/packages", { headers: session.headers })
+  const served = (packages.body ?? []).map((p) => p.name).sort()
   score.check(
-    "the empty shelf answers 200 with an empty list, not an error",
-    packages.status === 200 && Array.isArray(packages.body) && packages.body.length === 0,
-    `http=${packages.status} body=${JSON.stringify(packages.body).slice(0, 120)}`,
+    "the shelf answers 200 with exactly what is on disk (empty or installed)",
+    packages.status === 200 && Array.isArray(packages.body) && JSON.stringify(served) === JSON.stringify(onDisk),
+    `http=${packages.status} served=${served.join(",") || "empty"} disk=${onDisk.join(",") || "empty"}`,
   )
 
   const cubes = await api.call("/settings/cubes", { headers: session.headers })

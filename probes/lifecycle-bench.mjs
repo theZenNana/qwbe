@@ -30,6 +30,10 @@ export const fingerprint = () => {
     if (!existsSync(dir)) return
     for (const e of readdirSync(dir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
       const full = join(dir, e.name)
+      // Symlinks are skipped, not followed: an installed plugin's Python venv links lib64 ->
+      // lib, and hashing the target twice (or crashing on the directory) says nothing about
+      // what the installer wrote.
+      if (e.isSymbolicLink()) continue
       if (e.isDirectory()) walk(full)
       else seen.set(relative(root, full), createHash("sha256").update(readFileSync(full)).digest("hex"))
     }

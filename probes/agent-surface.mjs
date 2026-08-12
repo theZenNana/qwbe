@@ -10,7 +10,7 @@
 // (qwbe-packs/plugins/activegraph) and carries its own probe pair; this one covers what
 // every agent plugin gets -- and what happens when there is none.
 
-import { cpSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { cpSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { client, coreDir, dropScratch, freePort, makeScore, scratchDataDir, startServer, stopServer } from "./lib.mjs"
@@ -22,8 +22,10 @@ const score = makeScore()
 
 // Move the real plugins aside, work in an empty plugins directory, restore in `finally`.
 // The server reads plugins from disk at boot, so a fixture plugin is a directory, not a mock.
+// Every mounted plugin goes aside, not just example-plugin: after an install-from (QWB-29)
+// the installed copy lives here too, and "no plugin on disk" must keep meaning it.
 cpSync(realPlugins, stashDir, { recursive: true })
-for (const entry of ["example-plugin"]) {
+for (const entry of readdirSync(realPlugins)) {
   rmSync(join(realPlugins, entry), { recursive: true, force: true })
 }
 

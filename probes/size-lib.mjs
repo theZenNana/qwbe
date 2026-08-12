@@ -8,7 +8,18 @@ import { readdirSync, readFileSync, statSync } from "node:fs"
 import { join, sep } from "node:path"
 
 const SOURCE = /\.(ts|tsx|mjs|js|jsx)$/
-const SKIP_DIR = new Set(["node_modules", ".next", ".git", "test-results", "screenshots", "data", "dist", "build"])
+const SKIP_DIR = new Set([
+  "node_modules",
+  ".next",
+  ".git",
+  "test-results",
+  "screenshots",
+  "data",
+  "dist",
+  "build",
+  "store",
+  "probes",
+])
 
 /**
  * Unit tests do not count against a cube's size.
