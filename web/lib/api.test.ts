@@ -2,7 +2,7 @@ import assert from "node:assert/strict"
 import { afterEach, describe, it } from "node:test"
 import { Schema } from "effect"
 
-import { ApiError, catalogue, list, request } from "./api.ts"
+import { ApiError, agentApiPrefix, agentScreenPath, catalogue, list, request } from "./api.ts"
 
 const originalFetch = globalThis.fetch
 
@@ -11,6 +11,16 @@ afterEach(() => {
 })
 
 describe("request response contract", () => {
+  it("keeps a child cube identity in its agent screen and uses its mounted HTTP prefix", () => {
+    const child = {
+      name: "parent/child",
+      parent: "parent",
+      prefix: "parent-child",
+    }
+
+    assert.equal(agentScreenPath(child), "/agent/parent/child")
+    assert.equal(agentApiPrefix(child), "parent-child")
+  })
   it("publishes the optional agent capability without cube-specific UI knowledge", async () => {
     globalThis.fetch = async () =>
       Response.json([

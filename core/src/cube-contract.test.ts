@@ -62,6 +62,36 @@ describe("agent surface gate", () => {
     )
   })
 
+  it("accepts a child cube agent surface under its real HTTP prefix", () => {
+    const childSurface = HttpApiGroup.make("child")
+      .add(HttpApiEndpoint.get("health")`/child/health`)
+      .add(HttpApiEndpoint.get("context")`/child/context`)
+      .add(HttpApiEndpoint.post("goal")`/child/goals`)
+      .add(HttpApiEndpoint.get("trace")`/child/trace`)
+
+    assert.doesNotThrow(() =>
+      validateAgentSurface("parent/child", { ...manifest, name: "child", parent: "parent", agent: true }, childSurface),
+    )
+  })
+
+  it("refuses a child agent surface split across two HTTP prefixes", () => {
+    const splitSurface = HttpApiGroup.make("child")
+      .add(HttpApiEndpoint.get("health")`/child/health`)
+      .add(HttpApiEndpoint.get("context")`/parent-child/context`)
+      .add(HttpApiEndpoint.post("goal")`/child/goals`)
+      .add(HttpApiEndpoint.get("trace")`/parent-child/trace`)
+
+    assert.throws(
+      () =>
+        validateAgentSurface(
+          "parent/child",
+          { ...manifest, name: "child", parent: "parent", agent: true },
+          splitSurface,
+        ),
+      /does not serve the generic agent surface/,
+    )
+  })
+
   it("refuses agent: true when any contract route is missing", () => {
     assert.throws(
       () => validateAgentSurface("fakeagent", { ...manifest, name: "fakeagent", agent: true }, group),

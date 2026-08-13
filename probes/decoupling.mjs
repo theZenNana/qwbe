@@ -151,10 +151,20 @@ try {
   await stopServer(s2)
 
   const afterRemoval = fingerprints(coreDir)
+  const removalChanges = []
+  for (const [path, hash] of before) {
+    if (!afterRemoval.has(path)) removalChanges.push(`${path} (deleted)`)
+    else if (afterRemoval.get(path) !== hash) removalChanges.push(`${path} (modified)`)
+  }
+  for (const path of afterRemoval.keys()) {
+    if (!before.has(path)) removalChanges.push(`${path} (added)`)
+  }
   score.check(
     "uninstalling left no trace in any other file",
-    afterRemoval.size === before.size && [...before].every(([p, h]) => afterRemoval.get(p) === h),
-    `${afterRemoval.size} files, identical to the starting state`,
+    removalChanges.length === 0,
+    removalChanges.length === 0
+      ? `${afterRemoval.size} files, identical to the starting state`
+      : removalChanges.join(", "),
   )
 
   // Sections 4 and 5 — the cube DELETED from disk, and the level-1 claim that neither linked

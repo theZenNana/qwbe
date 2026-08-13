@@ -23,22 +23,20 @@
 // not need the source path and the source may disappear. Forgetting the shelf is a separate,
 // future operation (decided on QWB-15).
 
-import { createHash } from "node:crypto"
 import {
   cpSync,
   existsSync,
   lstatSync,
   mkdirSync,
   mkdtempSync,
-  readdirSync,
-  readFileSync,
   realpathSync,
   renameSync,
   rmSync,
   writeFileSync,
 } from "node:fs"
-import { isAbsolute, join, relative, sep } from "node:path"
+import { isAbsolute, join, sep } from "node:path"
 import { checkPackageContract, PackageContractError } from "../install-contract.ts"
+import { includePackageSourcePath, packageSourceFingerprint, validatePackageSourceTree } from "../package-source.ts"
 import type { CubePackage } from "./manifest.ts"
 
 /** Same refusal type the store flow throws - re-declared here to keep the seam acyclic. */
@@ -73,37 +71,6 @@ export type StageContext = Readonly<{
  * fingerprint would be circular - and trusting it without re-hashing would let edited shelf
  * content pass as identical (the review finding that put this parameter here).
  */
-const fingerprintOf = (dir: string, exclude?: ReadonlyArray<string>): string => {
-  const entries: Array<string> = []
-  const walk = (d: string) => {
-    for (const e of readdirSync(d, { withFileTypes: true })) {
-      const p = join(d, e.name)
-      if (exclude && d === dir && exclude.includes(e.name)) continue
-      if (e.isDirectory()) walk(p)
-      else entries.push(`${relative(dir, p)}:${createHash("sha256").update(readFileSync(p)).digest("hex")}`)
-    }
-  }
-  walk(dir)
-  return createHash("sha256").update(entries.sort().join("\n")).digest("hex")
-}
-
-const checkSourceTree = (root: string) => {
-  const walk = (d: string) => {
-    for (const e of readdirSync(d)) {
-      const p = join(d, e)
-      const st = lstatSync(p)
-      if (st.isSymbolicLink() || (!st.isFile() && !st.isDirectory())) {
-        throw new InstallError(
-          `refused: "${p}" is ${st.isSymbolicLink() ? "a symlink" : "a special file"} - ` +
-            `a package must be plain files and directories only.`,
-        )
-      }
-      if (st.isDirectory()) walk(p)
-    }
-  }
-  walk(root)
-}
-
 export const stageAndInstall =
   (ctx: StageContext) =>
   (sourceDirectory: string): CubePackage & { staged: boolean } => {
@@ -130,7 +97,10 @@ export const stageAndInstall =
     const source = realpathSync(sourceDirectory)
 
     // 2. Shape of the tree - before anything is copied, so a refusal leaves zero trace.
-    checkSourceTree(source)
+    const invalidSource = validatePackageSourceTree(source)
+    if (invalidSource) {
+      throw new InstallError(`refused: ${invalidSource} - a package must be plain files and directories only.`)
+    }
 
     // 3. Validate as a package straight from the source directory. The name comes from the
     //    directory's base name; the manifest, name-shape and DESTINATION-clash checks are the
@@ -150,10 +120,10 @@ export const stageAndInstall =
     //    shelf's fingerprint is RE-COMPUTED from the bytes on disk, never read back from the
     //    provenance file: that file records what was staged, and content edited after staging
     //    must answer as "different content", not inherit the old stamp.
-    const fingerprint = fingerprintOf(source)
+    const fingerprint = packageSourceFingerprint(source)
     const shelfDir = join(ctx.storeDir, name)
     if (existsSync(shelfDir)) {
-      const prior = fingerprintOf(shelfDir, [PROVENANCE])
+      const prior = packageSourceFingerprint(shelfDir, [PROVENANCE])
       if (prior === fingerprint) {
         // Idempotent: the raft already holds exactly this content - reuse it. The path is
         // deliberately NOT part of the decision: the same path can serve new content.
@@ -184,7 +154,10 @@ export const stageAndInstall =
     const staging = mkdtempSync(join(ctx.storeDir, ".staging-"))
     let staged = false
     try {
-      cpSync(source, join(staging, name), { recursive: true })
+      cpSync(source, join(staging, name), {
+        recursive: true,
+        filter: (path) => includePackageSourcePath(source, path),
+      })
       writeFileSync(
         join(staging, name, PROVENANCE),
         `${JSON.stringify({ sourcePath: source, fingerprint, stagedAt: new Date().toISOString() }, null, 2)}\n`,

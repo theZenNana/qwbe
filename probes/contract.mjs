@@ -35,23 +35,20 @@ try {
   const sessionForFilter = await api.login()
   const catalogue = await api.call("/settings/cubes", { headers: sessionForFilter.headers })
   const installedCubePrefixes = new Set(
-    (catalogue.body ?? [])
-      .filter((c) => c.plugin && c.plugin !== "example-plugin")
-      .flatMap((c) => [`/${c.name}`, `/${c.name}/`]),
+    (catalogue.body ?? []).filter((c) => c.plugin && c.plugin !== "example-plugin").map((c) => `/${c.prefix}`),
   )
   const isInstalledCubeRoute = (path) =>
     [...installedCubePrefixes].some(
       (prefix) => path === prefix || path.startsWith(prefix.endsWith("/") ? prefix : `${prefix}/`),
     )
 
-  const operations = Object.entries(spec?.paths ?? {})
-    .filter(([path]) => !isInstalledCubeRoute(path))
-    .flatMap(([path, methods]) =>
-      Object.entries(methods)
-        .filter(([method]) => ["get", "post", "put", "patch", "delete"].includes(method))
-        .map(([method, operation]) => ({ path, method, operation })),
-    )
-  const actualInventory = operations
+  const operations = Object.entries(spec?.paths ?? {}).flatMap(([path, methods]) =>
+    Object.entries(methods)
+      .filter(([method]) => ["get", "post", "put", "patch", "delete"].includes(method))
+      .map(([method, operation]) => ({ path, method, operation })),
+  )
+  const repositoryOperations = operations.filter(({ path }) => !isInstalledCubeRoute(path))
+  const actualInventory = repositoryOperations
     .map(({ path, method, operation }) => operationSignature(path, method, operation))
     .sort()
   score.check(

@@ -12,7 +12,7 @@
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { type ReactNode, useEffect, useState } from "react"
-import { apiUrl, type CubeInfo, catalogue, leafName, logout, screenPath } from "../lib/api"
+import { agentScreenPath, apiUrl, type CubeInfo, catalogue, leafName, logout, screenPath } from "../lib/api"
 import { session } from "../lib/session"
 
 export function Shell({ children }: { children: ReactNode }) {
@@ -49,8 +49,8 @@ export function Shell({ children }: { children: ReactNode }) {
   const agentLinkFor = (c: CubeInfo) =>
     c.agent ? (
       <Link
-        href={`/agent/${encodeURIComponent(c.name)}`}
-        className={`agent-link ${path === `/agent/${c.name}` ? "activ" : ""}`}
+        href={agentScreenPath(c)}
+        className={`agent-link ${path === agentScreenPath(c) ? "activ" : ""}`}
         aria-label={`Open agent for ${c.name}`}
         title={`Agent for ${c.name}`}
       >

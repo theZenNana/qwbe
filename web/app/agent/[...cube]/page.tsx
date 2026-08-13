@@ -15,9 +15,11 @@ import {
   type AgentHealth,
   type AgentTrace,
   ApiError,
+  agentApiPrefix,
   agentContext,
   agentHealth,
   agentTrace,
+  catalogue,
   runAgentGoal,
 } from "../../../lib/api"
 import { Shell } from "../../Shell"
@@ -28,9 +30,11 @@ type AgentState =
   | { readonly kind: "unavailable"; readonly message: string }
   | { readonly kind: "error"; readonly message: string }
 
-export default function CubeAgent({ params }: { params: Promise<{ cube: string }> }) {
-  const { cube } = use(params)
+export default function CubeAgent({ params }: { params: Promise<{ cube: ReadonlyArray<string> }> }) {
+  const { cube: segments } = use(params)
+  const cube = segments.join("/")
   const [state, setState] = useState<AgentState>({ kind: "checking" })
+  const [prefix, setPrefix] = useState<string | null>(null)
   const [trace, setTrace] = useState<AgentTrace | null>(null)
   const [goal, setGoal] = useState("")
   const [result, setResult] = useState("")
@@ -38,13 +42,18 @@ export default function CubeAgent({ params }: { params: Promise<{ cube: string }
   const [error, setError] = useState("")
 
   useEffect(() => {
-    agentHealth(cube)
-      .then(async (health) => {
+    catalogue()
+      .then(async (cubes) => {
+        const selected = cubes.find((candidate) => candidate.name === cube && candidate.agent)
+        if (!selected) throw new Error(`agent cube not found: ${cube}`)
+        const mountedPrefix = agentApiPrefix(selected)
+        setPrefix(mountedPrefix)
+        const health = await agentHealth(mountedPrefix)
         // Context and trace matter only once the runtime is alive; asking a down surface
         // for them would bury the real state under two more failures.
-        const context = await agentContext(cube).catch(() => null)
+        const context = await agentContext(mountedPrefix).catch(() => null)
         setState({ kind: "ready", health, context })
-        setTrace(await agentTrace(cube).catch(() => null))
+        setTrace(await agentTrace(mountedPrefix).catch(() => null))
       })
       .catch((failure: Error) =>
         setState(
@@ -85,7 +94,8 @@ export default function CubeAgent({ params }: { params: Promise<{ cube: string }
         onSubmit={(event) => {
           event.preventDefault()
           setError("")
-          runAgentGoal(cube, goal)
+          if (prefix === null) return
+          runAgentGoal(prefix, goal)
             .then(async (next) => {
               setResult(next.answer)
               setModel(
@@ -93,7 +103,7 @@ export default function CubeAgent({ params }: { params: Promise<{ cube: string }
                   ? `${next.model}; ${next.usage?.promptTokens ?? 0} + ${next.usage?.completionTokens ?? 0} tokens`
                   : "",
               )
-              setTrace(await agentTrace(cube).catch(() => null))
+              setTrace(await agentTrace(prefix).catch(() => null))
             })
             .catch((failure: Error) => setError(failure.message))
         }}

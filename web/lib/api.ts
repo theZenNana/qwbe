@@ -187,6 +187,10 @@ export const leafName = (full: string): string => (full.includes("/") ? (full.sp
  *  their parent at `/<parent>/<child>` -- one sidebar entry per hierarchy. */
 export const screenPath = (c: CubeInfo): string => (c.parent ? `/${c.parent}/${leafName(c.name)}` : `/${c.name}`)
 
+/** Agent browser routes keep compound identity; requests use the real mounted prefix. */
+export const agentScreenPath = (c: Pick<CubeInfo, "name">): string => `/agent/${c.name}`
+export const agentApiPrefix = (c: Pick<CubeInfo, "name" | "prefix">): string => c.prefix ?? leafName(c.name)
+
 export const linksFor = (entity: string, id: string) => request(`/links/${entity}/${id}`, LinksForSchema)
 export const linkGroup = (entity: string, id: string, cube: string, offset = 0, limit = 5) =>
   request(

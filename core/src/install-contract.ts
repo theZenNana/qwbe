@@ -10,6 +10,7 @@ import { cpSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs
 import { dirname, join, relative, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import type { CubePackage } from "./kernel/manifest.ts"
+import { includePackageSourcePath, isLocalSourceDirectory } from "./package-source.ts"
 
 const here = dirname(fileURLToPath(import.meta.url))
 const coreDir = resolve(here, "..")
@@ -20,6 +21,7 @@ const typeScriptFiles = (root: string): ReadonlyArray<string> => {
   const files: Array<string> = []
   const walk = (dir: string) => {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      if (dir === root && entry.isDirectory() && isLocalSourceDirectory(entry.name)) continue
       const path = join(dir, entry.name)
       if (entry.isDirectory()) walk(path)
       else if (entry.isFile() && (entry.name.endsWith(".ts") || entry.name.endsWith(".tsx"))) files.push(path)
@@ -45,7 +47,7 @@ export const isOutsideDiscoveryRoots = (path: string): boolean =>
 export const checkPackageContract = (source: string, pkg: CubePackage): void => {
   const validation = mkdtempSync(join(contractValidationParent, "qwbe-contract-"))
   try {
-    cpSync(source, validation, { recursive: true })
+    cpSync(source, validation, { recursive: true, filter: (path) => includePackageSourcePath(source, path) })
     const entries = pkg.kind === "plugin" ? pkg.cubes.map((cube) => `./cubes/${cube}/index.ts`) : ["./index.ts"]
     const imports = entries
       .map((entry, index) => `import { cube as cube${index} } from ${JSON.stringify(entry)}`)
@@ -65,7 +67,7 @@ export const checkPackageContract = (source: string, pkg: CubePackage): void => 
 
     // Inherit the repository's one compiler policy. `files` narrows the project to this staged
     // package and its generated assertion; all strictness/module flags remain owned by tsconfig.
-    const project = join(validation, "qwbe-contract-tsconfig.json")
+    const project = join(validation, "tsconfig.json")
     writeFileSync(
       project,
       `${JSON.stringify(

@@ -7,7 +7,11 @@
   "exports": {
     "./cube": "./src/cube-contract.ts",
     "./agent": "./src/agent-contracts.ts",
-    "./http": "./src/http-contracts.ts"
+    "./http": "./src/http-contracts.ts",
+    "./auth": "./src/auth-contracts.ts",
+    "./entity": "./src/entity-contracts.ts",
+    "./errors": "./src/error-contracts.ts",
+    "./pagination": "./src/pagination-contracts.ts"
   },
   "description": "Qwbe — kernel that discovers cubes from disk. Knows no cube by name.",
   "engines": {

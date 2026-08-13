@@ -39,6 +39,7 @@ import { exec } from "node:child_process"
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs"
 import { dirname, join, resolve, sep } from "node:path"
 import { fileURLToPath } from "node:url"
+import { isPackageCubeIdentity } from "../package-source.ts"
 import { InstallError, PROVENANCE, stageAndInstall as stageAndInstallFor } from "./install-from.ts"
 import type { CubeInstaller, CubePackage } from "./manifest.ts"
 import { identitySegments } from "./manifest-validation.ts"
@@ -56,13 +57,7 @@ const pluginsDir = resolve(join(srcDir, "..", "plugins"))
 /** The metadata file that makes a directory in the store a package rather than scratch. */
 const MANIFEST = "qwbe-package.json"
 
-/**
- * Names allowed for a package, a cube, or a plugin.
- *
- * Lowercase, starts with a letter, no dots and no separators -- so `..`, `./x`, `a/b`, `a\b`,
- * absolute paths and Windows drive letters are all rejected by the shape, before any path is
- * built from them.
- */
+/** Package and plugin slugs. Cube identities use `isPackageCubeIdentity` below. */
 const NAME = /^[a-z][a-z0-9-]{0,31}$/
 
 /**
@@ -81,11 +76,8 @@ const under = (root: string, path: string): string => {
 }
 
 const checkName = (kind: string, name: string): string => {
-  if (!NAME.test(name)) {
-    throw new InstallError(
-      `refused: ${kind} name "${name}" is not allowed. ` +
-        `Use lowercase letters, digits and dashes, starting with a letter (max 32).`,
-    )
+  if (!(kind === "cube" ? isPackageCubeIdentity(name) : NAME.test(name))) {
+    throw new InstallError(`refused: ${kind} name "${name}" is not allowed.`)
   }
   return name
 }
@@ -244,10 +236,9 @@ export const installerFor = (): CubeInstaller => ({
     // Discovery predates the package slug grammar and mounts any non-hidden directory. This
     // read capability must describe that state without turning the whole settings catalogue
     // into a 500. Write operations below remain strict and still call checkName.
-    const segments = identitySegments(cube)
-    if (segments.some((s) => !NAME.test(s)) || (plugin !== null && !NAME.test(plugin))) return false
+    if (identitySegments(cube).some((s) => !NAME.test(s)) || (plugin !== null && !NAME.test(plugin))) return false
     const base = plugin ? join(pluginsDir, plugin, "cubes") : cubesDir
-    return existsSync(under(base, join(base, ...segments)))
+    return existsSync(under(base, join(base, ...identitySegments(cube))))
   },
 
   available: () => {

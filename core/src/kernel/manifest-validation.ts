@@ -20,18 +20,28 @@ import type { CommandSpec, CubeGroup, Manifest } from "./manifest.ts"
  */
 export const validateAgentSurface = (cube: string, m: Manifest, group: CubeGroup): void => {
   if (m.agent !== true) return
+  // Child identity is compound in the catalogue, but HTTP ownership uses either the leaf
+  // or its collision-safe dash form. Keep this gate aligned with checkRouteOwnership.
+  const allowedPrefixes = new Set([m.name, dashForm(cube)])
   const endpoints = Object.values(
     (group as { endpoints?: Record<string, { name: string; path: string; method: string }> }).endpoints ?? {},
   )
-  const missing = Object.values(AGENT_SURFACE)
-    .filter(
+  const missingByPrefix = [...allowedPrefixes].map((prefix) =>
+    Object.values(AGENT_SURFACE).filter(
       ({ method, suffix }) =>
-        !endpoints.some((e) => e.method === method && pathPrefix(e.path) === cube && e.path.endsWith(`/${suffix}`)),
-    )
-    .map(({ method, suffix }) => `${method} /${cube}/${suffix}`)
-  if (missing.length > 0) {
+        !endpoints.some(
+          (endpoint) =>
+            endpoint.method === method && pathPrefix(endpoint.path) === prefix && endpoint.path.endsWith(`/${suffix}`),
+        ),
+    ),
+  )
+  const missing = missingByPrefix.reduce((best, candidate) => (candidate.length < best.length ? candidate : best))
+  const selectedPrefix = [...allowedPrefixes][missingByPrefix.indexOf(missing)] as string
+  const renderedMissing = missing.map(({ method, suffix }) => `${method} /${selectedPrefix}/${suffix}`)
+  if (renderedMissing.length > 0) {
     throw new InvalidManifestError(cube, [
-      `declares agent: true but does not serve the generic agent surface -- missing: ${missing.join(", ")}. ` +
+      `declares agent: true but does not serve the generic agent surface under one prefix -- ` +
+        `best prefix /${selectedPrefix} is missing: ${renderedMissing.join(", ")}. ` +
         `The catalogue would publish a button with nothing behind it, so the cube does not mount.`,
     ])
   }
