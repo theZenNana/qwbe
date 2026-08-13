@@ -7,6 +7,10 @@
 
 import { Schema } from "effect"
 import type {
+  AgentContext,
+  AgentGoalResult,
+  AgentHealth,
+  AgentTrace,
   Command,
   CubeInfo,
   InstallFromResult,
@@ -20,6 +24,10 @@ import type {
   Summary,
 } from "./contracts.ts"
 import {
+  AgentContextSchema,
+  AgentGoalResultSchema,
+  AgentHealthSchema,
+  AgentTraceSchema,
   CommandResultSchema,
   CommandSchema,
   CubeInfoSchema,
@@ -40,6 +48,10 @@ import {
 import { endSession, session } from "./session.ts"
 
 export type {
+  AgentContext,
+  AgentGoalResult,
+  AgentHealth,
+  AgentTrace,
   Command,
   CubeInfo,
   InstallFromResult,
@@ -175,6 +187,10 @@ export const leafName = (full: string): string => (full.includes("/") ? (full.sp
  *  their parent at `/<parent>/<child>` -- one sidebar entry per hierarchy. */
 export const screenPath = (c: CubeInfo): string => (c.parent ? `/${c.parent}/${leafName(c.name)}` : `/${c.name}`)
 
+/** Agent browser routes keep compound identity; requests use the real mounted prefix. */
+export const agentScreenPath = (c: Pick<CubeInfo, "name">): string => `/agent/${c.name}`
+export const agentApiPrefix = (c: Pick<CubeInfo, "name" | "prefix">): string => c.prefix ?? leafName(c.name)
+
 export const linksFor = (entity: string, id: string) => request(`/links/${entity}/${id}`, LinksForSchema)
 export const linkGroup = (entity: string, id: string, cube: string, offset = 0, limit = 5) =>
   request(
@@ -188,3 +204,10 @@ export const exec = (line: string) =>
     method: "POST",
     body: JSON.stringify({ line }),
   })
+
+const agentPath = (cube: string, suffix: string) => `/${encodeURIComponent(cube)}/${suffix}`
+export const agentHealth = (cube: string) => request(agentPath(cube, "health"), AgentHealthSchema)
+export const agentContext = (cube: string) => request(agentPath(cube, "context"), AgentContextSchema)
+export const runAgentGoal = (cube: string, goal: string) =>
+  request(agentPath(cube, "goals"), AgentGoalResultSchema, { method: "POST", body: JSON.stringify({ goal }) })
+export const agentTrace = (cube: string) => request(agentPath(cube, "trace"), AgentTraceSchema)

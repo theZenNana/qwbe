@@ -1,5 +1,5 @@
 import assert from "node:assert/strict"
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { describe, it } from "node:test"
@@ -86,6 +86,57 @@ export const unsafe: any = 1
       })
       assert.throws(() => install(source), /no-explicit-any/)
       assert.deepEqual(existsSync(store) ? readdirSync(store) : [], [])
+    } finally {
+      rmSync(bench, { recursive: true, force: true })
+    }
+  })
+
+  it("publishes source without local dependency and repository metadata", () => {
+    const bench = mkdtempSync(join(tmpdir(), "qwbe-install-clean-source-"))
+    const source = join(bench, "clean-source")
+    const store = join(bench, "store")
+    mkdirSync(join(source, "node_modules", ".bin"), { recursive: true })
+    mkdirSync(join(source, ".venv", "bin"), { recursive: true })
+    mkdirSync(join(source, ".git"), { recursive: true })
+    mkdirSync(join(source, "probes"), { recursive: true })
+    writeFileSync(join(source, "index.ts"), "export const source = true\n")
+    writeFileSync(join(source, "package.json"), '{"private":true}\n')
+    writeFileSync(join(source, "package-lock.json"), "{}\n")
+    writeFileSync(join(source, "tsconfig.json"), "{}\n")
+    writeFileSync(join(source, "source-contract.test.mjs"), "authoring test\n")
+    writeFileSync(join(source, "probes", "runtime.mjs"), "authoring probe\n")
+    writeFileSync(join(source, "node_modules", "dependency.js"), "generated\n")
+    writeFileSync(join(source, ".venv", "bin", "python"), "generated runtime\n")
+    writeFileSync(join(source, ".git", "config"), "private local metadata\n")
+    symlinkSync(join(source, "node_modules", "dependency.js"), join(source, "node_modules", ".bin", "dependency"))
+
+    const pkg: CubePackage = {
+      name: "clean-source",
+      kind: "cube",
+      summary: "source with local tooling",
+      cubes: ["clean-source"],
+      installed: false,
+      bytes: 1,
+      // This unit test exercises staging only; package contracts have dedicated tests above.
+      conflicts: ["skip-static-contract-fixture"],
+    }
+
+    try {
+      const install = stageAndInstall({
+        storeDir: store,
+        readPackageAt: () => pkg,
+        installExisting: () => ({ ...pkg, installed: true }),
+      })
+      assert.equal(install(source).staged, true)
+      assert.equal(existsSync(join(store, "clean-source", "index.ts")), true)
+      assert.equal(existsSync(join(store, "clean-source", "node_modules")), false)
+      assert.equal(existsSync(join(store, "clean-source", ".venv")), false)
+      assert.equal(existsSync(join(store, "clean-source", ".git")), false)
+      assert.equal(existsSync(join(store, "clean-source", "package.json")), false)
+      assert.equal(existsSync(join(store, "clean-source", "package-lock.json")), false)
+      assert.equal(existsSync(join(store, "clean-source", "tsconfig.json")), false)
+      assert.equal(existsSync(join(store, "clean-source", "source-contract.test.mjs")), false)
+      assert.equal(existsSync(join(store, "clean-source", "probes")), false)
     } finally {
       rmSync(bench, { recursive: true, force: true })
     }

@@ -9,6 +9,15 @@
     "lib": ["ES2023"],
     "module": "nodenext",
     "moduleResolution": "nodenext",
+    "paths": {
+      "qwbe-core/agent": ["./src/agent-contracts.ts"],
+      "qwbe-core/auth": ["./src/auth-contracts.ts"],
+      "qwbe-core/cube": ["./src/cube-contract.ts"],
+      "qwbe-core/entity": ["./src/entity-contracts.ts"],
+      "qwbe-core/errors": ["./src/error-contracts.ts"],
+      "qwbe-core/http": ["./src/http-contracts.ts"],
+      "qwbe-core/pagination": ["./src/pagination-contracts.ts"]
+    },
 
     "allowImportingTsExtensions": true,
     "noEmit": true,

@@ -12,7 +12,8 @@
 // test was running. Serial, therefore — one worker, one startup, stable data.
 
 import { spawn } from "node:child_process"
-import { rmSync } from "node:fs"
+import { mkdtempSync, rmSync } from "node:fs"
+import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { expect, test } from "@playwright/test"
@@ -29,6 +30,7 @@ let apiProc
 let webProc
 let bookmarkId
 let tagId
+let dataDir
 
 const wait = (ms) => new Promise((r) => setTimeout(r, ms))
 
@@ -46,39 +48,14 @@ const waitForResponse = async (url, tries = 150) => {
 
 test.beforeAll(async () => {
   test.setTimeout(240_000)
-
-  for (const f of [
-    "auth.sqlite",
-    "account.sqlite",
-    "notes.sqlite",
-    "bookmarks.sqlite",
-    "booktags--bookmarks.sqlite",
-    "booktags--settings.sqlite",
-    "booktags--tags.sqlite",
-    "auth.sqlite-wal",
-    "account.sqlite-wal",
-    "notes.sqlite-wal",
-    "bookmarks.sqlite-wal",
-    "booktags--bookmarks.sqlite-wal",
-    "booktags--settings.sqlite-wal",
-    "booktags--tags.sqlite-wal",
-    "auth.sqlite-shm",
-    "account.sqlite-shm",
-    "notes.sqlite-shm",
-    "bookmarks.sqlite-shm",
-    "booktags--bookmarks.sqlite-shm",
-    "booktags--settings.sqlite-shm",
-    "booktags--tags.sqlite-shm",
-    "switches.json",
-  ]) {
-    rmSync(join(here, "data", f), { force: true })
-  }
+  dataDir = mkdtempSync(join(tmpdir(), "qwbe-e2e-"))
 
   apiProc = spawn(process.execPath, ["src/main.ts"], {
     cwd: join(here, "core"),
     env: {
       ...process.env,
       QWBE_PORT: String(PORT_API),
+      QWBE_DATA_DIR: dataDir,
       QWBE_ADMIN_PASSWORD: "admin",
       QWBE_READER_PASSWORD: "reader",
     },
@@ -133,6 +110,7 @@ test.beforeAll(async () => {
 test.afterAll(() => {
   webProc?.kill("SIGTERM")
   apiProc?.kill("SIGTERM")
+  if (dataDir) rmSync(dataDir, { recursive: true, force: true })
 })
 
 const signIn = async (page) => {
@@ -167,6 +145,85 @@ test("the sidebar is drawn from the catalogue, including a cube that came from a
   // The link shown on the notes row was declared by a space, not by the notes cube.
   const notesRow = page.locator("tbody tr", { hasText: "notes" }).first()
   await expect(notesRow).toContainText("authorId → Account")
+})
+
+test("a nested cube agent opens through the catch-all route and uses its mounted API prefix", async ({ page }) => {
+  await signIn(page)
+  const child = {
+    name: "parent/child",
+    parent: "parent",
+    prefix: "parent-child",
+    enabled: true,
+    required: false,
+    system: false,
+    plugin: "browser-fixture",
+    onDisk: true,
+    entity: null,
+    screen: false,
+    agent: true,
+    publishes: [],
+    links: [],
+  }
+  await page.route(`${API}/settings/cubes`, (route) => route.fulfill({ json: [child] }))
+  await page.route(`${API}/parent-child/health`, (route) =>
+    route.fulfill({ json: { cube: "parent/child", state: "ready", runtime: "fixture 1.0" } }),
+  )
+  await page.route(`${API}/parent-child/context`, (route) =>
+    route.fulfill({ json: { cube: "parent/child", allowed: ["own API"], crossCube: false } }),
+  )
+  await page.route(`${API}/parent-child/trace`, (route) =>
+    route.fulfill({ json: { cube: "parent/child", runId: null, state: "idle", events: [] } }),
+  )
+
+  await page.goto(`${WEB}/agent/parent/child`, { waitUntil: "networkidle" })
+  await expect(page.getByRole("heading", { name: "Agent for parent/child" })).toBeVisible()
+  await expect(page.getByText("fixture 1.0")).toBeVisible()
+  await expect(page.getByText("scope: parent/child; cross-cube: false")).toBeVisible()
+})
+
+test("CRM cubes appear and render from catalogue and API contracts without hardcoded UI", async ({ page }) => {
+  await signIn(page)
+  const base = {
+    parent: null,
+    prefix: "",
+    enabled: true,
+    required: false,
+    system: false,
+    plugin: "crm-pack",
+    onDisk: true,
+    screen: false,
+    agent: false,
+    publishes: [],
+    links: [],
+  }
+  const cubes = [
+    { ...base, name: "crm", prefix: "crm", screen: true, entity: null },
+    { ...base, name: "crm/contacts", parent: "crm", prefix: "contacts", entity: "Contact" },
+    { ...base, name: "crm/contracts", parent: "crm", prefix: "contracts", entity: "Contract" },
+  ]
+  await page.route(`${API}/settings/cubes`, (route) => route.fulfill({ json: cubes }))
+  await page.route(`${API}/contacts?offset=0&limit=10`, (route) =>
+    route.fulfill({
+      json: {
+        rows: [{ id: "cont-1", type: "Contact", createdAt: "2026-08-13T00:00:00Z", name: "Test Contact" }],
+        total: 1,
+        offset: 0,
+        limit: 10,
+        sortedBy: "createdAt",
+      },
+    }),
+  )
+
+  await page.goto(`${WEB}/crm/contacts`, { waitUntil: "networkidle" })
+  const crm = page
+    .locator("nav.bara")
+    .locator("div", { has: page.locator("[data-cube='crm']") })
+    .first()
+  await expect(crm.locator("[data-cube='crm/contacts']")).toBeVisible()
+  await expect(crm.locator("[data-cube='crm/contracts']")).toBeVisible()
+  await expect(page.getByRole("heading", { name: "contacts" })).toBeVisible()
+  await expect(page.getByText("Test Contact")).toBeVisible()
+  await expect(page.getByText("contracts", { exact: true })).toBeVisible()
 })
 
 test("the shell always exposes API docs and reports API availability honestly", async ({ page, request }) => {

@@ -36,15 +36,11 @@ export const busFrom = (
   // latent trap, publishing is refused until mounting is finished.
   let sealed = false
 
-  const publishFrom = (publishedBy: string) => (event: string, payload: unknown) =>
+  const publishFrom = (publishedBy: string, declared?: ReadonlySet<string>) => (event: string, payload: unknown) =>
     Effect.gen(function* () {
       if (!sealed) {
         return yield* Effect.die(
-          new Error(
-            `Cube "${publishedBy}" published "${event}" during mount. At that point the ` +
-              `subscriber list is still being built, so delivery would depend on directory ` +
-              `order. Publish from a handler or a subscription, not from create().`,
-          ),
+          new Error(`Cube "${publishedBy}" published "${event}" during mount; publish only after mounting.`),
         )
       }
       // The `qwbe/` prefix is the kernel's own channel: a cube cannot impersonate a kernel
@@ -52,11 +48,11 @@ export const busFrom = (
       // is speaking. The kernel publishes from the name "qwbe", which no cube can carry --
       // the name pattern forbids it.
       if (event.startsWith("qwbe/") && publishedBy !== "qwbe") {
+        return yield* Effect.die(new Error(`Cube "${publishedBy}" cannot publish reserved event "${event}".`))
+      }
+      if (declared && !declared.has(event)) {
         return yield* Effect.die(
-          new Error(
-            `Cube "${publishedBy}" tried to publish "${event}" -- the qwbe/ prefix is reserved ` +
-              `for kernel announcements. Name your events after your own cube.`,
-          ),
+          new Error(`Cube "${publishedBy}" published undeclared event "${event}". Add it to manifest.publishes.`),
         )
       }
       const targets = subscriptions.filter((s) => s.subscription.event === event && isEnabled(s.cube))
@@ -87,7 +83,9 @@ export const busFrom = (
 
   return {
     /** The bus as given to one cube. The publisher name is closed over, so it cannot spoof another. */
-    for: (cube: string): CubeBus => ({ publish: publishFrom(cube) }),
+    for: (cube: string, declared?: ReadonlyArray<string>): CubeBus => ({
+      publish: publishFrom(cube, declared ? new Set(declared) : undefined),
+    }),
     /** Called by the kernel once every cube has been created and every subscription registered. */
     seal: () => {
       sealed = true

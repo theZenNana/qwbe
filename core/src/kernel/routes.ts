@@ -6,7 +6,7 @@
 // the match exact instead of hopeful.
 
 import type { MountedCube } from "./discovery.ts"
-import { dashForm, pathPrefix } from "./manifest.ts"
+import { dashForm, pathPrefix } from "./manifest-validation.ts"
 
 export class RouteOwnershipError extends Error {
   constructor(problems: ReadonlyArray<{ cube: string; path: string; prefix: string }>) {

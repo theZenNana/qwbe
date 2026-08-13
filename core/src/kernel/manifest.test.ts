@@ -9,14 +9,8 @@ import { describe, it } from "node:test"
 
 import { Effect } from "effect"
 
-import {
-  type CommandSpec,
-  InvalidManifestError,
-  type Manifest,
-  type PermissionSpec,
-  validateCommands,
-  validateManifest,
-} from "./manifest.ts"
+import type { CommandSpec, Manifest, PermissionSpec } from "./manifest.ts"
+import { InvalidManifestError, validateCommands, validateManifest } from "./manifest-validation.ts"
 
 const manifest = (over: Partial<Manifest> = {}): Manifest => ({
   name: "notes",
@@ -50,6 +44,14 @@ describe("validateManifest — the name must be the directory's", () => {
     assert.throws(
       () => validateManifest("notes", manifest({ name: "account" })),
       /name is "account" but the directory is "notes"/,
+    )
+  })
+
+  it("requires a hierarchy child to declare its leaf name, not the composed identity", () => {
+    assert.doesNotThrow(() => validateManifest("contacts", manifest({ name: "contacts", parent: "crm" })))
+    assert.throws(
+      () => validateManifest("contacts", manifest({ name: "crm/contacts", parent: "crm" })),
+      /name is "crm\/contacts" but the directory is "contacts"/,
     )
   })
 })

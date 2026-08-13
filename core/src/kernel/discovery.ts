@@ -24,22 +24,25 @@ export { BrokenCubeError, DoubleCapabilityError, DoublePrivilegeError, Duplicate
 
 import { BrokenCubeError, DoubleCapabilityError, DoublePrivilegeError } from "./errors-discovery.ts"
 import type { Ledger } from "./ledger.ts"
+import type {
+  Catalogue,
+  CommandInfo,
+  CommandRunner,
+  CommandSpec,
+  CredentialVerifier,
+  CubeParts,
+  Manifest,
+  Subscription,
+} from "./manifest.ts"
 import {
-  type Catalogue,
-  type CommandInfo,
-  type CommandRunner,
-  type CommandSpec,
-  type CredentialVerifier,
-  type CubeParts,
   fullName,
   leafOf,
-  type Manifest,
   parentOf,
   pathPrefix,
-  type Subscription,
+  validateAgentSurface,
   validateCommands,
   validateManifest,
-} from "./manifest.ts"
+} from "./manifest-validation.ts"
 import { migrateDataFiles } from "./migrate.ts"
 import { checkMigrationOwnership } from "./migrate-ownership.ts"
 import { activeLinks, type SpaceDefinition } from "./space.ts"
@@ -264,6 +267,7 @@ export const mount = (
         parent: m.parent,
         entity: m.entity,
         screen: m.screen === true,
+        agent: m.agent === true,
         enabled: isEnabled(name),
         required: m.required === true,
         system: plugin === null,
@@ -282,7 +286,7 @@ export const mount = (
     const full = fullName(m)
     const parts = definition.create({
       store: storeFor(full, m.tables, m.sortable ?? []),
-      bus: bus.for(full),
+      bus: bus.for(full, m.publishes),
       catalogue,
       permissions: () => permissions,
       commands,
@@ -294,9 +298,10 @@ export const mount = (
       runCommands: m.runsCommands ? runner : undefined,
     })
     validateCubeParts(full, parts)
+    validateAgentSurface(full, m, parts.group)
     if (m.providesCredentials) {
       if (!parts.credentials) {
-        throw new BrokenCubeError(full, "declares `providesCredentials: true` but returned no `credentials`")
+        throw new BrokenCubeError(full, "declares credentials but returned none")
       }
       verifierHolder.current = parts.credentials
     }

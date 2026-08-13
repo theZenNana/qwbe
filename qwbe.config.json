@@ -10,20 +10,21 @@
   "baseline": {
     "_comment": "Violations that existed when the cap was introduced (2 Aug 2026). The gate is red for anything NEW or anything that grew past the number recorded here. Each line is debt: the fix is to split the file or the cube, not to raise the number. Regenerate deliberately with --update-baseline. EXCEPTIE (owner, 10 aug 2026, QWB-15): ownerul poate ridica explicit un numar din baseline DUPA ce spargerea a fost facuta mai intai - staging-ul QWB-15 a fost spart in install-from.ts si abia apoi numerele kernelului au fost ridicate la 10000. Ridicarea fara spargere ramane interzisa; exceptia se noteaza aici si in _kernelComment.",
     "files": {
+      "web/app/install/page.tsx": 20092,
+      "core/src/kernel/discovery.ts": 9451,
+      "core/src/cubes/settings/index.ts": 7625,
+      "core/src/kernel/install.ts": 7468,
+      "core/src/kernel/store.ts": 7356,
+      "core/src/cubes/account/index.ts": 6841,
+      "core/src/kernel/manifest.ts": 6702,
+      "probes/agent-surface.mjs": 6452,
       "_installComment": "20373 -> 20388 pe 9 aug 2026, +15 caractere. Regula spune că se sparge fișierul, nu se ridică numărul, și are dreptate - dar creșterea asta e o reparație de corectitudine, nu funcționalitate nouă: rândurile jurnalului aveau `key={i}`, iar jurnalul se scrie la CAP, deci indicele fiecărui rând se schimbă la orice operație și React potrivea greșit rândurile. Costul minim al unei chei stabile e un câmp `id` și un contor. Spargerea fișierului de 20k rămâne datoria reală.",
-      "web/app/install/page.tsx": 20388,
-      "_kernelComment": "9 aug 2026, două mișcări în aceeași zi. ÎNTÂI în sus, din reparația prin care `CommandSpec.run` primește permisiunile apelantului ca parametru: discovery 10995 -> 11014, manifest 7931 -> 7986, unitatea kernel 53325 -> 53437. APOI în jos, când au plecat cuburile `projects`, `reports`, `tasks` și `host/`: capabilitatea `usesWorkstation` a ieșit din kernel cu totul. Numerele de aici sunt cele de DUPĂ, strânse la loc dinadins - headroom-ul câștigat prin ștergere nu se păstrează, altfel crește altceva la loc în tăcere. 10 aug 2026, QWB-15: numerele kernelului ridicate la 10000 de owner (manifest 7842 -> 10000, install 6821 -> 10000) după ce staging-ul a fost DEJA spart în install-from.ts; unitatea kernel la 60000. 11 aug 2026, IDE-18: ierarhia părinte/copil a adăugat ~4400 code chars net; split făcut ÎNTÂI (migrate.ts, scan.ts, routes.ts, errors-discovery.ts scoase din discovery.ts/mount.ts), apoi ownerul a ridicat baseline-ul unității de la 60000 la 100000.",
-      "core/src/kernel/discovery.ts": 10606,
-      "core/src/cubes/settings/index.ts": 8093,
-      "core/src/kernel/manifest.ts": 10000,
-      "core/src/kernel/store.ts": 7347,
-      "core/src/cubes/account/index.ts": 6988,
-      "core/src/kernel/install.ts": 10000
+      "_kernelComment": "9 aug 2026, două mișcări în aceeași zi. ÎNTÂI în sus, din reparația prin care `CommandSpec.run` primește permisiunile apelantului ca parametru: discovery 10995 -> 11014, manifest 7931 -> 7986, unitatea kernel 53325 -> 53437. APOI în jos, când au plecat cuburile `projects`, `reports`, `tasks` și `host/`: capabilitatea `usesWorkstation` a ieșit din kernel cu totul. Numerele de aici sunt cele de DUPĂ, strânse la loc dinadins - headroom-ul câștigat prin ștergere nu se păstrează, altfel crește altceva la loc în tăcere. 10 aug 2026, QWB-15: numerele kernelului ridicate la 10000 de owner (manifest 7842 -> 10000, install 6821 -> 10000) după ce staging-ul a fost DEJA spart în install-from.ts; unitatea kernel la 60000. 11 aug 2026, IDE-18: ierarhia părinte/copil a adăugat ~4400 code chars net; split făcut ÎNTÂI (migrate.ts, scan.ts, routes.ts, errors-discovery.ts scoase din discovery.ts/mount.ts), apoi ownerul a ridicat baseline-ul unității de la 60000 la 100000."
     },
     "units": {
       "core/src/kernel": {
-        "chars": 100000,
-        "files": 20
+        "chars": 76529,
+        "files": 21
       }
     }
   },

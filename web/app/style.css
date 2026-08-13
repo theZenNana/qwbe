@@ -96,6 +96,27 @@ a:hover {
 .tab.stins {
   color: var(--sters);
 }
+.cube-tab {
+  display: flex;
+  align-items: stretch;
+  gap: 4px;
+}
+.cube-tab > .tab {
+  flex: 1;
+}
+.agent-link {
+  align-content: center;
+  padding: 0 8px;
+  margin-bottom: 2px;
+  border: 1px solid var(--linie);
+  border-radius: 6px;
+  font-weight: 700;
+}
+.agent-link.activ,
+.agent-link:hover {
+  background: var(--activ);
+  text-decoration: none;
+}
 
 /* Două butoane care arătau ca altceva.
  *

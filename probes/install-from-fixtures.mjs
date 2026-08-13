@@ -34,6 +34,7 @@ export const plantSources = () => {
       .replaceAll("booktags/bookmarks:", "PPP_COLON")
       .replaceAll("booktags/bookmarks.created", "PPP_EVENT")
       .replaceAll("bookmarks", "dirbookmarks")
+      .replaceAll('"booktags/dirbookmarks"', '"dirbookmarks"')
       // The sibling's cache table is owned by the original cube; a mounted copy must own
       // another one, or the kernel refuses both for sharing a table. AFTER the bare rename,
       // so the new name is not renamed again.

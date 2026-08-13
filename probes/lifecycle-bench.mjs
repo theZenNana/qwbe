@@ -30,6 +30,10 @@ export const fingerprint = () => {
     if (!existsSync(dir)) return
     for (const e of readdirSync(dir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
       const full = join(dir, e.name)
+      // Symlinks are skipped, not followed: an installed plugin's Python venv links lib64 ->
+      // lib, and hashing the target twice (or crashing on the directory) says nothing about
+      // what the installer wrote.
+      if (e.isSymbolicLink()) continue
       if (e.isDirectory()) walk(full)
       else seen.set(relative(root, full), createHash("sha256").update(readFileSync(full)).digest("hex"))
     }
@@ -60,6 +64,7 @@ export const plantLifecycleStore = () => {
     .replaceAll("booktags/bookmarks:", "PPP_COLON")
     .replaceAll("booktags/bookmarks.created", "PPP_EVENT")
     .replaceAll("bookmarks", PKG_CUBE)
+    .replaceAll(`"booktags/${PKG_CUBE}"`, `"${PKG_CUBE}"`)
     // The sibling's cache table is owned by the original cube; a mounted copy must own
     // another one. AFTER the bare rename, so the new name is not renamed again.
     .replaceAll('"settings-cache"', `"${PKG_CUBE}-cache"`)

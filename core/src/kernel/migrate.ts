@@ -16,7 +16,8 @@
 import { existsSync, renameSync } from "node:fs"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
-import { type DataMigration, storeFileName } from "./manifest.ts"
+import type { DataMigration } from "./manifest.ts"
+import { storeFileName } from "./manifest-validation.ts"
 
 export { MigrationOwnershipError } from "./migrate-ownership.ts"
 

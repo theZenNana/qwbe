@@ -7,7 +7,8 @@ import { existsSync } from "node:fs"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 import type { Ledger } from "./ledger.ts"
-import { type DataMigration, type Manifest, storeFileName } from "./manifest.ts"
+import type { DataMigration, Manifest } from "./manifest.ts"
+import { storeFileName } from "./manifest-validation.ts"
 
 const here = dirname(fileURLToPath(import.meta.url))
 const dataDir = process.env.QWBE_DATA_DIR ?? join(here, "..", "..", "..", "data")

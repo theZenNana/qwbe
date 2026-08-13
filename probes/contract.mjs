@@ -28,12 +28,27 @@ try {
   const spec = openapi.body
   score.check("OpenAPI is served as 3.1 JSON", openapi.status === 200 && spec?.openapi === "3.1.0")
 
+  // The inventory below guards the kernel's own API -- core cubes plus the committed
+  // example-plugin fixture. Cubes mounted from an INSTALLED package (QWB-28/29) extend the
+  // surface at runtime; their contract is the package's own probe, not this inventory. Their
+  // routes are filtered out by cube prefix so the gate stays green both ways.
+  const sessionForFilter = await api.login()
+  const catalogue = await api.call("/settings/cubes", { headers: sessionForFilter.headers })
+  const installedCubePrefixes = new Set(
+    (catalogue.body ?? []).filter((c) => c.plugin && c.plugin !== "example-plugin").map((c) => `/${c.prefix}`),
+  )
+  const isInstalledCubeRoute = (path) =>
+    [...installedCubePrefixes].some(
+      (prefix) => path === prefix || path.startsWith(prefix.endsWith("/") ? prefix : `${prefix}/`),
+    )
+
   const operations = Object.entries(spec?.paths ?? {}).flatMap(([path, methods]) =>
     Object.entries(methods)
       .filter(([method]) => ["get", "post", "put", "patch", "delete"].includes(method))
       .map(([method, operation]) => ({ path, method, operation })),
   )
-  const actualInventory = operations
+  const repositoryOperations = operations.filter(({ path }) => !isInstalledCubeRoute(path))
+  const actualInventory = repositoryOperations
     .map(({ path, method, operation }) => operationSignature(path, method, operation))
     .sort()
   score.check(

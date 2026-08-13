@@ -249,6 +249,33 @@ unrecorded provenance stops startup; the kernel never guesses ownership.
 | `booktags/tags` | **plugin** | child: labels a bookmark. The link to `Bookmark` lives in the workspace space, declared by neither cube |
 | `booktags/settings` | **plugin** | child: the hierarchy's own setting, shared with the bookmarks sibling over the bus |
 
+## The generic agent surface
+
+A cube can expose an agent or any other external runtime by declaring one capability in its
+manifest:
+
+```ts
+manifest: { name: "mycube", agent: true, /* ... */ }
+```
+
+That single declaration is the whole contract between kernel, catalogue, API and UI:
+
+- the cube must serve four routes under its own prefix -- `GET /<cube>/health`,
+  `GET /<cube>/context`, `POST /<cube>/goals`, `GET /<cube>/trace` -- against the shared
+  schemas in `core/src/agent-contracts.ts` (`qwbe-core/agent`). The mount gate checks the REAL
+  endpoint list: declaring `agent: true` without the full surface refuses the cube at startup.
+  A button with nothing behind it cannot exist.
+- the catalogue publishes `agent: true` and the shell draws an "agent" link plus the generic
+  `/agent/<cube>` screen from that alone -- no per-cube code in the web app, no parallel
+  contracts written by hand.
+- the screen reports the three states the contract defines: `ready` (health answered),
+  `unavailable` (the surface answered 503 -- not configured or not started) and `error`
+  (the surface did not answer its own contract).
+
+The kernel never learns what sits behind the surface: interpreter, model, wire format and
+versions stay inside the plugin's directory. Qwbe provides only this generic capability; no
+runtime implementation or built-in agent plugin lives in this repository.
+
 ## Design lineage
 
 | From | What | Where it shows |
