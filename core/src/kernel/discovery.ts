@@ -286,7 +286,7 @@ export const mount = (
     const full = fullName(m)
     const parts = definition.create({
       store: storeFor(full, m.tables, m.sortable ?? []),
-      bus: bus.for(full),
+      bus: bus.for(full, m.publishes),
       catalogue,
       permissions: () => permissions,
       commands,
@@ -301,7 +301,7 @@ export const mount = (
     validateAgentSurface(full, m, parts.group)
     if (m.providesCredentials) {
       if (!parts.credentials) {
-        throw new BrokenCubeError(full, "declares `providesCredentials: true` but returned no `credentials`")
+        throw new BrokenCubeError(full, "declares credentials but returned none")
       }
       verifierHolder.current = parts.credentials
     }

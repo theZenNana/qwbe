@@ -46,6 +46,14 @@ describe("validateManifest — the name must be the directory's", () => {
       /name is "account" but the directory is "notes"/,
     )
   })
+
+  it("requires a hierarchy child to declare its leaf name, not the composed identity", () => {
+    assert.doesNotThrow(() => validateManifest("contacts", manifest({ name: "contacts", parent: "crm" })))
+    assert.throws(
+      () => validateManifest("contacts", manifest({ name: "crm/contacts", parent: "crm" })),
+      /name is "crm\/contacts" but the directory is "contacts"/,
+    )
+  })
 })
 
 describe("validateManifest — the name must be a plain lowercase slug", () => {
