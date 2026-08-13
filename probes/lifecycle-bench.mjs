@@ -64,6 +64,7 @@ export const plantLifecycleStore = () => {
     .replaceAll("booktags/bookmarks:", "PPP_COLON")
     .replaceAll("booktags/bookmarks.created", "PPP_EVENT")
     .replaceAll("bookmarks", PKG_CUBE)
+    .replaceAll(`"booktags/${PKG_CUBE}"`, `"${PKG_CUBE}"`)
     // The sibling's cache table is owned by the original cube; a mounted copy must own
     // another one. AFTER the bare rename, so the new name is not renamed again.
     .replaceAll('"settings-cache"', `"${PKG_CUBE}-cache"`)
