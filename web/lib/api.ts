@@ -47,6 +47,19 @@ import {
 } from "./contracts.ts"
 import { endSession, session } from "./session.ts"
 
+export type { EntityVisibility, PermissionGroup, VisibilityView } from "./contracts.ts"
+export {
+  addPermissionGroupMember,
+  assignPermissionCubeAdmin,
+  createPermissionGroup,
+  permissionAudit,
+  permissionCubeAdmins,
+  permissionGroups,
+  setEntityHidden,
+  shareEntityWithGroup,
+  shareEntityWithUser,
+  visibleEntities,
+} from "./permissions-api.ts"
 export type {
   AgentContext,
   AgentGoalResult,

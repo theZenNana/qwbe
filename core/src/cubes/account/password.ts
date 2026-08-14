@@ -19,3 +19,9 @@ export const verifyPassword = (password: string, encoded: string): boolean => {
   const actual = scryptSync(password, salt, expected.length, { N: Number(n), r: Number(r), p: Number(p) })
   return actual.length === expected.length && timingSafeEqual(actual, expected)
 }
+
+export const constantTimeEquals = (left: string, right: string): boolean => {
+  const leftBytes = Buffer.from(left)
+  const rightBytes = Buffer.from(right)
+  return leftBytes.length === rightBytes.length && timingSafeEqual(leftBytes, rightBytes)
+}

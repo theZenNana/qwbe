@@ -36,6 +36,7 @@ describe("request response contract", () => {
           entity: null,
           screen: false,
           agent: true,
+          entityPermissions: false,
           publishes: [],
           links: [],
         },
