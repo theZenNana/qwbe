@@ -1,11 +1,11 @@
 import assert from "node:assert/strict"
 import { describe, it } from "node:test"
 import { Effect } from "effect"
-import type { CubeStore } from "../../kernel/manifest.ts"
-import { TotalActions } from "../../permissions-contracts.ts"
+import type { CubeTools } from "qwbe-core/cube"
+import { TotalActions } from "qwbe-core/permissions"
 import { cube } from "./index.ts"
 
-const memoryStore = (): CubeStore => {
+const memoryStore = (): CubeTools["store"] => {
   const tables = new Map<string, Array<Record<string, unknown>>>()
   let next = 0
   const rows = (table: string): Array<Record<string, unknown>> => {
@@ -120,6 +120,17 @@ describe("permissions sharing capability", () => {
     assert.equal(
       (await Effect.runPromise(service.authorize({ userId: "mihai", roles: [] }, ref, "read"))).allowed,
       false,
+    )
+  })
+
+  it("does not let a TOTAL grantee share the entity again", async () => {
+    const service = cube.create(tools()).entityPermissions
+    assert.ok(service)
+    await Effect.runPromise(service.claim(ana, ref))
+    await Effect.runPromise(service.grantUser(ana, ref, "mihai"))
+    await assert.rejects(
+      Effect.runPromise(service.grantUser({ userId: "mihai", roles: [] }, ref, "ioana")),
+      /only owner, cube admin or superadmin/,
     )
   })
 

@@ -1,8 +1,8 @@
 import { Effect } from "effect"
+import type { CurrentUser } from "qwbe-core/auth"
 import type { CubeTools } from "qwbe-core/cube"
+import type { PageRequest } from "qwbe-core/pagination"
 import type { PermissionService } from "qwbe-core/permissions"
-import type { CurrentUser } from "../../kernel/auth-contract.ts"
-import type { PageRequest } from "../../kernel/pagination.ts"
 
 type Note = Readonly<{ id: string; authorId: string | null; deleted: boolean }>
 const actor = (user: typeof CurrentUser.Service) => ({ userId: user.id, roles: user.roles })

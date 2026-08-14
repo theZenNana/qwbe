@@ -2,10 +2,10 @@ import assert from "node:assert/strict"
 import { describe, it } from "node:test"
 
 import { Effect } from "effect"
-import type { CubeStore } from "../../kernel/manifest.ts"
+import type { CubeTools } from "qwbe-core/cube"
 import { cube } from "./index.ts"
 
-const memoryStore = (): CubeStore => {
+const memoryStore = (): CubeTools["store"] => {
   const tables = new Map<string, Array<Record<string, unknown>>>()
   let next = 0
   const rows = (table: string) => {

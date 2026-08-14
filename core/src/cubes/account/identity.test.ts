@@ -1,7 +1,7 @@
 import assert from "node:assert/strict"
 import { describe, it } from "node:test"
 import { Effect } from "effect"
-import type { CubeStore } from "../../kernel/manifest.ts"
+import type { CubeTools } from "qwbe-core/cube"
 import { cube } from "./index.ts"
 
 describe("account identity directory", () => {
@@ -17,7 +17,7 @@ describe("account identity directory", () => {
       email: "private@example.invalid",
       roles: ["admin"],
     }
-    const store: CubeStore = {
+    const store: CubeTools["store"] = {
       all: <A>() => Effect.succeed([account] as unknown as ReadonlyArray<A>),
       page: <A>() =>
         Effect.succeed({

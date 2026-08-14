@@ -122,8 +122,12 @@ export const foundationFrom = (state: PermissionState): Foundation => {
       ),
     decide,
     requireShare: (actor, ref) =>
-      Effect.flatMap(decide(actor, ref, "share"), (result) =>
-        result.allowed ? Effect.void : Effect.fail("only owner, cube admin or superadmin may share this entity"),
-      ),
+      Effect.gen(function* () {
+        if (actor.roles.includes("admin")) return
+        if (yield* state.cubeAdmin(actor, ref.cube)) return
+        const owner = yield* state.ownership(ref)
+        if (owner?.ownerId === actor.userId) return
+        return yield* Effect.fail("only owner, cube admin or superadmin may share this entity")
+      }),
   }
 }

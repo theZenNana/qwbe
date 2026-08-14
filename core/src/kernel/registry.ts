@@ -12,6 +12,7 @@
 //     so no caller can slip in a different one.
 
 import { Context, Effect, Layer } from "effect"
+import type { CurrentUser } from "./auth-contract.ts"
 import type { SummaryRow } from "./entity.ts"
 import type { RelationalPart, SearchResult } from "./manifest.ts"
 import type { PageRequest } from "./pagination.ts"
@@ -49,7 +50,7 @@ export class Registry extends Context.Tag("cubes/Registry")<
       field: string,
       value: string,
       page: PageRequest,
-    ) => Effect.Effect<SearchResult, never, never>
+    ) => Effect.Effect<SearchResult, never, CurrentUser>
     /** A summary, asked of the cube that holds the entity. Referential integrity without joins. */
     readonly summary: (entity: string, id: string) => Effect.Effect<SummaryRow | undefined, never, never>
     readonly fieldValue: (cube: string, id: string, field: string) => Effect.Effect<string | null, never, never>

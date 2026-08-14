@@ -11,11 +11,12 @@
 
 import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema } from "@effect/platform"
 import { Effect, Schema } from "effect"
+import { Authorization, CurrentUser, requirePermission } from "qwbe-core/auth"
 import { type CubeTools, defineCube } from "qwbe-core/cube"
-import { Authorization, CurrentUser, requirePermission } from "../../kernel/auth-contract.ts"
-import { EntityMeta, type SummaryRow } from "../../kernel/entity.ts"
-import { Forbidden, NotFound } from "../../kernel/errors.ts"
-import { PageOf, PageParams, pageRequest } from "../../kernel/pagination.ts"
+import { EntityMeta, type SummaryRow } from "qwbe-core/entity"
+import { Forbidden, NotFound } from "qwbe-core/errors"
+import { PageOf } from "qwbe-core/http"
+import { PageParams, pageRequest } from "qwbe-core/pagination"
 import { notesCommands } from "./commands.ts"
 import { visibleNotesPage } from "./permissions.ts"
 
@@ -131,19 +132,33 @@ export const cube = defineCube(group, {
       relational: {
         search: (field, value, page) =>
           Effect.gen(function* () {
-            const p = yield* store.page<NoteRow>(TABLE, page, { field, value })
-            return { rows: p.rows.map(summary), total: p.total }
+            const user = yield* CurrentUser
+            const matching = (yield* store.all<NoteRow>(TABLE)).filter(
+              (note) => !note.deleted && String((note as unknown as Record<string, unknown>)[field] ?? "") === value,
+            )
+            const rows = yield* Effect.filter(matching, (note) =>
+              Effect.gen(function* () {
+                const ref = reference(note)
+                if (!(yield* entityPermissions.ownership(ref)) && note.authorId) {
+                  yield* entityPermissions.claim({ userId: note.authorId, roles: user.roles }, ref).pipe(Effect.orDie)
+                }
+                return (yield* entityPermissions.authorize(actor(user), ref, "read")).allowed
+              }),
+            )
+            return { rows: rows.slice(page.offset, page.offset + page.limit).map(summary), total: rows.length }
           }),
 
         summaryById: (id) =>
           Effect.gen(function* () {
             const n = yield* store.byId<NoteRow>(TABLE, id)
-            return n ? summary(n) : undefined
+            if (!n || n.deleted) return undefined
+            return summary(n)
           }),
 
         fieldValue: (id, field) =>
           Effect.gen(function* () {
             const n = yield* store.byId<NoteRow>(TABLE, id)
+            if (!n || n.deleted) return null
             const v = n ? (n as unknown as Record<string, unknown>)[field] : null
             return typeof v === "string" ? v : null
           }),

@@ -1,12 +1,12 @@
 import { Effect } from "effect"
 import { CurrentUser } from "qwbe-core/auth"
+import { pageRequest } from "qwbe-core/pagination"
 import type {
   EntityRef,
   PermissionService,
   VisibilityListParams,
   VisibilityMutationSchema,
 } from "qwbe-core/permissions"
-import { pageRequest } from "../../kernel/pagination.ts"
 import { actorFrom, forbidden } from "./handler-utils.ts"
 
 export const visibilityHandlers = (service: PermissionService) => ({

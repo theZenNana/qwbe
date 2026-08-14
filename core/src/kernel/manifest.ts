@@ -17,7 +17,7 @@ import type { Effect } from "effect"
 import { Schema } from "effect"
 import type { Catalogue } from "../catalogue.ts"
 import type { IdentityDirectory, PermissionService } from "../permissions-contracts.ts"
-import type { SummaryRow } from "./entity.ts"
+import type { RelationalPart } from "./entity.ts"
 import type { Page, PageRequest } from "./pagination.ts"
 import type { RequiredCubeError, StateFileError, UnknownCubeError } from "./state.ts"
 
@@ -219,23 +219,7 @@ export type CredentialVerifier = {
   >
 }
 
-export type SearchResult = {
-  readonly rows: readonly SummaryRow[]
-  readonly total: number
-}
-
-/**
- * How a cube lets itself be found, without anyone importing it.
- *
- * Every function is `Effect<..., never, never>`: the kernel binds the cube's own store before
- * putting these in the registry, so callers supply nothing -- and, more importantly, cannot
- * slip in a different store.
- */
-export type RelationalPart = {
-  readonly search?: (field: string, value: string, page: PageRequest) => Effect.Effect<SearchResult, never, never>
-  readonly summaryById?: (id: string) => Effect.Effect<SummaryRow | undefined, never, never>
-  readonly fieldValue?: (id: string, field: string) => Effect.Effect<string | null, never, never>
-}
+export type { RelationalPart, SearchResult } from "./entity.ts"
 
 /** A subscription to an event, by string name. See `bus.ts`. */
 export type Subscription = {
