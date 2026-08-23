@@ -188,7 +188,9 @@ process.on("exit", () => {
 
 console.log(
   `Qwbe — API on http://127.0.0.1:${API_PORT} (docs at /docs), web on http://127.0.0.1:${WEB_PORT}\n` +
-    `Sign in as admin / admin. Ctrl-C stops both.\n`,
+    // Do not print "admin / admin" here: the bootstrap password is QWBE_ADMIN_PASSWORD if set,
+    // otherwise generated and printed once by the API on first seed (README → First account).
+    `Sign in as admin — password from QWBE_ADMIN_PASSWORD, or printed once at first seed. Ctrl-C stops both.\n`,
 )
 
 start({
