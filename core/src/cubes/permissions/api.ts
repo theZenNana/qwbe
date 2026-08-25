@@ -1,12 +1,14 @@
 import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema } from "@effect/platform"
 import { Schema } from "effect"
 import { Authorization } from "qwbe-core/auth"
-import { Forbidden } from "qwbe-core/errors"
+import { BadRequest, Conflict, Forbidden, NotFound } from "qwbe-core/errors"
 import {
   AuditEventPageSchema,
   AuditQuerySchema,
   CubeAdminAssign,
   CubeAdminSchema,
+  EntityGrantListParams,
+  EntityGrantPageSchema,
   EntityGrantSchema,
   EntityVisibilityPageSchema,
   EntityVisibilitySchema,
@@ -27,6 +29,17 @@ import {
 
 export const group = HttpApiGroup.make("permissions")
   .add(
+    HttpApiEndpoint.get(
+      "permissionEntityGrants",
+    )`/permissions/entities/${HttpApiSchema.param("cube", Schema.String)}/${HttpApiSchema.param("entityType", Schema.String)}/${HttpApiSchema.param("entityId", Schema.String)}/grants`
+      .setUrlParams(EntityGrantListParams)
+      .addSuccess(EntityGrantPageSchema)
+      .addError(NotFound)
+      .addError(BadRequest)
+      .addError(Conflict)
+      .addError(Forbidden),
+  )
+  .add(
     HttpApiEndpoint.post("createPermissionGroup")`/permissions/groups`
       .setPayload(GroupCreate)
       .addSuccess(PermissionGroupSchema)
@@ -42,6 +55,13 @@ export const group = HttpApiGroup.make("permissions")
     HttpApiEndpoint.post("assignPermissionCubeAdmin")`/permissions/cube-admins`
       .setPayload(CubeAdminAssign)
       .addSuccess(Schema.Struct({ assigned: Schema.String }))
+      .addError(Forbidden),
+  )
+  .add(
+    HttpApiEndpoint.del(
+      "revokePermissionCubeAdmin",
+    )`/permissions/cube-admins/${HttpApiSchema.param("cube", Schema.String)}/${HttpApiSchema.param("username", Schema.String)}`
+      .addSuccess(Schema.Struct({ revoked: Schema.String }))
       .addError(Forbidden),
   )
   .add(
@@ -121,4 +141,7 @@ export const group = HttpApiGroup.make("permissions")
       .addSuccess(EntityVisibilitySchema)
       .addError(Forbidden),
   )
+  .addError(NotFound)
+  .addError(BadRequest)
+  .addError(Conflict)
   .middleware(Authorization)

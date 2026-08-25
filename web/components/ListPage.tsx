@@ -13,12 +13,15 @@ import { useEffect, useState } from "react"
 import {
   type CubeInfo,
   catalogue,
+  type EntityGrant,
   type EntityVisibility,
+  entityGrants,
   list,
   one,
   type Paged,
   type PermissionGroup,
   permissionGroups,
+  revokeEntityGrant,
   screenPath,
   setEntityHidden,
   shareEntityWithGroup,
@@ -26,6 +29,7 @@ import {
   type VisibilityView,
   visibleEntities,
 } from "../lib/api"
+import { canManageGrants } from "../lib/permissions-ui.ts"
 import { EntityVisibilityControls, VisibilityControls } from "./VisibilityControls.tsx"
 
 const META = new Set(["id", "type", "createdAt", "deleted"])
@@ -36,6 +40,7 @@ export function ListPage({ routeName, back }: { routeName: string; back?: string
   const [offset, setOffset] = useState(0)
   const [visibility, setVisibility] = useState<ReadonlyArray<EntityVisibility>>([])
   const [groups, setGroups] = useState<ReadonlyArray<PermissionGroup>>([])
+  const [grants, setGrants] = useState<ReadonlyMap<string, ReadonlyArray<EntityGrant>>>(new Map())
   const [view, setView] = useState<VisibilityView>("all")
   const [hiddenCount, setHiddenCount] = useState(0)
   const [pendingVisibility, setPendingVisibility] = useState<string | null>(null)
@@ -66,9 +71,16 @@ export function ListPage({ routeName, back }: { routeName: string; back?: string
           ])
           const rows = await Promise.all(visible.rows.map((entry) => one(prefix, entry.entityId)))
           const availableGroups = await permissionGroups(routeName).catch(() => [])
+          const grantEntries = await Promise.all(
+            visible.rows.map(
+              async (entry) =>
+                [entry.entityId, canManageGrants(entry.access.source) ? (await entityGrants(entry)).rows : []] as const,
+            ),
+          )
           setVisibility(visible.rows)
           setHiddenCount(hidden.total)
           setGroups(availableGroups)
+          setGrants(new Map(grantEntries))
           return { ...visible, rows }
         })
       })
@@ -85,14 +97,17 @@ export function ListPage({ routeName, back }: { routeName: string; back?: string
   const rowHref = (id: string) => (info ? `${screenPath(info)}/${id}` : `/${routeName}/${id}`)
   const visibilityById = new Map(visibility.map((entry) => [entry.entityId, entry]))
 
-  const changeVisibility = (entry: EntityVisibility, hidden: boolean) => {
+  const mutateEntity = (entry: EntityVisibility, mutation: () => Promise<unknown>): Promise<void> => {
     setPendingVisibility(entry.entityId)
     setError(null)
-    setEntityHidden(entry, hidden)
+    return mutation()
       .then(() => setVisibilityVersion((version) => version + 1))
       .catch((e: Error) => setError(e.message))
       .finally(() => setPendingVisibility(null))
   }
+
+  const changeVisibility = (entry: EntityVisibility, hidden: boolean) =>
+    mutateEntity(entry, () => setEntityHidden(entry, hidden))
 
   return (
     <>
@@ -154,16 +169,18 @@ export function ListPage({ routeName, back }: { routeName: string; back?: string
                           pending={pendingVisibility === id}
                           onChange={(hidden) => changeVisibility(entityVisibility, hidden)}
                           groups={groups}
-                          onShareUser={(username) =>
-                            shareEntityWithUser(entityVisibility, username).then(() =>
-                              setVisibilityVersion((version) => version + 1),
+                          grants={grants.get(entityVisibility.entityId) ?? []}
+                          onShareUser={(username, actions) =>
+                            mutateEntity(entityVisibility, () =>
+                              shareEntityWithUser(entityVisibility, username, actions),
                             )
                           }
                           onShareGroup={(groupId, actions) =>
-                            shareEntityWithGroup(entityVisibility, groupId, actions).then(() =>
-                              setVisibilityVersion((version) => version + 1),
+                            mutateEntity(entityVisibility, () =>
+                              shareEntityWithGroup(entityVisibility, groupId, actions),
                             )
                           }
+                          onRevoke={(grant) => mutateEntity(entityVisibility, () => revokeEntityGrant(grant))}
                         />
                       )}
                     </td>

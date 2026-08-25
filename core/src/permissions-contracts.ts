@@ -1,3 +1,5 @@
+export * from "./permissions-audit.ts"
+export * from "./permissions-errors.ts"
 export * from "./permissions-model.ts"
 export * from "./permissions-schemas.ts"
 export * from "./permissions-service.ts"

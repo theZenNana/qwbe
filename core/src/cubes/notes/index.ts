@@ -10,7 +10,7 @@
 // This is checked mechanically: `probes/decoupling.mjs` greps for it.
 
 import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema } from "@effect/platform"
-import { Effect, Schema } from "effect"
+import { Effect, Layer, Schema } from "effect"
 import { Authorization, CurrentUser, requirePermission } from "qwbe-core/auth"
 import { type CubeTools, defineCube } from "qwbe-core/cube"
 import { EntityMeta, type SummaryRow } from "qwbe-core/entity"
@@ -18,7 +18,7 @@ import { Forbidden, NotFound } from "qwbe-core/errors"
 import { PageOf } from "qwbe-core/http"
 import { PageParams, pageRequest } from "qwbe-core/pagination"
 import { notesCommands } from "./commands.ts"
-import { visibleNotesPage } from "./permissions.ts"
+import { migrateLegacyNotes, visibleNotesPage } from "./permissions.ts"
 
 const TABLE = "notes"
 const ENTITY = "Note"
@@ -79,19 +79,16 @@ export const cube = defineCube(group, {
     if (!entityPermissions) throw new Error("notes requires the entity permissions capability")
     const actor = (user: typeof CurrentUser.Service) => ({ userId: user.id, roles: user.roles })
     const reference = (note: NoteRow) => ({ cube: "notes", entityType: ENTITY, entityId: note.id })
-    const ensureOwnership = (note: NoteRow, user: typeof CurrentUser.Service) =>
+    const ensureOwn = (note: NoteRow) =>
       Effect.gen(function* () {
         const ref = reference(note)
-        if (!(yield* entityPermissions.ownership(ref))) {
-          const legacyOwner = note.authorId ?? (user.roles.includes("admin") ? user.id : undefined)
-          if (legacyOwner)
-            yield* entityPermissions.claim({ userId: legacyOwner, roles: user.roles }, ref).pipe(Effect.orDie)
-        }
+        if (!(yield* entityPermissions.ownership(ref))) yield* migrateLegacyNotes<NoteRow>(store, entityPermissions)
         return ref
       })
 
     return {
       commands: notesCommands(store),
+      layers: Layer.effectDiscard(migrateLegacyNotes<NoteRow>(store, entityPermissions)),
 
       handlers: {
         list: ({ urlParams }: { urlParams: typeof PageParams.Type }) =>
@@ -107,8 +104,8 @@ export const cube = defineCube(group, {
             const user = yield* CurrentUser
             const n = yield* store.byId<NoteRow>(TABLE, path.id)
             if (!n) return yield* Effect.fail(new NotFound({ message: `note ${path.id} does not exist` }))
-            const ref = yield* ensureOwnership(n, user)
-            if (!(yield* entityPermissions.authorize(actor(user), ref, "read")).allowed) {
+            const ref = yield* ensureOwn(n)
+            if (!(yield* entityPermissions.authorize(actor(user), ref, "read").pipe(Effect.orDie)).allowed) {
               return yield* Effect.fail(
                 new Forbidden({ message: "this note is not shared with you", needed: "notes:read" }),
               )
@@ -142,7 +139,7 @@ export const cube = defineCube(group, {
                 if (!(yield* entityPermissions.ownership(ref)) && note.authorId) {
                   yield* entityPermissions.claim({ userId: note.authorId, roles: user.roles }, ref).pipe(Effect.orDie)
                 }
-                return (yield* entityPermissions.authorize(actor(user), ref, "read")).allowed
+                return (yield* entityPermissions.authorize(actor(user), ref, "read").pipe(Effect.orDie)).allowed
               }),
             )
             return { rows: rows.slice(page.offset, page.offset + page.limit).map(summary), total: rows.length }

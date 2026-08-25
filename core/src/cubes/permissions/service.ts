@@ -1,5 +1,7 @@
 import type { CubeTools } from "qwbe-core/cube"
 import type { PermissionService } from "qwbe-core/permissions"
+import { auditFrom } from "./audit.ts"
+import { cubeAdminsFrom } from "./cube-admins.ts"
 import { foundationFrom } from "./foundation.ts"
 import { groupsFrom } from "./groups.ts"
 import { sharingFrom } from "./sharing.ts"
@@ -12,6 +14,8 @@ export const serviceFrom = (store: CubeTools["store"]): PermissionService => {
   const { decide: _decide, requireShare: _requireShare, ...publicFoundation } = foundation
   return {
     ...publicFoundation,
+    ...auditFrom(state),
+    ...cubeAdminsFrom(state),
     ...groupsFrom(state),
     ...sharingFrom(state, foundation),
     ...visibilityFrom(state),

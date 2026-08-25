@@ -9,6 +9,13 @@ export type AccessDecision = Readonly<{
   source: "superadmin" | "cube-admin" | "owner" | "grant" | "none"
 }>
 export type AuditResult = "allowed" | "denied" | "success"
+export type AuditValue =
+  | null
+  | boolean
+  | number
+  | string
+  | ReadonlyArray<AuditValue>
+  | { readonly [key: string]: AuditValue }
 export type AuditEvent = Readonly<{
   id: string
   traceId: string
@@ -19,8 +26,8 @@ export type AuditEvent = Readonly<{
   entityId: string
   action: string
   result: AuditResult
-  before: unknown
-  after: unknown
+  before: AuditValue
+  after: AuditValue
 }>
 export type AuditQuery = Readonly<{
   actorUserId?: string | undefined
@@ -71,7 +78,34 @@ export type EntityVisibility = EntityRef &
   Readonly<{
     ownerId: string
     createdBy: string
+    createdAt: string
     access: AccessProvenance
     hidden: boolean
     sharedWithCount: number
   }>
+
+export const grantAccess = (
+  userId: string,
+  groupIds: ReadonlySet<string>,
+  grants: ReadonlyArray<EntityGrant>,
+): AccessProvenance | undefined => {
+  const applicable = grants.filter(
+    (grant) =>
+      (grant.subject.kind === "user" && grant.subject.userId === userId) ||
+      (grant.subject.kind === "group" && groupIds.has(grant.subject.groupId)),
+  )
+  const actions = EntityActions.filter((action) => applicable.some((grant) => grant.actions.includes(action)))
+  if (applicable.some((grant) => grant.subject.kind === "user")) return { source: "user-grant", name: userId, actions }
+  const groups = applicable.flatMap((grant) => (grant.subject.kind === "group" ? [grant.subject.groupId] : []))
+  return groups.length > 0 ? { source: "group-grant", name: groups.join(", "), actions } : undefined
+}
+
+export const matchesVisibilityView = (row: EntityVisibility, userId: string, view: VisibilityView): boolean => {
+  if (view === "all") return !row.hidden
+  if (view === "owned-by-me") return row.ownerId === userId && !row.hidden
+  if (view === "created-by-me") return row.createdBy === userId && !row.hidden
+  if (view === "only-mine") return row.ownerId === userId && row.sharedWithCount === 0 && !row.hidden
+  if (view === "shared-by-me") return row.ownerId === userId && row.sharedWithCount > 0 && !row.hidden
+  if (view === "shared-with-me") return row.ownerId !== userId && !row.hidden
+  return row.hidden
+}

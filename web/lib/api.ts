@@ -47,14 +47,16 @@ import {
 } from "./contracts.ts"
 import { endSession, session } from "./session.ts"
 
-export type { EntityVisibility, PermissionGroup, VisibilityView } from "./contracts.ts"
+export type { EntityGrant, EntityVisibility, PermissionGroup, VisibilityView } from "./contracts.ts"
 export {
   addPermissionGroupMember,
   assignPermissionCubeAdmin,
   createPermissionGroup,
+  entityGrants,
   permissionAudit,
   permissionCubeAdmins,
   permissionGroups,
+  revokeEntityGrant,
   setEntityHidden,
   shareEntityWithGroup,
   shareEntityWithUser,
@@ -79,7 +81,7 @@ export type {
 }
 
 export const BASE = process.env.NEXT_PUBLIC_QWBE_API ?? "http://127.0.0.1:4500"
-export const apiUrl = (path: string): string => `${BASE.replace(/\/$/, "")}/${path.replace(/^\//, "")}`
+export const apiUrl = (path: string) => `${BASE.replace(/\/$/, "")}/${path.replace(/^\//, "")}`
 
 export class ApiError extends Error {
   readonly status: number
@@ -180,7 +182,7 @@ export const me = () => request("/auth/me", MeSchema)
  * cubes that were on disk then. Switching a cube off does not shorten it -- the routes stay in the
  * document and answer 404 at runtime. Measured, not assumed.
  */
-export const routes = async (): Promise<Array<string>> => {
+export const routes = async () => {
   const doc = await request("/openapi.json", OpenApiDocumentSchema)
   return Object.entries(doc.paths ?? {})
     .flatMap(([path, ops]) => Object.keys(ops).map((method) => `${method.toUpperCase()} ${path}`))
@@ -194,11 +196,11 @@ export const one = (cube: string, id: string) => request(`/${cube}/${id}`, Unkno
 
 /** The leaf of a compound cube name (`booktags/bookmarks` -> `bookmarks`); bare names pass
  *  through. The ONE place the split lives in this app -- mirrors the kernel's `leafOf`. */
-export const leafName = (full: string): string => (full.includes("/") ? (full.split("/")[1] as string) : full)
+export const leafName = (full: string) => (full.includes("/") ? (full.split("/")[1] as string) : full)
 
 /** The web route for a cube screen: standalone cubes at `/<name>`, children grouped under
  *  their parent at `/<parent>/<child>` -- one sidebar entry per hierarchy. */
-export const screenPath = (c: CubeInfo): string => (c.parent ? `/${c.parent}/${leafName(c.name)}` : `/${c.name}`)
+export const screenPath = (c: CubeInfo) => (c.parent ? `/${c.parent}/${leafName(c.name)}` : `/${c.name}`)
 
 /** Agent browser routes keep compound identity; requests use the real mounted prefix. */
 export const agentScreenPath = (c: Pick<CubeInfo, "name">): string => `/agent/${c.name}`

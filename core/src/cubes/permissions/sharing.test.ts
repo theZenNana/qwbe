@@ -2,7 +2,7 @@ import assert from "node:assert/strict"
 import { describe, it } from "node:test"
 import { Effect } from "effect"
 import type { CubeTools } from "qwbe-core/cube"
-import { TotalActions } from "qwbe-core/permissions"
+import { PermissionForbidden, PermissionInvalid, TotalActions } from "qwbe-core/permissions"
 import { cube } from "./index.ts"
 
 const memoryStore = (): CubeTools["store"] => {
@@ -67,6 +67,7 @@ describe("permissions sharing capability", () => {
     await Effect.runPromise(service.claim(ana, ref))
     const grant = await Effect.runPromise(service.grantUser(ana, ref, "mihai"))
     assert.deepEqual(grant.actions, TotalActions)
+    assert.deepEqual(await Effect.runPromise(service.listGrants(ana, ref)), [grant])
     assert.deepEqual(await Effect.runPromise(service.authorize({ userId: "mihai", roles: [] }, ref, "transfer")), {
       allowed: true,
       source: "grant",
@@ -105,9 +106,19 @@ describe("permissions sharing capability", () => {
     assert.ok(service)
     await Effect.runPromise(service.claim(ana, ref))
     const sales = await Effect.runPromise(service.createGroup(ana, ref.cube, "Sales"))
-    await assert.rejects(
-      Effect.runPromise(service.addGroupMember({ userId: "stranger", roles: [] }, sales.id, "ioana")),
-      /group creator or cube admin/,
+    assert.ok(
+      (await Effect.runPromise(
+        Effect.flip(service.addGroupMember({ userId: "stranger", roles: [] }, sales.id, "ioana")),
+      )) instanceof PermissionForbidden,
+    )
+  })
+
+  it("rejects an empty grant action set as typed invalid input", async () => {
+    const service = cube.create(tools()).entityPermissions
+    assert.ok(service)
+    await Effect.runPromise(service.claim(ana, ref))
+    assert.ok(
+      (await Effect.runPromise(Effect.flip(service.grantUser(ana, ref, "mihai", [])))) instanceof PermissionInvalid,
     )
   })
 
@@ -148,5 +159,52 @@ describe("permissions sharing capability", () => {
     assert.equal(events[0]?.before, null)
     assert.deepEqual(events[0]?.after, { groupId: sales.id, actions: ["read"] })
     assert.ok(events[0]?.traceId)
+  })
+
+  it("matches a group audit filter against both before and after trace", async () => {
+    const service = cube.create(tools()).entityPermissions
+    assert.ok(service)
+    await Effect.runPromise(service.claim(ana, ref))
+    const sales = await Effect.runPromise(service.createGroup(ana, ref.cube, "Sales"))
+    const grant = await Effect.runPromise(service.grantGroup(ana, ref, sales.id, ["read"]))
+    await Effect.runPromise(service.revokeGrant(ana, grant.id))
+    const events = await Effect.runPromise(service.audit({ groupId: sales.id }))
+    assert.deepEqual(
+      events.map((event) => event.action),
+      ["grant.group", "grant.revoke"],
+    )
+  })
+
+  it("uses current cube ownership instead of permanent group creator privilege", async () => {
+    const service = cube.create(tools()).entityPermissions
+    assert.ok(service)
+    await Effect.runPromise(service.claim(ana, ref))
+    const sales = await Effect.runPromise(service.createGroup(ana, ref.cube, "Sales"))
+    await Effect.runPromise(service.transferOwnership(ana, ref, "mihai"))
+    assert.ok(
+      (await Effect.runPromise(Effect.flip(service.renameGroup(ana, sales.id, "Old owner edit")))) instanceof
+        PermissionForbidden,
+    )
+    assert.equal(
+      (await Effect.runPromise(service.renameGroup({ userId: "mihai", roles: [] }, sales.id, "Current owner edit")))
+        .name,
+      "Current owner edit",
+    )
+  })
+
+  it("unites direct and every matching group grant in visibility provenance", async () => {
+    const service = cube.create(tools()).entityPermissions
+    assert.ok(service)
+    await Effect.runPromise(service.claim(ana, ref))
+    const sales = await Effect.runPromise(service.createGroup(ana, ref.cube, "Sales"))
+    const legal = await Effect.runPromise(service.createGroup(ana, ref.cube, "Legal"))
+    await Effect.runPromise(service.addGroupMember(ana, sales.id, "ioana"))
+    await Effect.runPromise(service.addGroupMember(ana, legal.id, "ioana"))
+    await Effect.runPromise(service.grantUser(ana, ref, "ioana", ["read"]))
+    await Effect.runPromise(service.grantGroup(ana, ref, sales.id, ["edit"]))
+    await Effect.runPromise(service.grantGroup(ana, ref, legal.id, ["delete", "read"]))
+    const row = (await Effect.runPromise(service.listVisible({ userId: "ioana", roles: [] }, ref.cube, "all")))[0]
+    assert.equal(row?.access.source, "user-grant")
+    assert.deepEqual(row?.access.actions, ["read", "edit", "delete"])
   })
 })

@@ -1,0 +1,6 @@
+{
+  "name": "permission-bypass",
+  "kind": "plugin",
+  "summary": "Adversarial fixture: entity handlers deliberately omit Permissions",
+  "cubes": ["hostile"]
+}

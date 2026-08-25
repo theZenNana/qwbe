@@ -11,7 +11,7 @@
 //   - a cube's functions arrive already bound to its own store (`Effect<..., never, never>`),
 //     so no caller can slip in a different one.
 
-import { Context, Effect, Layer } from "effect"
+import { Context, type Effect } from "effect"
 import type { CurrentUser } from "./auth-contract.ts"
 import type { SummaryRow } from "./entity.ts"
 import type { RelationalPart, SearchResult } from "./manifest.ts"
@@ -28,6 +28,7 @@ export type RegistryEntry = {
    */
   readonly entity?: string | undefined
   readonly relational?: RelationalPart | undefined
+  readonly permissionExempt?: boolean | undefined
 }
 
 export type LinkGroup = {
@@ -35,8 +36,6 @@ export type LinkGroup = {
   readonly label: string
   readonly field: string
 }
-
-const EMPTY: SearchResult = { rows: [], total: 0 }
 
 export class Registry extends Context.Tag("cubes/Registry")<
   Registry,
@@ -52,8 +51,17 @@ export class Registry extends Context.Tag("cubes/Registry")<
       page: PageRequest,
     ) => Effect.Effect<SearchResult, never, CurrentUser>
     /** A summary, asked of the cube that holds the entity. Referential integrity without joins. */
-    readonly summary: (entity: string, id: string) => Effect.Effect<SummaryRow | undefined, never, never>
-    readonly fieldValue: (cube: string, id: string, field: string) => Effect.Effect<string | null, never, never>
+    readonly summary: (
+      entity: string,
+      id: string,
+      caller?: typeof CurrentUser.Service,
+    ) => Effect.Effect<SummaryRow | undefined>
+    readonly fieldValue: (
+      cube: string,
+      id: string,
+      field: string,
+      caller?: typeof CurrentUser.Service,
+    ) => Effect.Effect<string | null>
     readonly entities: () => ReadonlyArray<{ readonly cube: string; readonly entity: string }>
   }
 >() {}
@@ -69,42 +77,3 @@ export class Registry extends Context.Tag("cubes/Registry")<
  * A missing or disabled cube yields an empty result, never an error. "Decoupled" means "not
  * there", not "crashed".
  */
-export const registryFrom = (
-  entries: ReadonlyArray<RegistryEntry>,
-  liveLinks: () => ReadonlyArray<Link>,
-  isEnabled: (cube: string) => boolean,
-) => {
-  const live = () => entries.filter((e) => isEnabled(e.name))
-
-  return Layer.succeed(Registry, {
-    linksTo: (entity) =>
-      liveLinks()
-        .filter((l) => l.to === entity)
-        .map((l) => ({ cube: l.from, label: l.label, field: l.field })),
-
-    linksFrom: (cube) => liveLinks().filter((l) => l.from === cube),
-
-    search: (cube, field, value, page) => {
-      const e = live().find((x) => x.name === cube)
-      if (!e?.relational?.search) return Effect.succeed(EMPTY)
-      return e.relational.search(field, value, page)
-    },
-
-    summary: (entity, id) => {
-      const e = live().find((x) => x.entity === entity)
-      if (!e?.relational?.summaryById) return Effect.succeed(undefined)
-      return e.relational.summaryById(id)
-    },
-
-    fieldValue: (cube, id, field) => {
-      const e = live().find((x) => x.name === cube)
-      if (!e?.relational?.fieldValue) return Effect.succeed(null)
-      return e.relational.fieldValue(id, field)
-    },
-
-    entities: () =>
-      live()
-        .filter((e) => !!e.entity)
-        .map((e) => ({ cube: e.name, entity: e.entity as string })),
-  })
-}

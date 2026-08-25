@@ -11,6 +11,7 @@ describe("permissions visibility runtime contract", () => {
       entityId: "contact-42",
       ownerId: "ana",
       createdBy: "ioana",
+      createdAt: "2026-08-15T00:00:00.000Z",
       access: { source: "group-grant", name: "Sales", actions: ["read"] },
       hidden: false,
       sharedWithCount: 1,
@@ -20,7 +21,13 @@ describe("permissions visibility runtime contract", () => {
   })
 
   it("defaults the server-side list and decodes an explicit filter", () => {
-    assert.deepEqual(Schema.decodeUnknownSync(VisibilityListParams)({}), { view: "all", offset: 0, limit: 10 })
+    assert.deepEqual(Schema.decodeUnknownSync(VisibilityListParams)({}), {
+      view: "all",
+      sortBy: "createdAt",
+      descending: false,
+      offset: 0,
+      limit: 10,
+    })
     assert.equal(
       Schema.decodeUnknownSync(VisibilityListParams)({ view: "hidden-by-me", offset: "20", limit: "5" }).view,
       "hidden-by-me",

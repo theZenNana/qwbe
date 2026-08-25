@@ -1,4 +1,5 @@
 import type { Effect } from "effect"
+import type { PermissionServiceError } from "./permissions-errors.ts"
 import type {
   AccessDecision,
   AuditEvent,
@@ -21,35 +22,71 @@ export type IdentityDirectory = Readonly<{
 }>
 
 export type PermissionService = Readonly<{
-  claim: (actor: PermissionActor, ref: EntityRef) => Effect.Effect<Ownership, string>
+  claim: (actor: PermissionActor, ref: EntityRef) => Effect.Effect<Ownership, PermissionServiceError>
   ownership: (ref: EntityRef) => Effect.Effect<Ownership | undefined>
-  authorize: (actor: PermissionActor, ref: EntityRef, action: EntityAction) => Effect.Effect<AccessDecision>
-  assignCubeAdmin: (actor: PermissionActor, cube: string, userId: string) => Effect.Effect<void, string>
-  cubeAdmins: (actor: PermissionActor, cube: string) => Effect.Effect<ReadonlyArray<CubeAdmin>, string>
-  transferOwnership: (actor: PermissionActor, ref: EntityRef, userId: string) => Effect.Effect<Ownership, string>
-  audit: (query?: AuditQuery) => Effect.Effect<ReadonlyArray<AuditEvent>>
-  createGroup: (actor: PermissionActor, cube: string, name: string) => Effect.Effect<PermissionGroup, string>
-  renameGroup: (actor: PermissionActor, groupId: string, name: string) => Effect.Effect<PermissionGroup, string>
-  groups: (actor: PermissionActor, cube: string) => Effect.Effect<ReadonlyArray<PermissionGroup>, string>
-  addGroupMember: (actor: PermissionActor, groupId: string, userId: string) => Effect.Effect<GroupMembership, string>
-  removeGroupMember: (actor: PermissionActor, groupId: string, userId: string) => Effect.Effect<void, string>
+  authorize: (
+    actor: PermissionActor,
+    ref: EntityRef,
+    action: EntityAction,
+  ) => Effect.Effect<AccessDecision, PermissionServiceError>
+  assignCubeAdmin: (actor: PermissionActor, cube: string, userId: string) => Effect.Effect<void, PermissionServiceError>
+  revokeCubeAdmin: (actor: PermissionActor, cube: string, userId: string) => Effect.Effect<void, PermissionServiceError>
+  cubeAdmins: (actor: PermissionActor, cube: string) => Effect.Effect<ReadonlyArray<CubeAdmin>, PermissionServiceError>
+  transferOwnership: (
+    actor: PermissionActor,
+    ref: EntityRef,
+    userId: string,
+  ) => Effect.Effect<Ownership, PermissionServiceError>
+  audit: (query?: AuditQuery) => Effect.Effect<ReadonlyArray<AuditEvent>, PermissionServiceError>
+  createGroup: (
+    actor: PermissionActor,
+    cube: string,
+    name: string,
+  ) => Effect.Effect<PermissionGroup, PermissionServiceError>
+  renameGroup: (
+    actor: PermissionActor,
+    groupId: string,
+    name: string,
+  ) => Effect.Effect<PermissionGroup, PermissionServiceError>
+  groups: (
+    actor: PermissionActor,
+    cube: string,
+  ) => Effect.Effect<ReadonlyArray<PermissionGroup>, PermissionServiceError>
+  addGroupMember: (
+    actor: PermissionActor,
+    groupId: string,
+    userId: string,
+  ) => Effect.Effect<GroupMembership, PermissionServiceError>
+  removeGroupMember: (
+    actor: PermissionActor,
+    groupId: string,
+    userId: string,
+  ) => Effect.Effect<void, PermissionServiceError>
   grantUser: (
     actor: PermissionActor,
     ref: EntityRef,
     userId: string,
     actions?: ReadonlyArray<GrantAction>,
-  ) => Effect.Effect<EntityGrant, string>
+  ) => Effect.Effect<EntityGrant, PermissionServiceError>
   grantGroup: (
     actor: PermissionActor,
     ref: EntityRef,
     groupId: string,
     actions: ReadonlyArray<GrantAction>,
-  ) => Effect.Effect<EntityGrant, string>
-  revokeGrant: (actor: PermissionActor, grantId: string) => Effect.Effect<void, string>
+  ) => Effect.Effect<EntityGrant, PermissionServiceError>
+  revokeGrant: (actor: PermissionActor, grantId: string) => Effect.Effect<void, PermissionServiceError>
+  listGrants: (
+    actor: PermissionActor,
+    ref: EntityRef,
+  ) => Effect.Effect<ReadonlyArray<EntityGrant>, PermissionServiceError>
   listVisible: (
     actor: PermissionActor,
     cube: string,
     view: VisibilityView,
   ) => Effect.Effect<ReadonlyArray<EntityVisibility>>
-  setHidden: (actor: PermissionActor, ref: EntityRef, hidden: boolean) => Effect.Effect<EntityVisibility, string>
+  setHidden: (
+    actor: PermissionActor,
+    ref: EntityRef,
+    hidden: boolean,
+  ) => Effect.Effect<EntityVisibility, PermissionServiceError>
 }>

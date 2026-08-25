@@ -12,6 +12,7 @@ import {
   permissionGroups,
 } from "../../lib/api.ts"
 import type { AuditEvent, CubeAdmin } from "../../lib/contracts.ts"
+import { Shell } from "../Shell.tsx"
 
 export default function PermissionsPage() {
   const [cube, setCube] = useState("")
@@ -40,7 +41,7 @@ export default function PermissionsPage() {
   useEffect(() => {
     catalogue()
       .then((items) => {
-        const names = items.filter((item) => item.entityPermissions).map((item) => item.name)
+        const names = items.filter((item) => item.entityPermissions && item.entity).map((item) => item.name)
         setCubes(names)
         const first = names[0] ?? ""
         setCube(first)
@@ -50,7 +51,7 @@ export default function PermissionsPage() {
   }, [refresh])
 
   return (
-    <>
+    <Shell>
       <h2>Permissions</h2>
       {error && <div className="eroare">{error}</div>}
       <label>
@@ -83,10 +84,12 @@ export default function PermissionsPage() {
           type="button"
           disabled={!adminUsername}
           onClick={() =>
-            void assignPermissionCubeAdmin(cube, adminUsername.replace(/^@/, "")).then(() => {
-              setAdminUsername("")
-              refresh(cube)
-            })
+            void assignPermissionCubeAdmin(cube, adminUsername.replace(/^@/, ""))
+              .then(() => {
+                setAdminUsername("")
+                refresh(cube)
+              })
+              .catch((cause: Error) => setError(cause.message))
           }
         >
           Assign
@@ -98,10 +101,12 @@ export default function PermissionsPage() {
         <button
           type="button"
           onClick={() =>
-            void createPermissionGroup(cube, groupName).then(() => {
-              setGroupName("")
-              refresh(cube)
-            })
+            void createPermissionGroup(cube, groupName)
+              .then(() => {
+                setGroupName("")
+                refresh(cube)
+              })
+              .catch((cause: Error) => setError(cause.message))
           }
         >
           Create
@@ -121,7 +126,9 @@ export default function PermissionsPage() {
           type="button"
           disabled={!selectedGroup || !member}
           onClick={() =>
-            void addPermissionGroupMember(selectedGroup, member.replace(/^@/, "")).then(() => setMember(""))
+            void addPermissionGroupMember(selectedGroup, member.replace(/^@/, ""))
+              .then(() => setMember(""))
+              .catch((cause: Error) => setError(cause.message))
           }
         >
           Add member
@@ -152,6 +159,6 @@ export default function PermissionsPage() {
           ))}
         </tbody>
       </table>
-    </>
+    </Shell>
   )
 }

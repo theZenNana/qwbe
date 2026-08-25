@@ -3,6 +3,7 @@ import { describe, it } from "node:test"
 
 import { Effect } from "effect"
 import type { CubeTools } from "qwbe-core/cube"
+import { PermissionConflict, PermissionInvalid, PermissionNotFound } from "qwbe-core/permissions"
 import { cube } from "./index.ts"
 
 const memoryStore = (): CubeTools["store"] => {
@@ -59,9 +60,23 @@ describe("permissions public capability", () => {
     const ownership = await Effect.runPromise(service.claim({ userId: "ana", roles: ["reader"] }, ref))
     assert.equal(ownership.ownerId, "ana")
     assert.equal(ownership.createdBy, "ana")
-    await assert.rejects(
-      Effect.runPromise(service.claim({ userId: "mihai", roles: ["reader"] }, ref)),
-      /already claimed/,
+    const conflict = await Effect.runPromise(Effect.flip(service.claim({ userId: "mihai", roles: ["reader"] }, ref)))
+    assert.ok(conflict instanceof PermissionConflict)
+    assert.equal(conflict._tag, "PermissionConflict")
+    assert.match(conflict.message, /already claimed/)
+  })
+
+  it("returns typed not-found and invalid failures through the public capability", async () => {
+    const service = cube.create(tools()).entityPermissions
+    assert.ok(service)
+    const actor = { userId: "ana", roles: ["reader"] }
+    const missing = { cube: "notes", entityType: "Note", entityId: "missing" }
+    assert.ok(
+      (await Effect.runPromise(Effect.flip(service.transferOwnership(actor, missing, "mihai")))) instanceof
+        PermissionNotFound,
+    )
+    assert.ok(
+      (await Effect.runPromise(Effect.flip(service.createGroup(actor, "notes", "   ")))) instanceof PermissionInvalid,
     )
   })
 
@@ -87,6 +102,26 @@ describe("permissions public capability", () => {
       await Effect.runPromise(service.authorize({ userId: "stranger", roles: ["reader"] }, ref, "read")),
       { allowed: false, source: "none" },
     )
+  })
+
+  it("revokes a cube administrator and records the before/after audit", async () => {
+    const service = cube.create(tools()).entityPermissions
+    assert.ok(service)
+    const root = { userId: "root", roles: ["admin"] }
+    const ref = { cube: "notes", entityType: "Note", entityId: "note-admin" }
+    await Effect.runPromise(service.claim({ userId: "ana", roles: [] }, ref))
+    await Effect.runPromise(service.assignCubeAdmin(root, ref.cube, "cube-admin"))
+    await Effect.runPromise(service.revokeCubeAdmin(root, ref.cube, "cube-admin"))
+    assert.deepEqual(await Effect.runPromise(service.cubeAdmins(root, ref.cube)), [])
+    assert.equal(
+      (await Effect.runPromise(service.authorize({ userId: "cube-admin", roles: [] }, ref, "edit"))).allowed,
+      false,
+    )
+    const events = await Effect.runPromise(service.audit({ action: "cube-admin.revoke" }))
+    assert.equal(events.length, 1)
+    const first = events[0] as { before?: { userId?: string }; after?: unknown }
+    assert.equal(first.before?.userId, "cube-admin")
+    assert.equal(first.after, null)
   })
 
   it("writes filterable audit events with before and after trace", async () => {

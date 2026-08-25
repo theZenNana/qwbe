@@ -138,6 +138,7 @@ export type MountedSystem = {
   readonly liveLinks: () => ReadonlyArray<import("./space.ts").Link>
   /** Parent-masked enablement: a child is off while its parent is off. Use this at the edge. */
   readonly isEnabled: (cube: string) => boolean
+  readonly entityPermissions: import("../permissions-contracts.ts").PermissionService
 }
 
 /**
@@ -266,7 +267,7 @@ export const mount = (
   const cubes: Array<MountedCube> = definitions.map(({ plugin, definition }) => {
     const m = definition.manifest
     const full = fullName(m)
-    const parts = definition.create({
+    const created = definition.create({
       store: storeFor(full, m.tables, m.sortable ?? []),
       bus: bus.for(full, m.publishes),
       catalogue,
@@ -281,6 +282,7 @@ export const mount = (
       entityPermissions: m.usesEntityPermissions ? capabilities.permissions : undefined,
       runCommands: m.runsCommands ? runner : undefined,
     })
+    const parts = capabilities.mediate(full, m, created)
     validateCubeParts(full, parts)
     validateAgentSurface(full, m, parts.group)
     if (m.providesCredentials) {
@@ -320,5 +322,15 @@ export const mount = (
     Effect.runSync(bus.for("qwbe").publish("qwbe/cube.enabled", { cube }))
   })
 
-  return { cubes, switches, bus, permissions, commands, catalogue, liveLinks, isEnabled }
+  return {
+    cubes,
+    switches,
+    bus,
+    permissions,
+    commands,
+    catalogue,
+    liveLinks,
+    isEnabled,
+    entityPermissions: capabilities.permissions,
+  }
 }

@@ -15,8 +15,9 @@ import { Layer } from "effect"
 import { loadDefinitions, mount } from "./kernel/discovery.ts"
 import { readLedger, verifyLedgerUnchanged, writeLedger } from "./kernel/ledger.ts"
 import { buildApi, buildHandlers, checkCubes, rejectDisabled } from "./kernel/mount.ts"
-import { type RegistryEntry, registryFrom } from "./kernel/registry.ts"
+import type { RegistryEntry } from "./kernel/registry.ts"
 import { loadSpaces } from "./kernel/space.ts"
+import { registryFrom } from "./registry-runtime.ts"
 
 const PORT = Number(process.env.QWBE_PORT ?? 4500)
 
@@ -104,9 +105,10 @@ const entries: ReadonlyArray<RegistryEntry> = system!.cubes.map((c) => ({
   name: c.name,
   entity: c.manifest.entity,
   relational: c.parts.relational,
+  permissionExempt: c.manifest.providesIdentityDirectory === true,
 }))
 
-const RegistryLive = registryFrom(entries, system!.liveLinks, system!.isEnabled)
+const RegistryLive = registryFrom(entries, system!.liveLinks, system!.isEnabled, system!.entityPermissions)
 
 // Layers contributed by cubes. In practice: `AuthorizationLive` from the auth cube. With auth
 // unmounted the list is empty -- and then no cube asks for the tag either, because `checkCubes`

@@ -1,4 +1,5 @@
 import { Effect } from "effect"
+import { mediateEntityCube } from "./entity-enforcement.ts"
 import { DoubleCapabilityError } from "./kernel/errors-discovery.ts"
 import type { CredentialVerifier, Manifest } from "./kernel/manifest.ts"
 import { fullName } from "./kernel/manifest-validation.ts"
@@ -29,5 +30,10 @@ export const capabilityRuntime = (manifests: ReadonlyArray<Manifest>) => {
     credentials,
     identities: lateBoundIdentityDirectory(identityHolder),
     permissions: lateBoundPermissionService(permissionHolder),
+    mediate: <Parts extends Readonly<{ group: unknown; handlers: Readonly<Record<string, unknown>> }>>(
+      cube: string,
+      manifest: Readonly<{ entity?: string; providesIdentityDirectory?: boolean }>,
+      parts: Parts,
+    ) => mediateEntityCube(cube, manifest, parts, lateBoundPermissionService(permissionHolder)),
   }
 }

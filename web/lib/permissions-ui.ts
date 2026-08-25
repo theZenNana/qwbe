@@ -1,4 +1,23 @@
-import type { EntityRef, EntityVisibility, VisibilityView } from "qwbe-core/permissions"
+import type { EntityGrant, EntityRef, EntityVisibility, VisibilityView } from "qwbe-core/permissions"
+import { EntityActions } from "qwbe-core/permissions"
+
+export const grantActionOptions = EntityActions
+
+export const canManageGrants = (source: EntityVisibility["access"]["source"]): boolean =>
+  source === "owner" || source === "cube-admin" || source === "superadmin"
+
+const entityPermissionsPath = (ref: EntityRef): string =>
+  `/permissions/entities/${encodeURIComponent(ref.cube)}/${encodeURIComponent(ref.entityType)}/${encodeURIComponent(ref.entityId)}`
+
+export const grantsListPath = (ref: EntityRef, offset = 0, limit = 20): string =>
+  `${entityPermissionsPath(ref)}/grants?offset=${offset}&limit=${limit}`
+
+export const revokeGrantPath = (grantId: string): string => `/permissions/grants/${encodeURIComponent(grantId)}`
+
+export const grantLabel = (grant: EntityGrant): string => {
+  const subject = grant.subject.kind === "user" ? `USER ${grant.subject.userId}` : `GROUP ${grant.subject.groupId}`
+  return `${subject} - ${grant.actions.map((action) => action.toUpperCase()).join(" + ")}`
+}
 
 export interface VisibilityPresentation {
   readonly badges: ReadonlyArray<string>
@@ -19,18 +38,25 @@ export const visibilityOptions = (
 
 export const permissionsListPath = (
   cube: string,
-  input: { readonly view: VisibilityView; readonly offset: number; readonly limit: number },
+  input: {
+    readonly view: VisibilityView
+    readonly sortBy?: "createdAt" | "entityId" | "ownerId" | "createdBy"
+    readonly descending?: boolean
+    readonly offset: number
+    readonly limit: number
+  },
 ): string => {
   const query = new URLSearchParams({
     view: input.view,
+    sortBy: input.sortBy ?? "createdAt",
+    descending: String(input.descending ?? true),
     offset: String(input.offset),
     limit: String(input.limit),
   })
   return `/permissions/entities/${encodeURIComponent(cube)}?${query.toString()}`
 }
 
-export const visibilityMutationPath = (ref: EntityRef): string =>
-  `/permissions/entities/${encodeURIComponent(ref.cube)}/${encodeURIComponent(ref.entityType)}/${encodeURIComponent(ref.entityId)}/visibility`
+export const visibilityMutationPath = (ref: EntityRef): string => `${entityPermissionsPath(ref)}/visibility`
 
 const actionsLabel = (actions: ReadonlyArray<string>): string =>
   actions.map((action) => action.toUpperCase()).join(" + ")
