@@ -15,7 +15,9 @@
 import type { HttpApiEndpoint, HttpApiGroup } from "@effect/platform"
 import type { Effect } from "effect"
 import { Schema } from "effect"
-import type { SummaryRow } from "./entity.ts"
+import type { Catalogue } from "../catalogue.ts"
+import type { IdentityDirectory, PermissionService } from "../permissions-contracts.ts"
+import type { RelationalPart } from "./entity.ts"
 import type { Page, PageRequest } from "./pagination.ts"
 import type { RequiredCubeError, StateFileError, UnknownCubeError } from "./state.ts"
 
@@ -101,7 +103,7 @@ export type CommandRunner = {
   readonly invoke: (
     name: string,
     args: readonly string[],
-    callerPermissions: ReadonlyArray<string>,
+    callerPermissions: readonly string[],
   ) => Effect.Effect<CommandResult, CommandRefusal, never>
 }
 
@@ -146,12 +148,12 @@ export type Manifest = {
    * could order rows by a column the cube never puts in its responses -- which leaks information
    * about values the caller cannot read. Published in the catalogue so clients know the set.
    */
-  readonly sortable?: ReadonlyArray<string>
+  readonly sortable?: readonly string[]
   /** Requires a valid token. With no `auth` cube mounted, such a cube does not start at all. */
   readonly requiresAuth: boolean
-  readonly permissions?: ReadonlyArray<PermissionSpec>
+  readonly permissions?: readonly PermissionSpec[]
   /** Events it publishes. Declared so the catalogue can show who shouts what. */
-  readonly publishes?: ReadonlyArray<string>
+  readonly publishes?: readonly string[]
   /** Cannot be switched off from Settings. */
   readonly required?: boolean
   /**
@@ -181,6 +183,12 @@ export type Manifest = {
   readonly providesCredentials?: boolean
   /** DECLARED NEED: this cube receives the credential verifier. At most one may. */
   readonly usesCredentials?: boolean
+  /** DECLARED CAPABILITY: resolve a public username to its stable id. At most one may. */
+  readonly providesIdentityDirectory?: boolean
+  /** DECLARED NEED: this cube receives the narrow identity directory. */
+  readonly usesIdentityDirectory?: boolean
+  readonly providesEntityPermissions?: boolean
+  readonly usesEntityPermissions?: boolean
   /**
    * DECLARED CAPABILITY: this cube receives the command dispatcher. At most one may.
    *
@@ -196,7 +204,7 @@ export type Manifest = {
    * executes it after checking every entry against the mounted set and the package
    * provenance, so a plugin cannot ask for `auth.sqlite`.
    */
-  readonly dataMigration?: ReadonlyArray<DataMigration>
+  readonly dataMigration?: readonly DataMigration[]
 }
 
 /** What a credential provider offers, and a consumer receives. Never the hash itself. */
@@ -211,23 +219,7 @@ export type CredentialVerifier = {
   >
 }
 
-export type SearchResult = {
-  readonly rows: ReadonlyArray<SummaryRow>
-  readonly total: number
-}
-
-/**
- * How a cube lets itself be found, without anyone importing it.
- *
- * Every function is `Effect<..., never, never>`: the kernel binds the cube's own store before
- * putting these in the registry, so callers supply nothing -- and, more importantly, cannot
- * slip in a different store.
- */
-export type RelationalPart = {
-  readonly search?: (field: string, value: string, page: PageRequest) => Effect.Effect<SearchResult, never, never>
-  readonly summaryById?: (id: string) => Effect.Effect<SummaryRow | undefined, never, never>
-  readonly fieldValue?: (id: string, field: string) => Effect.Effect<string | null, never, never>
-}
+export type { RelationalPart, SearchResult } from "./entity.ts"
 
 /** A subscription to an event, by string name. See `bus.ts`. */
 export type Subscription = {
@@ -249,7 +241,7 @@ export type CubeTools = {
   /** All permissions aggregated from every manifest. Read by `auth`. */
   readonly permissions: () => ReadonlyMap<string, ReadonlyArray<string>>
   /** Metadata for every command in the system. Deliberately WITHOUT `run` -- see `CommandInfo`. */
-  readonly commands: () => ReadonlyArray<CommandInfo>
+  readonly commands: () => readonly CommandInfo[]
   // The five below are `?: X | undefined`, not `?: X`, and the difference is not decoration.
   // Under `exactOptionalPropertyTypes` a bare `?:` means "absent OR a value" -- never "present
   // and undefined". But the kernel BUILDS this object in one literal, writing
@@ -272,32 +264,12 @@ export type CubeTools = {
   /** Present ONLY when the manifest asks for `usesCredentials: true`, and only if some cube
    *  declares `providesCredentials`. */
   readonly credentials?: CredentialVerifier | undefined
+  /** Present only when the manifest declares `usesIdentityDirectory`. */
+  readonly identities?: IdentityDirectory | undefined
+  readonly entityPermissions?: PermissionService | undefined
 }
 
-export type Catalogue = ReadonlyArray<{
-  readonly name: string
-  /** The parent cube's name for a child (`booktags` for `booktags/bookmarks`), else absent. */
-  readonly parent?: string | undefined
-  /** `| undefined` for the same reason as in `CubeTools`: the kernel copies `m.entity` across
-   *  for every cube, and a cube without an entity puts the key there holding `undefined`. */
-  readonly entity?: string | undefined
-  /** It has a screen of its own, without holding an entity. See `Manifest.screen`. */
-  readonly screen: boolean
-  readonly agent: boolean
-  readonly enabled: boolean
-  readonly required: boolean
-  readonly system: boolean
-  /** Which plugin brought it, or `null` for the ones shipped with core. */
-  readonly plugin: string | null
-  /** First URL segment this cube serves under, when it has endpoints (children whose leaf
-   *  name is taken serve under `<parent>-<name>`). Absent for cubes with no routes. */
-  readonly prefix?: string | undefined
-  readonly publishes: ReadonlyArray<string>
-  /** Fields a caller may sort this cube's list by. Published so clients need not guess. */
-  readonly sortable: ReadonlyArray<string>
-  /** Links pointing OUT of this cube, resolved from the spaces. */
-  readonly links: ReadonlyArray<{ readonly to: string; readonly field: string; readonly label: string }>
-}>
+export type { Catalogue } from "../catalogue.ts"
 
 /**
  * What a package in the store looks like from a cube's side: a name and what it brings.
@@ -382,6 +354,9 @@ export type CubeParts<Group extends CubeGroup = CubeGroup> = {
   readonly commands?: ReadonlyArray<CommandSpec>
   /** Provided ONLY by the cube declaring `providesCredentials: true`. */
   readonly credentials?: CredentialVerifier
+  /** Provided only by the cube declaring `providesIdentityDirectory`. */
+  readonly identities?: IdentityDirectory
+  readonly entityPermissions?: PermissionService
   /**
    * Effect layers the cube provides to the whole system.
    *

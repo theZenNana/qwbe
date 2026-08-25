@@ -19,7 +19,7 @@ import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema } from "@effect/platform"
 import { Effect, Schema } from "effect"
 import { defineCube } from "qwbe-core/cube"
 import { LinksFor } from "../../http-contracts.ts"
-import { Authorization, requirePermission } from "../../kernel/auth-contract.ts"
+import { Authorization, CurrentUser, requirePermission } from "../../kernel/auth-contract.ts"
 import { Summary } from "../../kernel/entity.ts"
 import { Forbidden, NotFound } from "../../kernel/errors.ts"
 import { PageOf, PageParams, pageRequest } from "../../kernel/pagination.ts"
@@ -76,6 +76,7 @@ export const cube = defineCube(group, {
         Effect.gen(function* () {
           yield* requirePermission("links:read")
           const registry = yield* Registry
+          const user = yield* CurrentUser
 
           const owner = registry.entities().find((e) => e.entity === path.entity)
           if (!owner) {
@@ -86,8 +87,8 @@ export const cube = defineCube(group, {
           // cube, the summary from the target cube — no join anywhere.
           const parents = yield* Effect.forEach(registry.linksFrom(owner.cube), (l) =>
             Effect.gen(function* () {
-              const v = yield* registry.fieldValue(owner.cube, path.id, l.field)
-              const s = v ? yield* registry.summary(l.to, v) : undefined
+              const v = yield* registry.fieldValue(owner.cube, path.id, l.field, user)
+              const s = v ? yield* registry.summary(l.to, v, user) : undefined
               return { field: l.field, to: l.to, summary: s ?? null }
             }),
           )

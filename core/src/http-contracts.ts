@@ -39,6 +39,7 @@ export const CubeInfo = Schema.Struct({
   entity: Schema.NullOr(Schema.String),
   screen: Schema.Boolean,
   agent: Schema.Boolean,
+  entityPermissions: Schema.Boolean,
   publishes: Schema.Array(Schema.String),
   links: Schema.Array(Schema.Struct({ to: Schema.String, field: Schema.String, label: Schema.String })),
 }).annotations({ identifier: "CubeState" })

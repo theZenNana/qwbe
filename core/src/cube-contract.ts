@@ -1,7 +1,8 @@
 import { HttpApiGroup } from "@effect/platform"
 import type { CubeGroup, CubeParts, CubeTools, Manifest } from "./kernel/manifest.ts"
 
-export type { CubeTools } from "./kernel/manifest.ts"
+export type { CommandSpec, CubeTools } from "./kernel/manifest.ts"
+export type { IdentityDirectory } from "./permissions-contracts.ts"
 
 export type CubeDefinition<Group extends CubeGroup = CubeGroup> = {
   readonly manifest: Manifest

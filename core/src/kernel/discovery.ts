@@ -15,6 +15,8 @@
 // would mean starting with half the cubes and nobody noticing until production.
 
 import { Effect } from "effect"
+import { capabilityRuntime } from "../capability-runtime.ts"
+import { buildCatalogue } from "../catalogue.ts"
 import { type CubeDefinition, decodeCubeExport, validateCubeParts } from "../cube-contract.ts"
 import { busFrom } from "./bus.ts"
 import { installerFor } from "./install.ts"
@@ -29,7 +31,6 @@ import type {
   CommandInfo,
   CommandRunner,
   CommandSpec,
-  CredentialVerifier,
   CubeParts,
   Manifest,
   Subscription,
@@ -137,6 +138,7 @@ export type MountedSystem = {
   readonly liveLinks: () => ReadonlyArray<import("./space.ts").Link>
   /** Parent-masked enablement: a child is off while its parent is off. Use this at the edge. */
   readonly isEnabled: (cube: string) => boolean
+  readonly entityPermissions: import("../permissions-contracts.ts").PermissionService
 }
 
 /**
@@ -169,20 +171,12 @@ export const mount = (
   // Credential verification is a declared capability with exactly one provider and one
   // consumer. Both are named in manifests, so `grep -r providesCredentials` shows the whole
   // arrangement -- the same visibility rule as `managesCubes`.
-  const providers = manifests.filter((m) => m.providesCredentials).map((m) => fullName(m))
-  if (providers.length > 1) throw new DoubleCapabilityError("providesCredentials", providers)
-  const consumers = manifests.filter((m) => m.usesCredentials).map((m) => fullName(m))
-  if (consumers.length > 1) throw new DoubleCapabilityError("usesCredentials", consumers)
   const runners = manifests.filter((m) => m.runsCommands).map((m) => fullName(m))
   if (runners.length > 1) throw new DoubleCapabilityError("runsCommands", runners)
   // The provider fills this during its own `create`; the consumer receives a wrapper that reads
   // it at call time. Late binding on purpose -- otherwise the two cubes would have to be created
   // in a particular order, and mount order is just the order of directory names on disk.
-  const verifierHolder: { current?: CredentialVerifier } = {}
-  const lateBoundVerifier: CredentialVerifier = {
-    verify: (username, password) =>
-      verifierHolder.current ? verifierHolder.current.verify(username, password) : Effect.succeed(undefined),
-  }
+  const capabilities = capabilityRuntime(manifests)
 
   const switches = switchesFrom(manifests.map((m) => ({ name: fullName(m), required: m.required === true })))
 
@@ -257,34 +251,23 @@ export const mount = (
   }
 
   const catalogue = (): Catalogue =>
-    definitions.map(({ name, plugin, definition }) => {
-      const m = definition.manifest
-      const parts = cubes.find((c) => c.name === name)?.parts
-      const endpoints = (parts?.group as { endpoints?: Record<string, { path?: string }> } | undefined)?.endpoints
-      const firstPath = Object.values(endpoints ?? {})[0]?.path
-      return {
-        name,
-        parent: m.parent,
-        entity: m.entity,
-        screen: m.screen === true,
-        agent: m.agent === true,
-        enabled: isEnabled(name),
-        required: m.required === true,
-        system: plugin === null,
-        plugin,
-        prefix: firstPath ? pathPrefix(firstPath) : undefined,
-        publishes: m.publishes ?? [],
-        sortable: m.sortable ?? [],
-        links: liveLinks()
-          .filter((l) => l.from === name)
-          .map((l) => ({ to: l.to, field: l.field, label: l.label })),
-      }
-    })
+    buildCatalogue(
+      definitions.map(({ name, plugin, definition }) => {
+        const group = cubes.find((cube) => cube.name === name)?.parts.group as
+          | { endpoints?: Record<string, { path?: string }> }
+          | undefined
+        const firstPath = Object.values(group?.endpoints ?? {})[0]?.path
+        return { name, plugin, manifest: definition.manifest, ...(firstPath ? { firstPath } : {}) }
+      }),
+      isEnabled,
+      pathPrefix,
+      liveLinks(),
+    )
 
   const cubes: Array<MountedCube> = definitions.map(({ plugin, definition }) => {
     const m = definition.manifest
     const full = fullName(m)
-    const parts = definition.create({
+    const created = definition.create({
       store: storeFor(full, m.tables, m.sortable ?? []),
       bus: bus.for(full, m.publishes),
       catalogue,
@@ -294,16 +277,29 @@ export const mount = (
       // The same declared basis as the switches: writing to the cubes directory is a privilege,
       // and it goes to the one cube that asked for `managesCubes` in the open.
       installer: m.managesCubes ? installerFor() : undefined,
-      credentials: m.usesCredentials ? lateBoundVerifier : undefined,
+      credentials: m.usesCredentials ? capabilities.credentials : undefined,
+      identities: m.usesIdentityDirectory ? capabilities.identities : undefined,
+      entityPermissions: m.usesEntityPermissions ? capabilities.permissions : undefined,
       runCommands: m.runsCommands ? runner : undefined,
     })
+    const parts = capabilities.mediate(full, m, created)
     validateCubeParts(full, parts)
     validateAgentSurface(full, m, parts.group)
     if (m.providesCredentials) {
       if (!parts.credentials) {
         throw new BrokenCubeError(full, "declares credentials but returned none")
       }
-      verifierHolder.current = parts.credentials
+      capabilities.holders.verifier.current = parts.credentials
+    }
+    if (m.providesIdentityDirectory) {
+      if (!parts.identities) throw new BrokenCubeError(full, "declares identity directory but returned none")
+      capabilities.holders.identity.current = parts.identities
+    }
+    if (m.providesEntityPermissions) {
+      if (!parts.entityPermissions) {
+        throw new BrokenCubeError(full, "declares entity permissions but returned none")
+      }
+      capabilities.holders.permission.current = parts.entityPermissions
     }
     for (const s of parts.subscriptions ?? []) subscriptions.push({ cube: full, subscription: s })
 
@@ -326,5 +322,15 @@ export const mount = (
     Effect.runSync(bus.for("qwbe").publish("qwbe/cube.enabled", { cube }))
   })
 
-  return { cubes, switches, bus, permissions, commands, catalogue, liveLinks, isEnabled }
+  return {
+    cubes,
+    switches,
+    bus,
+    permissions,
+    commands,
+    catalogue,
+    liveLinks,
+    isEnabled,
+    entityPermissions: capabilities.permissions,
+  }
 }

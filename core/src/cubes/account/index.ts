@@ -1,27 +1,21 @@
 // User accounts and credential verification. Password hashes never cross this cube boundary.
 
-import { createHash, randomBytes, timingSafeEqual } from "node:crypto"
+import { createHash, randomBytes } from "node:crypto"
 import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema } from "@effect/platform"
 import { Effect, Schema } from "effect"
 import { type CubeTools, defineCube } from "qwbe-core/cube"
 import { Authorization, requirePermission } from "../../kernel/auth-contract.ts"
 import { Forbidden, NotFound } from "../../kernel/errors.ts"
 import { PageOf, PageParams, pageRequest } from "../../kernel/pagination.ts"
+import { identityDirectory } from "./identity.ts"
 import { Account, type AccountRow, publicShape, summary } from "./model.ts"
-import { hashPassword, verifyPassword } from "./password.ts"
+import { constantTimeEquals, hashPassword, verifyPassword } from "./password.ts"
 
 const TABLE = "accounts"
 const ENTITY = "Account"
 
 /** Read-only compatibility for existing prototype databases; successful login upgrades it. */
 const legacyHash = (password: string) => createHash("sha256").update(`cubes-prototype-salt:${password}`).digest("hex")
-
-const constantEquals = (a: string, b: string): boolean => {
-  const ba = Buffer.from(a)
-  const bb = Buffer.from(b)
-  if (ba.length !== bb.length) return false
-  return timingSafeEqual(ba, bb)
-}
 
 const AccountCreate = Schema.Struct({
   username: Schema.String,
@@ -55,6 +49,7 @@ export const cube = defineCube(group, {
     // This cube stores credentials, so it is the one that checks them. Declared here, in the
     // open: `grep -r providesCredentials src/cubes/ plugins/` shows every cube that can.
     providesCredentials: true,
+    providesIdentityDirectory: true,
     permissions: [
       { name: "account:read", roles: ["admin", "reader"] },
       { name: "account:write", roles: ["admin"] },
@@ -90,6 +85,7 @@ export const cube = defineCube(group, {
     })
 
     return {
+      identities: identityDirectory(store, seed),
       /** Unknown users still pay one KDF, limiting username timing disclosure. */
       credentials: {
         verify: (username: string, password: string) =>
@@ -99,7 +95,9 @@ export const cube = defineCube(group, {
             const found = rows.find((a) => a.username === username)
             const expected = found?.passwordHash ?? hashPassword(randomBytes(24).toString("base64url"))
             const legacy = /^[a-f0-9]{64}$/.test(expected)
-            const matches = legacy ? constantEquals(legacyHash(password), expected) : verifyPassword(password, expected)
+            const matches = legacy
+              ? constantTimeEquals(legacyHash(password), expected)
+              : verifyPassword(password, expected)
             if (!found || !matches) return undefined
             if (legacy) yield* store.update(TABLE, found.id, { passwordHash: hashPassword(password) })
             return { id: found.id, username: found.username, roles: found.roles ?? [] }

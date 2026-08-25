@@ -25,11 +25,15 @@ export const detailBehaviour = async ({ api, score, adminHeaders, readerHeaders,
     `http=${unauthenticated.status}`,
   )
   const reader = await api.call(`/bookmarks/${bookmark.body.id}`, { headers: readerHeaders })
-  score.check("a reader with bookmark read permission can open detail", reader.status === 200, `http=${reader.status}`)
+  score.check(
+    "a reader without an entity grant cannot open another user's bookmark",
+    reader.status === 403 && reader.body?.needed === "booktags/bookmarks:entity",
+    `http=${reader.status} needed=${reader.body?.needed}`,
+  )
   const forbidden = await api.call(`/bookmarks/${bookmark.body.id}`, { headers: guestHeaders })
   score.check(
-    "an authenticated role without bookmark read permission is refused",
-    forbidden.status === 403 && forbidden.body?.needed === "booktags/bookmarks:read",
+    "an authenticated role without entity access is refused",
+    forbidden.status === 403 && forbidden.body?.needed === "booktags/bookmarks:entity",
     `http=${forbidden.status} needed=${forbidden.body?.needed}`,
   )
 

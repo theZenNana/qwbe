@@ -161,6 +161,7 @@ test("a nested cube agent opens through the catch-all route and uses its mounted
     entity: null,
     screen: false,
     agent: true,
+    entityPermissions: false,
     publishes: [],
     links: [],
   }
@@ -193,6 +194,7 @@ test("CRM cubes appear and render from catalogue and API contracts without hardc
     onDisk: true,
     screen: false,
     agent: false,
+    entityPermissions: false,
     publishes: [],
     links: [],
   }
@@ -274,6 +276,23 @@ test("lists are paged: 10 per page, with the real total", async ({ page }) => {
   await page.getByRole("button", { name: "next ->" }).click()
   await expect(page.getByText(/11-12 of 12/)).toBeVisible()
   await expect(page.locator("tbody tr")).toHaveCount(2)
+})
+
+test("permissions UI shows provenance, sharing and auditable group administration", async ({ page }) => {
+  await signIn(page)
+  await page.goto(`${WEB}/notes`, { waitUntil: "networkidle" })
+  await expect(page.getByRole("button", { name: "Ale mele", exact: true })).toBeVisible()
+  await expect(page.getByText("CREATED BY ME").first()).toBeVisible()
+  const share = page.getByRole("textbox", { name: "Share cu @username" }).first()
+  await share.fill("@reader")
+  await page.getByRole("button", { name: "TOTAL" }).first().click()
+
+  await page.goto(`${WEB}/permissions`, { waitUntil: "networkidle" })
+  await expect(page.getByRole("heading", { name: "Permissions" })).toBeVisible()
+  await page.getByRole("textbox", { name: "Nume grup" }).fill("Sales")
+  await page.getByRole("button", { name: "Create" }).click()
+  await expect(page.getByRole("combobox", { name: "Grup" })).toContainText("Sales")
+  await expect(page.getByRole("cell", { name: "grant.user" })).toBeVisible()
 })
 
 test("Booktags settings uses the generic paged list without crashing", async ({ page }) => {

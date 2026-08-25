@@ -17,6 +17,8 @@ import { Authorization, requirePermission } from "../../kernel/auth-contract.ts"
 import { BadRequest, Forbidden, NotFound } from "../../kernel/errors.ts"
 import { settingsCommands } from "./commands.ts"
 import { CubeState, InstallFromPayload, InstallFromResult, PackageState } from "./contract.ts"
+import { assignCurrentUserCubeAdmin } from "./permissions.ts"
+import { cubeState } from "./state-view.ts"
 
 const Toggle = Schema.Struct({ enabled: Schema.Boolean }).annotations({ identifier: "Toggle" })
 
@@ -90,39 +92,22 @@ export const cube = defineCube(group, {
     // the system. The kernel refuses it anyway, so the rule sits in two places on purpose.
     required: true,
     managesCubes: true,
+    usesEntityPermissions: true,
     permissions: [
       { name: "settings:read", roles: ["admin", "reader"] },
       { name: "settings:write", roles: ["admin"] },
     ],
   },
 
-  create: ({ catalogue, switches, installer }: CubeTools) => {
-    if (!switches || !installer) {
+  create: ({ catalogue, switches, installer, entityPermissions }: CubeTools) => {
+    if (!switches || !installer || !entityPermissions) {
       // Cannot happen -- the manifest asks for the privilege and the kernel grants it on that
       // basis. If it does, it is a kernel bug, and failing at startup beats a 500 on the first
       // click.
-      throw new Error("settings asked for `managesCubes: true` but received no switches/installer -- kernel bug")
+      throw new Error("settings missing kernel capabilities")
     }
 
-    const state = (name: string) => {
-      const c = catalogue().find((x) => x.name === name)
-      if (!c) return undefined
-      return {
-        name: c.name,
-        parent: c.parent ?? null,
-        enabled: c.enabled,
-        required: c.required,
-        system: c.system,
-        plugin: c.plugin,
-        prefix: c.prefix ?? null,
-        onDisk: installer.cubeOnDisk(c.name, c.plugin),
-        entity: c.entity ?? null,
-        screen: c.screen,
-        agent: c.agent,
-        publishes: c.publishes,
-        links: c.links,
-      }
-    }
+    const state = (name: string) => cubeState(catalogue, installer, name)
 
     return {
       commands: settingsCommands(catalogue, installer),
@@ -156,6 +141,9 @@ export const cube = defineCube(group, {
                 StateFileError: (e) => Effect.die(e),
               }),
             )
+            if (payload.enabled) {
+              yield* assignCurrentUserCubeAdmin(entityPermissions, [path.name]).pipe(Effect.orDie)
+            }
             return state(path.name)!
           }),
 
@@ -175,6 +163,7 @@ export const cube = defineCube(group, {
               // message would hide exactly the part the caller needs.
               catch: (e) => new BadRequest({ message: (e as Error).message }),
             })
+            yield* assignCurrentUserCubeAdmin(entityPermissions, pkg.cubes).pipe(Effect.orDie)
             // Not mounted yet: the kernel reads the disk at startup. Said in the response
             // rather than hoped for.
             return { package: pkg, requiresRestart: true }
@@ -190,6 +179,7 @@ export const cube = defineCube(group, {
               // command below calls this same function, so both surfaces speak identically.
               catch: (e) => new BadRequest({ message: (e as Error).message }),
             })
+            yield* assignCurrentUserCubeAdmin(entityPermissions, result.cubes).pipe(Effect.orDie)
             const { staged, ...pkg } = result
             return { package: pkg, staged, requiresRestart: true }
           }),

@@ -4,7 +4,10 @@
 // business field lands here, two cubes can see it and they have coupled — and coupling through
 // the kernel is harder to spot than an import, because it looks legitimate.
 
+import type { Effect } from "effect"
 import { Schema } from "effect"
+import type { CurrentUser } from "./auth-contract.ts"
+import type { PageRequest } from "./pagination.ts"
 
 export { Pair, Summary } from "../http-contracts.ts"
 
@@ -24,3 +27,14 @@ export const EntityMeta = {
 // cube picks its own public representation and can change it without breaking anyone.
 
 export type SummaryRow = typeof Summary.Type
+
+export type SearchResult = {
+  readonly rows: readonly SummaryRow[]
+  readonly total: number
+}
+
+export type RelationalPart = {
+  readonly search?: (field: string, value: string, page: PageRequest) => Effect.Effect<SearchResult, never, CurrentUser>
+  readonly summaryById?: (id: string) => Effect.Effect<SummaryRow | undefined, never, never>
+  readonly fieldValue?: (id: string, field: string) => Effect.Effect<string | null, never, never>
+}

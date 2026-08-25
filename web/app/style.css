@@ -265,6 +265,59 @@ input {
   margin-top: 12px;
   color: var(--sters);
 }
+.filtre-vizibilitate {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0 0 14px;
+}
+.filtre-vizibilitate button {
+  padding: 4px 9px;
+  font-size: 12px;
+}
+.filtre-vizibilitate button.activ {
+  background: var(--activ);
+  border-color: var(--accent);
+}
+.etichete-provenienta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
+}
+.granturi-active,
+.share-inline,
+.grant-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.granturi-active {
+  flex-basis: 100%;
+}
+.grant-activ {
+  display: inline-flex;
+  gap: 6px;
+  font-size: 12px;
+}
+.grant-actions {
+  margin: 0;
+  padding: 3px 6px;
+  border: 1px solid var(--linie);
+  border-radius: 6px;
+}
+.grant-actions legend {
+  padding: 0 3px;
+  color: var(--sters);
+  font-size: 11px;
+}
+.grant-actions label {
+  display: inline-flex;
+  gap: 2px;
+  align-items: center;
+  font-size: 11px;
+}
 .eroare {
   border: 1px solid #ffcecb;
   background: #ffebe9;

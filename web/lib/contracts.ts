@@ -22,6 +22,22 @@ import {
   SessionToken,
   Summary as SummaryContract,
 } from "qwbe-core/http"
+import type {
+  AuditEvent,
+  CubeAdmin,
+  EntityGrant,
+  EntityVisibility,
+  PermissionGroup,
+  VisibilityView,
+} from "qwbe-core/permissions"
+import {
+  AuditEventPageSchema as AuditEventPageContract,
+  CubeAdminSchema as CubeAdminContract,
+  EntityGrantSchema as EntityGrantContract,
+  EntityVisibilitySchema as EntityVisibilityContract,
+  EntityVisibilityPageSchema as EntityVisibilityPageContract,
+  PermissionGroupSchema as PermissionGroupContract,
+} from "qwbe-core/permissions"
 
 const UnknownRecord = Schema.Record({ key: Schema.String, value: Schema.Unknown })
 
@@ -60,6 +76,15 @@ export const OpenApiDocumentSchema = Schema.Struct({
 })
 
 export const UnknownRowSchema = UnknownRecord
+
+export const EntityVisibilitySchema = EntityVisibilityContract
+export const EntityVisibilityPageSchema = EntityVisibilityPageContract
+export type { EntityVisibility, VisibilityView }
+export const EntityGrantSchema = EntityGrantContract
+export const PermissionGroupSchema = PermissionGroupContract
+export const CubeAdminSchema = CubeAdminContract
+export const AuditEventPageSchema = AuditEventPageContract
+export type { AuditEvent, CubeAdmin, EntityGrant, PermissionGroup }
 
 export const LinksForSchema = LinksForContract
 export type LinksFor = typeof LinksForContract.Type

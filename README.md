@@ -8,8 +8,8 @@ Licensed under the [MIT License](./LICENSE). The three package manifests stay
 `private: true` because this repository is not published as three npm packages;
 that flag does not make the source license private.
 
-Implemented now: six core cubes, one example plugin (a runtime hierarchy), one relation
-space, package lifecycle, runtime permissions, metadata-driven screens, CLI commands, paging
+Implemented now: seven core cubes, one example plugin (a runtime hierarchy), one relation
+space, package lifecycle, entity ownership and sharing, metadata-driven screens, CLI commands, paging
 and declared data-file migrations. Not implemented: application namespaces beyond one
 hierarchy level, external rules, workflows, schema migrations, multi-tenancy or process
 isolation. Those belong to the roadmap in `wiki/qwbe/DIRECTION.md`, not to current capability.
@@ -97,6 +97,7 @@ by setup. Browser binaries remain a separate Playwright install.
 node probes/smoke.mjs                                          # 27 - behaviour, login to logout
 node probes/decoupling.mjs                                     # 22 - the invariant, by SHA-256 fingerprint
 node probes/security.mjs                                       # 35 - attacks on this README's own claims
+node probes/permissions.mjs                                    # ownership, sharing, visibility and audit
 node probes/restart.mjs                                        #  3 - survives restarts against one database
 node probes/drift.mjs                                         # 11 - five disk/process drift states
 node probes/admin-restart.mjs                                 #  5 - admin restart returns under npm start
@@ -207,7 +208,7 @@ grep -r Account cubes/notes/     → nothing
 grep -r notes   cubes/account/   → nothing
 ```
 
-## The four legal paths between cubes - and the only ones
+## The legal paths between cubes - and the only ones
 
 | Path | For | Travels by |
 |---|---|---|
@@ -215,6 +216,12 @@ grep -r notes   cubes/account/   → nothing
 | **bus** | "something happened" | string |
 | **space** | the link between two cubes | string, declared by a third party |
 | **commands** | one cube's command, run from the CLI | string, dispatched by the kernel |
+| **capability** | a narrow typed service declared in manifests | public `qwbe-core/*` contract, injected by the kernel |
+
+Permissions uses the capability path. Auth still owns identity and sessions; Account exposes only
+stable `id` and `username`; the Permissions cube owns cube admins, entity ownership, grants,
+personal Hide/Unhide and the audit trace. A consuming cube declares `usesEntityPermissions` and
+receives the public `qwbe-core/permissions` service. It never imports the Permissions cube.
 
 A direct import is stopped by `dependency-cruiser`, exit 1. Verified by deliberate violation,
 not by reading the config: cube→cube, kernel→cube, a cube importing the store factory, and a
