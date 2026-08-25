@@ -56,3 +56,6 @@ web/tsconfig.tsbuildinfo
 core/store/
 core/plugins/*/
 !core/plugins/example-plugin/
+
+# per-machine agent instructions; AGENTS.md is the tracked one
+/CLAUDE.md
