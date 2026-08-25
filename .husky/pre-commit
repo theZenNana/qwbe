@@ -46,6 +46,23 @@ fi
 # secretlint reads .secretlintrc.json: API keys, tokens, private keys, basic-auth URLs.
 echo "$staged" | xargs npx --no-install secretlint || exit 1
 
+# gitleaks is the second scanner, with its own rule set (owner requirement, 2026-08-25: scan on
+# every commit). It is a standalone binary, not an npm package, so it has to be on the machine:
+# PATH or ~/.local/bin. Missing binary fails the commit rather than silently skipping the scan.
+gitleaks_bin=$(command -v gitleaks || true)
+if [ -z "$gitleaks_bin" ] && [ -x "$HOME/.local/bin/gitleaks" ]; then
+  gitleaks_bin="$HOME/.local/bin/gitleaks"
+fi
+if [ -z "$gitleaks_bin" ]; then
+  echo "x gitleaks is not installed (looked in PATH and ~/.local/bin)." >&2
+  echo "  Install it, then commit again. Do not skip this with --no-verify." >&2
+  exit 1
+fi
+"$gitleaks_bin" git --pre-commit --staged --redact --no-banner || {
+  echo "x gitleaks found a secret in the staged changes. Remove it, then commit again." >&2
+  exit 1
+}
+
 # --- 4. ASCII on added lines ---------------------------------------------------------------------
 # --added, not whole files: see the comment at the top of the script for why.
 node scripts/check-ascii.mjs --added || exit 1
