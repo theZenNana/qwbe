@@ -66,6 +66,28 @@ The frontend reads the API address from `NEXT_PUBLIC_QWBE_API` (default `http://
 Demo records use `example.com`, the IANA-reserved documentation domain; they are fixtures, not
 real contacts or service dependencies.
 
+### Access from another machine (LAN)
+
+Out of the box everything assumes `127.0.0.1`. To run Qwbe on one machine and open it from
+another, three things must change — miss any one of them and the symptom is confusingly silent:
+
+```bash
+NEXT_PUBLIC_QWBE_API=http://<host-ip>:4500 QWBE_DEV_ORIGINS=<host-ip> npm start
+```
+
+- `NEXT_PUBLIC_QWBE_API` — the browser, not the server, calls the API; leave it default and the
+  visitor's browser calls *its own* 127.0.0.1.
+- `QWBE_DEV_ORIGINS` — Next dev refuses to serve its chunks to a page opened under an unknown
+  host. The page then sticks at the initial `…` and never hydrates, with **no console error and
+  no API request** — the only trace is `Blocked cross-origin request` in the dev server's own
+  log. Comma-separate multiple hosts.
+- The host firewall must allow TCP 4500 and 4510 (e.g. firewalld: add both ports, then
+  `--reload` — the `--permanent` flag alone does not touch the running rules).
+
+Locked out because the printed bootstrap password is gone (say, the first start ran in a
+terminal nobody kept)? Stop Qwbe, set `QWBE_ADMIN_PASSWORD`, delete `data/*.sqlite*` — this
+**erases all data**, acceptable only on a fresh install — and start again to reseed.
+
 The Playwright suite (`npm run e2e`, `npm run screenshots`) uses the root dependencies installed
 by setup. Browser binaries remain a separate Playwright install.
 
