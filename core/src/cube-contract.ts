@@ -4,18 +4,18 @@ import type { CubeGroup, CubeParts, CubeTools, Manifest } from "./kernel/manifes
 export type { CommandSpec, CubeTools } from "./kernel/manifest.ts"
 export type { IdentityDirectory } from "./permissions-contracts.ts"
 
-export type CubeDefinition<Group extends CubeGroup = CubeGroup> = {
+export type CubeDefinition<Group extends CubeGroup = CubeGroup, Provided = never> = {
   readonly manifest: Manifest
-  readonly create: (tools: CubeTools) => CubeParts<Group>
+  readonly create: (tools: CubeTools) => CubeParts<Group, Provided>
 }
 
 /** Preserve the group/handler relationship until runtime discovery erases the concrete group. */
-export const defineCube = <const Group extends CubeGroup>(
+export const defineCube = <const Group extends CubeGroup, Provided = never>(
   group: Group,
-  definition: Omit<CubeDefinition<Group>, "create"> & {
-    readonly create: (tools: CubeTools) => Omit<CubeParts<Group>, "group"> & { readonly group?: never }
+  definition: Omit<CubeDefinition<Group, Provided>, "create"> & {
+    readonly create: (tools: CubeTools) => Omit<CubeParts<Group, Provided>, "group"> & { readonly group?: never }
   },
-): CubeDefinition<Group> => ({
+): CubeDefinition<Group, Provided> => ({
   manifest: definition.manifest,
   create: (tools) => ({ group, ...definition.create(tools) }),
 })

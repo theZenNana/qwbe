@@ -13,12 +13,13 @@
 // third party, so neither side knows the other exists. See `space.ts`.
 
 import type { HttpApiEndpoint, HttpApiGroup } from "@effect/platform"
-import type { Effect } from "effect"
+import type { Effect, Layer } from "effect"
 import { Schema } from "effect"
 import type { Catalogue } from "../catalogue.ts"
 import type { IdentityDirectory, PermissionService } from "../permissions-contracts.ts"
 import type { RelationalPart } from "./entity.ts"
 import type { Page, PageRequest } from "./pagination.ts"
+import type { Registry } from "./registry.ts"
 import type { RequiredCubeError, StateFileError, UnknownCubeError } from "./state.ts"
 
 /** A permission invented by a cube, with the roles that receive it by default. */
@@ -339,7 +340,7 @@ export type CubeHandlers<Group extends CubeGroup> = {
   >
 }
 
-export type CubeParts<Group extends CubeGroup = CubeGroup> = {
+export type CubeParts<Group extends CubeGroup = CubeGroup, Provided = never> = {
   /** The cube's HttpApi contract (`HttpApiGroup`). */
   readonly group: Group
   readonly handlers: CubeHandlers<Group>
@@ -358,13 +359,19 @@ export type CubeParts<Group extends CubeGroup = CubeGroup> = {
   readonly identities?: IdentityDirectory
   readonly entityPermissions?: PermissionService
   /**
-   * Effect layers the cube provides to the whole system.
+   * Effect layers the cube contributes to the whole system.
    *
    * Its only present use: the `auth` cube IMPLEMENTS the `Authorization` tag declared in the
    * kernel. General mechanism, not an auth special case -- but also the only way a cube can
    * affect what others see, so it gets read carefully at review.
+   *
+   * Requirements are bounded to `Registry` -- the only service the kernel provides back to a
+   * cube layer. What the layer PROVIDES is the `Provided` parameter, inferred per cube at
+   * `defineCube` and kept opaque to the kernel: with runtime discovery kept, the exact union
+   * across cubes is unknowable, so the composition seam in `main.ts` erases it exactly once
+   * (the audited adapter, QWB-19).
    */
-  readonly layers?: unknown
+  readonly layers?: Layer.Layer<Provided, unknown, Registry>
 }
 
 // The gates and identity helpers (fullName, storeFileName, pathPrefix, validateManifest,
