@@ -21,6 +21,9 @@ export const fingerprints = (dir) => {
   const walk = (d) => {
     for (const entry of readdirSync(d, { withFileTypes: true })) {
       if (entry.name === "node_modules") continue
+      // Stale links (e.g. a venv lib64) must not crash fingerprinting; links are never
+      // followed on purpose, so fingerprints cover real files only.
+      if (entry.isSymbolicLink()) continue
       const p = join(d, entry.name)
       if (entry.isDirectory()) walk(p)
       else if (statSync(p).isFile()) {
