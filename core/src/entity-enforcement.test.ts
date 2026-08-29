@@ -173,7 +173,11 @@ describe("kernel entity permission mediation", () => {
       "Secret",
       custom,
       {
-        get: (_request: unknown) => Effect.sync(() => (++calls, { id: "s1", secret: "leak" })),
+        get: (_request: unknown) =>
+          Effect.sync(() => {
+            calls += 1
+            return { id: "s1", secret: "leak" }
+          }),
       },
       {
         authorize: () => Effect.succeed({ allowed: false, source: "none" }),

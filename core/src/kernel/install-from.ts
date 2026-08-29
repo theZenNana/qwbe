@@ -40,12 +40,9 @@ import { includePackageSourcePath, packageSourceFingerprint, validatePackageSour
 import type { CubePackage } from "./manifest.ts"
 
 /** Same refusal type the store flow throws - re-declared here to keep the seam acyclic. */
-export class InstallError extends Error {
-  constructor(message: string) {
-    super(message)
-    this.name = "InstallError"
-  }
-}
+import { InstallError } from "./manifest.ts"
+
+export { InstallError }
 
 /** Provenance of a staged package: where it came from and what it contained, fingerprinted. */
 export const PROVENANCE = "qwbe-source.json"

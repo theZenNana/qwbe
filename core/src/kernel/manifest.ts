@@ -288,11 +288,26 @@ export type CubePackage = Readonly<{
   conflicts: readonly string[]
 }>
 
+/**
+ * Every refusal of the package installer: name grammar, path traversal, lying manifest,
+ * missing artifact. One class on purpose -- the message already says what was refused and
+ * why; callers react to the channel, not the class.
+ */
+export class InstallError extends Error {
+  /** The tag `Effect.catchTag` switches on -- the channel, not the class, is the contract. */
+  readonly _tag = "InstallError"
+  override name = "InstallError"
+}
+
+/** The installer's only failure channel: every mutating action fails with `InstallError`. */
+type InstallOutcome<A> = Effect.Effect<A, InstallError>
+
 export type CubeInstaller = Readonly<{
   available: () => readonly CubePackage[]
   /** Disk state for exact discovery location; never exposes a path. */
   cubeOnDisk: (c: string, plugin: string | null) => boolean
-  install: (name: string) => CubePackage
+  /** Fails with `InstallError` instead of throwing: the refusal travels in the channel. */
+  install: (name: string) => InstallOutcome<CubePackage>
   /**
    * The administrative exception to "never a path": install from a directory an administrator
    * pointed at. The path is validated, the tree is copied into the store (symlinks and special
@@ -302,10 +317,10 @@ export type CubeInstaller = Readonly<{
    * `staged` tells the caller whether the store copy was created by this call or an identical
    * one was already there (same fingerprint - idempotent reinstall).
    */
-  stageAndInstall: (sourceDirectory: string) => CubePackage & { readonly staged: boolean }
-  remove: (cube: string, plugin: string | null) => { readonly removed: string }
+  stageAndInstall: (sourceDirectory: string) => InstallOutcome<CubePackage & { readonly staged: boolean }>
+  remove: (cube: string, plugin: string | null) => InstallOutcome<{ readonly removed: string }>
   /** Package name keeps rollback possible before its cubes exist in the mounted catalogue. */
-  uninstallPackage: (name: string) => { readonly removed: string; readonly cubes: readonly string[] }
+  uninstallPackage: (name: string) => InstallOutcome<{ readonly removed: string; readonly cubes: readonly string[] }>
   /** Kernel owns process lifetime; settings receives only this narrow action. */
   restart: () => void
 }>

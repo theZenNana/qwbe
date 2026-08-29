@@ -156,13 +156,12 @@ export const cube = defineCube(group, {
         install: ({ path }: { path: { name: string } }) =>
           Effect.gen(function* () {
             yield* requirePermission("settings:write")
-            const pkg = yield* Effect.try({
-              try: () => installer.install(path.name),
-              // Every refusal from the installer already says what was refused and why --
-              // unknown package, bad name, destination taken. Rewriting them into a generic
-              // message would hide exactly the part the caller needs.
-              catch: (e) => new BadRequest({ message: (e as Error).message }),
-            })
+            // Every refusal from the installer already says what was refused and why --
+            // unknown package, bad name, destination taken. Rewriting them into a generic
+            // message would hide exactly the part the caller needs.
+            const pkg = yield* installer
+              .install(path.name)
+              .pipe(Effect.catchTag("InstallError", (e) => new BadRequest({ message: e.message })))
             yield* assignCurrentUserCubeAdmin(entityPermissions, pkg.cubes).pipe(Effect.orDie)
             // Not mounted yet: the kernel reads the disk at startup. Said in the response
             // rather than hoped for.
@@ -172,13 +171,12 @@ export const cube = defineCube(group, {
         installFrom: ({ payload }: { payload: { path: string } }) =>
           Effect.gen(function* () {
             yield* requirePermission("settings:write")
-            const result = yield* Effect.try({
-              try: () => installer.stageAndInstall(payload.path),
-              // Same pass-through as install: the kernel's refusals name the problem -
-              // relative path, symlink in the tree, lying manifest, name clash. The CLI
-              // command below calls this same function, so both surfaces speak identically.
-              catch: (e) => new BadRequest({ message: (e as Error).message }),
-            })
+            // Same pass-through as install: the kernel's refusals name the problem -
+            // relative path, symlink in the tree, lying manifest, name clash. The CLI
+            // command below calls this same function, so both surfaces speak identically.
+            const result = yield* installer
+              .stageAndInstall(payload.path)
+              .pipe(Effect.catchTag("InstallError", (e) => new BadRequest({ message: e.message })))
             yield* assignCurrentUserCubeAdmin(entityPermissions, result.cubes).pipe(Effect.orDie)
             const { staged, ...pkg } = result
             return { package: pkg, staged, requiresRestart: true }
@@ -202,10 +200,9 @@ export const cube = defineCube(group, {
                 }),
               )
             }
-            const result = yield* Effect.try({
-              try: () => installer.remove(path.name, current.plugin),
-              catch: (e) => new BadRequest({ message: (e as Error).message }),
-            })
+            const result = yield* installer
+              .remove(path.name, current.plugin)
+              .pipe(Effect.catchTag("InstallError", (e) => new BadRequest({ message: e.message })))
             return { removed: result.removed, requiresRestart: true }
           }),
 
@@ -225,10 +222,9 @@ export const cube = defineCube(group, {
                 new BadRequest({ message: `Refused: that package holds required cube(s): ${clash.join(", ")}.` }),
               )
             }
-            const result = yield* Effect.try({
-              try: () => installer.uninstallPackage(path.name),
-              catch: (e) => new BadRequest({ message: (e as Error).message }),
-            })
+            const result = yield* installer
+              .uninstallPackage(path.name)
+              .pipe(Effect.catchTag("InstallError", (e) => new BadRequest({ message: e.message })))
             return { removed: result.removed, requiresRestart: true }
           }),
 

@@ -34,53 +34,35 @@
 // does not mount it. The caller is told `requiresRestart: true` rather than being shown a route
 // list that is not live yet -- a page that lies about what happened is worse than one that asks
 // you to restart.
+//
+// LAYOUT (split for the size cap): the path guards, allowed destinations and the Effect bridge
+// live in `install-guards.ts`; the methods that look at the installed state (cubeOnDisk,
+// remove, restart) in `install-lifecycle.ts`. This file keeps the store reader and the
+// install/stage/uninstall engine.
 
-import { exec } from "node:child_process"
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs"
 import { dirname, join, resolve, sep } from "node:path"
-import { fileURLToPath } from "node:url"
-import { isPackageCubeIdentity } from "../package-source.ts"
 import { InstallError, PROVENANCE, stageAndInstall as stageAndInstallFor } from "./install-from.ts"
+import {
+  checkName,
+  cubesDir,
+  destinationOf,
+  lifecycleInstaller,
+  NAME,
+  pluginsDir,
+  srcDir,
+  tried,
+  under,
+} from "./install-parts.ts"
 import type { CubeInstaller, CubePackage } from "./manifest.ts"
-import { identitySegments } from "./manifest-validation.ts"
 
 export { InstallError }
 
-const here = dirname(fileURLToPath(import.meta.url))
-const srcDir = resolve(here, "..")
-
 /** Where installable packages sit. Overridable so the probes can point at a scratch copy. */
 const storeDir = resolve(process.env.QWBE_STORE_DIR ?? join(srcDir, "..", "store"))
-const cubesDir = resolve(join(srcDir, "cubes"))
-const pluginsDir = resolve(join(srcDir, "..", "plugins"))
 
 /** The metadata file that makes a directory in the store a package rather than scratch. */
 const MANIFEST = "qwbe-package.json"
-
-/** Package and plugin slugs. Cube identities use `isPackageCubeIdentity` below. */
-const NAME = /^[a-z][a-z0-9-]{0,31}$/
-
-/**
- * Guard every path that leaves this module.
- *
- * `resolve` collapses `..` before the check, so a name that slipped through the pattern still
- * cannot climb out of its root. The trailing separator matters: without it, `/plugins-evil`
- * passes a `startsWith("/plugins")` test.
- */
-const under = (root: string, path: string): string => {
-  const full = resolve(path)
-  if (full !== root && !full.startsWith(root + sep)) {
-    throw new InstallError(`refused: resolved path "${full}" is outside "${root}"`)
-  }
-  return full
-}
-
-const checkName = (kind: string, name: string): string => {
-  if (!(kind === "cube" ? isPackageCubeIdentity(name) : NAME.test(name))) {
-    throw new InstallError(`refused: ${kind} name "${name}" is not allowed.`)
-  }
-  return name
-}
 
 const sizeOf = (dir: string): number => {
   let total = 0
@@ -115,9 +97,6 @@ const cubesOnDisk = (): ReadonlyArray<{ cube: string; from: string }> => {
   }
   return found
 }
-
-const destinationOf = (pkg: { name: string; kind: "cube" | "plugin" }): string =>
-  pkg.kind === "plugin" ? under(pluginsDir, join(pluginsDir, pkg.name)) : under(cubesDir, join(cubesDir, pkg.name))
 
 /** Store bookkeeping files that are not part of the cube and never reach the destination. */
 const isBookkeeping = (src: string): boolean => src.endsWith(sep + MANIFEST) || src.endsWith(sep + PROVENANCE)
@@ -231,72 +210,41 @@ const readPackageAt = (name: string, dir: string): CubePackage => {
 
 const readPackage = (name: string): CubePackage => readPackageAt(name, under(storeDir, join(storeDir, name)))
 
-export const installerFor = (): CubeInstaller => ({
-  cubeOnDisk: (cube: string, plugin: string | null) => {
-    // Discovery predates the package slug grammar and mounts any non-hidden directory. This
-    // read capability must describe that state without turning the whole settings catalogue
-    // into a 500. Write operations below remain strict and still call checkName.
-    if (identitySegments(cube).some((s) => !NAME.test(s)) || (plugin !== null && !NAME.test(plugin))) return false
-    const base = plugin ? join(pluginsDir, plugin, "cubes") : cubesDir
-    return existsSync(under(base, join(base, ...identitySegments(cube))))
-  },
+export const installerFor = (): CubeInstaller => {
+  const stageAndInstallSync = stageAndInstallFor({ storeDir, readPackageAt, installExisting })
 
-  available: () => {
-    if (!existsSync(storeDir)) return []
-    return readdirSync(storeDir, { withFileTypes: true })
-      .filter((e) => e.isDirectory() && NAME.test(e.name))
-      .flatMap((e) => {
-        try {
-          return [readPackage(e.name)]
-        } catch {
-          // A malformed package in the store must not take the whole list down -- the page has
-          // to keep working so you can install the ones that are fine.
-          return []
+  return {
+    ...lifecycleInstaller(),
+
+    uninstallPackage: (name: string) =>
+      tried(() => {
+        const pkg = readPackage(name)
+        const to = destinationOf(pkg)
+        if (!existsSync(to)) {
+          throw new InstallError(`refused: "${name}" is not installed -- nothing at "${to.replace(srcDir, "src")}"`)
         }
-      })
-      .sort((a, b) => a.name.localeCompare(b.name))
-  },
+        rmSync(to, { recursive: true, force: true })
+        return { removed: to.replace(resolve(srcDir, ".."), "."), cubes: pkg.cubes }
+      }),
 
-  install: (name: string) => installExisting(name),
-
-  uninstallPackage: (name: string) => {
-    const pkg = readPackage(name)
-    const to = destinationOf(pkg)
-    if (!existsSync(to)) {
-      throw new InstallError(`refused: "${name}" is not installed -- nothing at "${to.replace(srcDir, "src")}"`)
-    }
-    rmSync(to, { recursive: true, force: true })
-    return { removed: to.replace(resolve(srcDir, ".."), "."), cubes: pkg.cubes }
-  },
-
-  stageAndInstall: stageAndInstallFor({ storeDir, readPackageAt, installExisting }),
-
-  // Reply first, die second -- the caller must hear "yes" before the port goes away. The delay is
-  // what makes that true; without it the response and the exit race, and the loser is the person
-  // clicking the button.
-  restart: () => {
-    setTimeout(() => {
-      if ((process.env.QWBE_RESTART_MODE ?? "inband") === "command") {
-        const cmd = process.env.QWBE_RESTART_CMD ?? "systemctl --user restart qwbe"
-        exec(cmd, (e) => {
-          if (e) console.error(`[install] restart command failed: ${e.message}`)
+    available: () => {
+      if (!existsSync(storeDir)) return []
+      return readdirSync(storeDir, { withFileTypes: true })
+        .filter((e) => e.isDirectory() && NAME.test(e.name))
+        .flatMap((e) => {
+          try {
+            return [readPackage(e.name)]
+          } catch {
+            // A malformed package in the store must not take the whole list down -- the page has
+            // to keep working so you can install the ones that are fine.
+            return []
+          }
         })
-      } else {
-        process.exit(0)
-      }
-    }, 300)
-  },
+        .sort((a, b) => a.name.localeCompare(b.name))
+    },
 
-  remove: (cube: string, plugin: string | null) => {
-    checkName("cube", cube)
-    const target = plugin
-      ? under(pluginsDir, join(pluginsDir, checkName("plugin", plugin)))
-      : under(cubesDir, join(cubesDir, cube))
+    install: (name: string) => tried(() => installExisting(name)),
 
-    if (!existsSync(target)) {
-      throw new InstallError(`refused: nothing to remove at "${target.replace(srcDir, "src")}"`)
-    }
-    rmSync(target, { recursive: true, force: true })
-    return { removed: target.replace(resolve(srcDir, ".."), ".") }
-  },
-})
+    stageAndInstall: (sourceDirectory: string) => tried(() => stageAndInstallSync(sourceDirectory)),
+  }
+}

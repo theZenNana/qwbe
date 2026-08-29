@@ -37,10 +37,7 @@ export const settingsCommands = (catalogue: Catalogue, installer: Installer) => 
         }
         // The same kernel function the HTTP endpoint calls - one validation, one set of
         // errors, two thin adapters.
-        const result = yield* Effect.try({
-          try: () => installer.stageAndInstall(sourcePath),
-          catch: (e) => (e as Error).message,
-        })
+        const result = yield* installer.stageAndInstall(sourcePath).pipe(Effect.mapError((e) => e.message))
         return (
           `installed ${result.name} (${result.kind}, cubes: ${result.cubes.join(", ")}) ` +
           `${result.staged ? "staged in store" : "reused identical store copy"} - restart required`
