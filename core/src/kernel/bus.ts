@@ -15,7 +15,8 @@
 // real, this file changes — not the contract cubes see.
 
 import { Effect } from "effect"
-import type { CubeBus, Subscription } from "./manifest.ts"
+import type { Subscription } from "../catalogue.ts"
+import type { CubeBus } from "./manifest.ts"
 
 export type JournalEntry = {
   readonly event: string

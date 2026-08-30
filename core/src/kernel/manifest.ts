@@ -15,7 +15,7 @@
 import type { HttpApiEndpoint, HttpApiGroup } from "@effect/platform"
 import type { Effect, Layer } from "effect"
 import { Schema } from "effect"
-import type { Catalogue } from "../catalogue.ts"
+import type { Catalogue, CustomFieldTools, Subscription } from "../catalogue.ts"
 import type { IdentityDirectory, PermissionService } from "../permissions-contracts.ts"
 import type { RelationalPart } from "./entity.ts"
 import type { Page, PageRequest } from "./pagination.ts"
@@ -231,28 +231,6 @@ export type CredentialVerifier = {
 }
 
 export type { RelationalPart, SearchResult } from "./entity.ts"
-
-/**
- * The narrow tool the kernel lends a cube declaring `providesCustomFields` (QWB-46).
- *
- * `register` publishes the cube's ACTIVE definitions per target cube; the catalogue's metadata
- * appends them marked `custom: true`, and a frontend can tell them apart from static fields.
- * `rows` reads a target cube's rows so the provider can report ORPHANED values -- values still
- * sitting in a row's `custom` sub-object whose definition was deleted. Values are never handed
- * over for writing: they are written through the target cube's own API and store, nowhere else.
- */
-export type CustomFieldTools = {
-  readonly register: (provide: (cube: string) => ReadonlyArray<import("../catalogue.ts").CustomFieldDefinition>) => void
-  readonly rows: (
-    cube: string,
-  ) => Effect.Effect<ReadonlyArray<{ readonly id: string; readonly custom: Record<string, unknown> }>, never, never>
-}
-
-/** A subscription to an event, by string name. See `bus.ts`. */
-export type Subscription = {
-  readonly event: string
-  readonly handle: (payload: unknown) => Effect.Effect<void, never, never>
-}
 
 /**
  * What a cube's `index.ts` exports. A single export, named `cube`.

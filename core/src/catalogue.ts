@@ -1,3 +1,4 @@
+import type { Effect } from "effect"
 import { deriveAllMetadata, type MetadataCube, metadataHash } from "./metadata/metadata.ts"
 import type { CubeMetadata, FieldMetadata } from "./metadata/schemas.ts"
 
@@ -53,6 +54,12 @@ type CatalogueDefinition = Readonly<{
 // hands it at mount), and everything the kernel publishes about fields -- this catalogue's
 // metadata -- appends the provider's active definitions, marked `custom: true`.
 
+/** A subscription to an event, by string name. See `bus.ts`. */
+export type Subscription = {
+  readonly event: string
+  readonly handle: (payload: unknown) => Effect.Effect<void, never, never>
+}
+
 /** One active custom-field definition, as the providing cube reports it. */
 export type CustomFieldDefinition = {
   readonly name: string
@@ -66,6 +73,22 @@ export type CustomFieldDefinition = {
 export type CustomFieldProvider = (cube: string) => ReadonlyArray<CustomFieldDefinition>
 
 const customFieldProviders: Array<CustomFieldProvider> = []
+
+/**
+ * The narrow tool the kernel lends a cube declaring `providesCustomFields` (QWB-46).
+ *
+ * `register` publishes the cube's ACTIVE definitions per target cube; the catalogue's metadata
+ * appends them marked `custom: true`, and a frontend can tell them apart from static fields.
+ * `rows` reads a target cube's rows so the provider can report ORPHANED values -- values still
+ * sitting in a row's `custom` sub-object whose definition was deleted. Values are never handed
+ * over for writing: they are written through the target cube's own API and store, nowhere else.
+ */
+export type CustomFieldTools = {
+  readonly register: (provide: (cube: string) => ReadonlyArray<CustomFieldDefinition>) => void
+  readonly rows: (
+    cube: string,
+  ) => Effect.Effect<ReadonlyArray<{ readonly id: string; readonly custom: Record<string, unknown> }>, never, never>
+}
 
 /** Called by the kernel at mount, once per cube declaring `providesCustomFields`. */
 export const registerCustomFieldProvider = (provider: CustomFieldProvider): void => {

@@ -14,6 +14,11 @@
 // `closeAll`, `ForeignTableError`, `checkUniqueTables`, `DuplicateTableError` -- so the mount
 // code and every cube stay untouched. The implementation lives in `pg/`.
 
+import { Effect } from "effect"
+import type { CustomFieldTools } from "../catalogue.ts"
+import { registerCustomFieldProvider } from "../catalogue.ts"
+import { storeFor } from "../pg/store.ts"
+
 export { closeAll, databaseUrl, initStore } from "../pg/db.ts"
 export { ForeignTableError } from "../pg/errors.ts"
 export { storeFor } from "../pg/store.ts"
@@ -54,3 +59,36 @@ export const checkUniqueTables = (
     if (list.length > 1) throw new DuplicateTableError(table, list)
   }
 }
+
+// --- QWB-46: the tool for the one cube declaring `providesCustomFields` ---
+//
+// `register` feeds the catalogue's provider registry (catalogue.ts); `rows` reads a target
+// cube's rows through the target's OWN store -- its schema, its role, the same trusted
+// construction the mount itself uses -- so orphan reporting never needs a sidecar copy of the
+// values. The finder is passed in lazily: at mount, the mounted-cubes list does not exist yet.
+export const customFieldToolsFor = (
+  find: (name: string) =>
+    | {
+        readonly manifest: { readonly tables?: readonly string[]; readonly sortable?: readonly string[] }
+      }
+    | undefined,
+): CustomFieldTools => ({
+  register: (provide) => registerCustomFieldProvider(provide),
+  rows: (cube) =>
+    Effect.gen(function* () {
+      const target = find(cube)
+      if (!target) return []
+      const tables = target.manifest.tables ?? []
+      const out: Array<{ id: string; custom: Record<string, unknown> }> = []
+      for (const table of tables) {
+        const rows = yield* storeFor(cube, tables, target.manifest.sortable ?? []).all<Record<string, unknown>>(table)
+        for (const row of rows) {
+          const custom = row.custom
+          if (typeof custom === "object" && custom !== null && !Array.isArray(custom)) {
+            out.push({ id: String(row.id), custom: custom as Record<string, unknown> })
+          }
+        }
+      }
+      return out
+    }),
+})
