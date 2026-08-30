@@ -7,7 +7,6 @@
 import { mkdirSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import pg from "pg"
 import { coreDir, dropDatabase, freePort, makeScore, scratchDatabase, startServer } from "./lib.mjs"
 import { plantAuthSchema, schemaThere } from "./pg-scratch.mjs"
 

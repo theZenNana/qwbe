@@ -74,7 +74,7 @@ describe("CubeStore over Postgres", () => {
   it("rolls the whole transaction back: no row, no outbox entry", async () => {
     const before = await outboxCount()
     await assert.rejects(() =>
-      withRole("pgtest", async (c: { query: (sql: string, v?: unknown[]) => Promise<any> }) => {
+      withRole("pgtest", async (c: { query: (sql: string, v?: unknown[]) => Promise<unknown> }) => {
         const id = `itm-${Math.random().toString(16).slice(2, 10)}`
         await c.query(
           `INSERT INTO "pgtest"."items" (id, type, created_at, deleted, version, body)
