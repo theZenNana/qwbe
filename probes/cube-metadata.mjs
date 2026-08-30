@@ -75,8 +75,8 @@ try {
       byName.get("createdAt")?.editable === false,
   )
   score.check(
-    "a schema fingerprint is published for every cube; an undeclared version is null",
-    /^[0-9a-f]{64}$/.test(contracts.body?.schemaHash ?? "") && contracts.body?.version === null,
+    "a schema fingerprint is published, and the declared version travels with it",
+    /^[0-9a-f]{64}$/.test(contracts.body?.schemaHash ?? "") && contracts.body?.version === "1.0.0",
   )
   const driftMeta = await metadataOf("metadrift")
   score.check(
