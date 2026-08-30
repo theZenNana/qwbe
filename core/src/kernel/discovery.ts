@@ -255,7 +255,9 @@ export const mount = (
     const m = definition.manifest
     const full = fullName(m)
     const created = definition.create({
-      store: storeFor(full, m.tables, m.sortable ?? []),
+      // The batch capability is a declared privilege (`usesBatch`): a cube that did not ask
+      // gets the six-operation store only. See manifest.ts for why it is declared, not assumed.
+      store: storeFor(full, m.tables, m.sortable ?? [], m.usesBatch === true),
       bus: bus.for(full, m.publishes),
       catalogue,
       permissions: () => permissions,

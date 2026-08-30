@@ -116,6 +116,16 @@ which the row changed and the event did not. A relay to Elasticsearch, or to any
 later ticket and is explicitly out of phase 1. We are not building a queue now; we are making
 sure that when we do, the history is already there and complete.
 
+EXEMPTION, added with the staging cube (QWB-45): the raw SQL batch capability writes NO outbox
+rows. Staging is the only holder of the capability (`grep -r usesBatch`) and uses it for three
+bulk operations -- a multi-row import (up to 500 rows per INSERT), the aggregation passes behind
+the profile, and the two-table delete of a whole set. Emitting one outbox row per imported row
+would double the write cost of a 100k-row import and flood the outbox with rows whose only
+future consumer would be "the set was imported" -- a fact the set row itself already carries.
+Staging rows are a raw landing zone: nothing consumes them downstream, and the set is deleted
+whole. If a future ticket needs change events out of staging, that ticket re-opens this
+exemption -- the default remains one outbox row per write.
+
 ## 6. Single tenant
 
 One customer (Global Tech). No `tenantId`, no row-level security in phase 1.
