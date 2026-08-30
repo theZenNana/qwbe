@@ -65,8 +65,15 @@ export const cube = defineCube(group, {
       list: ({ urlParams }: { urlParams: typeof PageParams.Type }) =>
         Effect.gen(function* () {
           yield* requirePermission("guestbook:read")
+          // Entity mediation makes the no-param GET the entity list itself: full rows.
           const page = yield* store.page<EntryRow>(TABLE, pageRequest(urlParams))
-          return { rows: page.rows.map(summary), total: page.total, offset: page.offset, limit: page.limit }
+          return {
+            rows: page.rows,
+            total: page.total,
+            offset: page.offset,
+            limit: page.limit,
+            sortedBy: page.sortedBy,
+          }
         }),
 
       get: ({ path }: { path: { readonly id: string } }) =>
@@ -88,7 +95,10 @@ export const cube = defineCube(group, {
       create: ({ payload }: { payload: typeof EntryCreate.Type }) =>
         Effect.gen(function* () {
           yield* requirePermission("guestbook:write")
-          return yield* store.insert(TABLE, ENTITY, "gb", { name: payload.name })
+          // `custom` rides in the payload the kernel's fold produced; the store persists it as
+          // part of the row body, exactly like any declared field.
+          const custom = (payload as { custom?: Record<string, unknown> }).custom
+          return (yield* store.insert(TABLE, ENTITY, "gb", { name: payload.name, custom })) as EntryRow
         }),
     },
 
