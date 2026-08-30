@@ -40,6 +40,7 @@ export const stagingGroup = HttpApiGroup.make("staging")
     HttpApiEndpoint.post("finish")`/staging/sets/${HttpApiSchema.param("id", Schema.String)}/finish`
       .addSuccess(SetFinished)
       .addError(NotFound)
+      .addError(BadRequest)
       .addError(Forbidden),
   )
   .add(

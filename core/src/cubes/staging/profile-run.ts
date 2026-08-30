@@ -15,16 +15,24 @@ const rowsAt = (results: ReadonlyArray<ReadonlyArray<Record<string, unknown>>>, 
 const toStats = (row: Record<string, unknown>) => ({
   filled: Number(row.filled),
   distinct_values: Number(row.distinct_values),
+  other_distinct: Number(row.other_distinct),
   number_count: Number(row.number_count),
   date_count: Number(row.date_count),
   email_count: Number(row.email_count),
   phone_count: Number(row.phone_count),
 })
 
+/** A set's field count is source-controlled and unbounded, and the profile runs 1 + 2 x fields
+ *  statements in ONE transaction on ONE connection -- so the field list is capped here (the
+ *  response says so via `fieldsTruncated`) instead of building an unbounded batch. */
+export const MAX_PROFILE_FIELDS = 200
+
 export const profileHandler = (batched: BatchStore, set: StagingSet) =>
   Effect.gen(function* () {
     const fieldRows = yield* batched.batch([fieldNamesStatement(set.id)])
-    const names = (fieldRows[0] ?? []).map((r) => String(r.k))
+    const allNames = (fieldRows[0] ?? []).map((r) => String(r.k))
+    const names = allNames.slice(0, MAX_PROFILE_FIELDS)
+    const truncated = allNames.length > MAX_PROFILE_FIELDS
     const statements: SqlStatement[] = [totalRowsStatement(set.id)]
     const wantsTop: boolean[] = []
     for (const field of names) {
@@ -45,5 +53,11 @@ export const profileHandler = (batched: BatchStore, set: StagingSet) =>
       }
       return aggregateField(field, stats, total, top)
     })
-    return { setId: set.id, rows: total, enumMax: ENUM_MAX_DISTINCT, fields }
+    return {
+      setId: set.id,
+      rows: total,
+      enumMax: ENUM_MAX_DISTINCT,
+      ...(truncated ? { fieldsTruncated: true } : {}),
+      fields,
+    }
   })

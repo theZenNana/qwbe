@@ -19,7 +19,6 @@ export const StagingSet = Schema.Struct({
   malformedSample: Schema.Array(Schema.Struct({ line: Schema.Number, reason: Schema.String })),
   sensitiveFields: Schema.Array(Schema.String),
   createdAt: Schema.String,
-  deleted: Schema.Boolean,
 }).annotations({ identifier: "StagingSet" })
 
 export const SetCreate = Schema.Struct({
@@ -30,9 +29,20 @@ export const SetCreate = Schema.Struct({
   sensitiveFields: Schema.optionalWith(Schema.Array(Schema.String), { default: () => [] }),
 }).annotations({ identifier: "SetCreate" })
 
-/** One batch of raw text, parsed SERVER side so malformed lines are counted where the rows land. */
+/** One batch of raw text, parsed SERVER side so malformed lines are counted where the rows land.
+ *
+ * CONTRACT: a chunk must end on a LINE BOUNDARY. A client that splits by byte size will get
+ * two spurious "invalid JSON" (or wrong-column) entries at wrong line numbers and two silently
+ * lost records -- splitting mid-line is a client bug, stated here so the refusal is documented
+ * rather than mysterious (QWB-45 review, item 19).
+ *
+ * The text is capped: one request may not hold a whole file in JS, expand to thousands of
+ * INSERT statements and pin a pool connection for the length of the batch -- split the file
+ * into more chunks instead (QWB-45 review, item 6). */
+export const MAX_CHUNK_CHARS = 2_000_000
+
 export const ChunkPayload = Schema.Struct({
-  text: Schema.String,
+  text: Schema.String.pipe(Schema.maxLength(MAX_CHUNK_CHARS)),
   /** Absolute line number of this chunk's first line, so malformed lines report file lines. */
   startLine: Schema.optionalWith(Schema.Number, { default: () => 1 }),
 }).annotations({ identifier: "ChunkPayload" })
@@ -83,6 +93,8 @@ export const Profile = Schema.Struct({
   setId: Schema.String,
   rows: Schema.Number,
   enumMax: Schema.Number,
+  /** Present only when the set had more fields than the profile cap -- see profile-run.ts. */
+  fieldsTruncated: Schema.optional(Schema.Boolean),
   fields: Schema.Array(FieldProfile),
 }).annotations({ identifier: "Profile" })
 
