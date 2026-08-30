@@ -16,7 +16,6 @@ import { readdirSync, readFileSync } from "node:fs"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 import pg from "pg"
-import { ensureCubeSchema, q, roleName } from "./setup.ts"
 
 const here = dirname(fileURLToPath(import.meta.url))
 
@@ -97,30 +96,4 @@ export const initStore = async (): Promise<void> => {
   await p.query(`SELECT 1`) // unreachable database fails here, with pg's own error
   await runMigrations(p)
   migrated = true
-}
-
-/**
- * One client, one transaction, the cube's role. Everything the store does goes through here,
- * so "every operation runs under the cube's role inside a transaction" is enforced in exactly
- * one place rather than remembered in six.
- *
- * Exported for the transaction test: the rollback guarantee is exactly this function's
- * catch branch, and the test drives it directly rather than duplicating its SQL.
- */
-export const withRole = async <T>(cube: string, fn: (client: Pool) => Promise<T>): Promise<T> => {
-  const schema = await ensureCubeSchema(cube)
-  const p = getPool()
-  const client = await p.connect()
-  try {
-    await client.query("BEGIN")
-    await client.query(`SET LOCAL ROLE ${q(roleName(schema))}`)
-    const result = await fn(client as unknown as Pool)
-    await client.query("COMMIT")
-    return result
-  } catch (e) {
-    await client.query("ROLLBACK").catch(() => {})
-    throw e
-  } finally {
-    client.release()
-  }
 }

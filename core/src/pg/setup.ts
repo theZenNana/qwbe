@@ -11,7 +11,7 @@
 // transaction with `SET LOCAL ROLE` -- so a cube's query against another cube's schema dies in
 // Postgres with a permission error. See probes/store-isolation.mjs, which proves both halves.
 
-import { getPool } from "./db.ts"
+import { getPool, type Pool } from "./db.ts"
 
 /** The same identifier `storeFileName` produced for the file, without the extension. */
 export const schemaName = (cube: string): string => cube.replace(/\//g, "--")
@@ -91,4 +91,30 @@ export const ensureTable = async (schema: string, table: string): Promise<void> 
 export const schemaExists = async (schema: string): Promise<boolean> => {
   const r = await getPool().query(`SELECT 1 FROM information_schema.schemata WHERE schema_name = $1`, [schema])
   return (r.rowCount ?? 0) > 0
+}
+
+/**
+ * One client, one transaction, the cube's role. Everything the store does goes through here,
+ * so "every operation runs under the cube's role inside a transaction" is enforced in exactly
+ * one place rather than remembered in six.
+ *
+ * Exported for the transaction test: the rollback guarantee is exactly this function's
+ * catch branch, and the test drives it directly rather than duplicating its SQL.
+ */
+export const withRole = async <T>(cube: string, fn: (client: Pool) => Promise<T>): Promise<T> => {
+  const schema = await ensureCubeSchema(cube)
+  const p = getPool()
+  const client = await p.connect()
+  try {
+    await client.query("BEGIN")
+    await client.query(`SET LOCAL ROLE ${q(roleName(schema))}`)
+    const result = await fn(client as unknown as Pool)
+    await client.query("COMMIT")
+    return result
+  } catch (e) {
+    await client.query("ROLLBACK").catch(() => {})
+    throw e
+  } finally {
+    client.release()
+  }
 }

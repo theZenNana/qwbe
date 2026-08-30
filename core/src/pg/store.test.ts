@@ -19,8 +19,8 @@ process.env.QWBE_DATABASE_URL = db.url
 
 const { initStore, closeAll } = await import("../kernel/store.ts")
 const { storeFor } = await import("./store.ts")
-const { getPool, withRole } = await import("./db.ts")
-const { forgetEnsured } = await import("./setup.ts")
+const { getPool } = await import("./db.ts")
+const { forgetEnsured, withRole } = await import("./setup.ts")
 
 const store = storeFor("pgtest", ["items", "logs"], ["name"])
 

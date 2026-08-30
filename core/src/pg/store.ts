@@ -21,10 +21,9 @@
 import { Effect } from "effect"
 import type { CubeStore } from "../kernel/manifest.ts"
 import type { Page, PageRequest } from "../kernel/pagination.ts"
-import { withRole } from "./db.ts"
 import { ForeignTableError } from "./errors.ts"
 import { decode, newId, orderClause, outboxInsert, renumber, whereClause } from "./rows.ts"
-import { ensureCubeSchema, ensureTable, q, schemaName } from "./setup.ts"
+import { ensureCubeSchema, ensureTable, q, schemaName, withRole } from "./setup.ts"
 
 export { ForeignTableError } from "./errors.ts"
 
