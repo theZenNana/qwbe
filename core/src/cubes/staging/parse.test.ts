@@ -4,7 +4,14 @@
 
 import assert from "node:assert/strict"
 import { describe, it } from "node:test"
-import { applyChunk, insertRowsStatement, lockStatement, MALFORMED_SAMPLE_MAX, type SetRow, tallyStatement } from "./import-chunks.ts"
+import {
+  applyChunk,
+  insertRowsStatement,
+  lockStatement,
+  MALFORMED_SAMPLE_MAX,
+  type SetRow,
+  tallyStatement,
+} from "./import-chunks.ts"
 import { csvHeaderOf, parseCsv, parseJsonl } from "./parse.ts"
 
 const set = (format: "jsonl" | "csv"): SetRow => ({
@@ -146,10 +153,16 @@ describe("import chunking", () => {
   })
 
   it("the malformed sample is capped in SQL against the live row", () => {
-    const tally = tallyStatement("set-1", 1, 25, Array.from({ length: 25 }, (_, i) => ({ line: i + 1, reason: "x" })))
+    const tally = tallyStatement(
+      "set-1",
+      1,
+      25,
+      Array.from({ length: 25 }, (_, i) => ({ line: i + 1, reason: "x" })),
+    )
     assert.match(tally.text, new RegExp(`\\[1:${MALFORMED_SAMPLE_MAX}\\]`))
     // The full fresh sample travels as a value; the slice, not the caller, does the capping.
-    assert.equal((tally.values?.[3] as string).length > 0, true)
+    const sampleValue = tally.values?.[3] as string | undefined
+    assert.equal((sampleValue ?? "").length > 0, true)
   })
 
   it("insertRowsStatement batches 500 rows per INSERT", () => {

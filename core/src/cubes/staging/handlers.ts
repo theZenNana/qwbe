@@ -7,7 +7,7 @@ import type { CubeTools } from "qwbe-core/cube"
 import { requirePermission } from "../../kernel/auth-contract.ts"
 import { BadRequest, NotFound } from "../../kernel/errors.ts"
 import type { BatchStore } from "./batch.ts"
-import { type SetCreate, MAX_CHUNK_CHARS, type StagingSet as StagingSetRow, TABLES } from "./contract.ts"
+import { MAX_CHUNK_CHARS, type SetCreate, type StagingSet as StagingSetRow, TABLES } from "./contract.ts"
 import { applyChunk } from "./import-chunks.ts"
 import { profileHandler } from "./profile-run.ts"
 
@@ -78,7 +78,9 @@ export const stagingHandlers = (tools: CubeTools, batched: BatchStore) => {
           }
           if (payload.text.length > MAX_CHUNK_CHARS) {
             return yield* Effect.fail(
-              new BadRequest({ message: `chunk is ${payload.text.length} chars, the cap is ${MAX_CHUNK_CHARS} -- split the file` }),
+              new BadRequest({
+                message: `chunk is ${payload.text.length} chars, the cap is ${MAX_CHUNK_CHARS} -- split the file`,
+              }),
             )
           }
           yield* store.count(TABLES.rows) // first touch creates the table
@@ -87,9 +89,9 @@ export const stagingHandlers = (tools: CubeTools, batched: BatchStore) => {
           // `failed` in the SAME breath as the error propagates, so a half-imported set never
           // reports as importable-or-complete (QWB-45 review, blocker 4). The error itself
           // still surfaces as a defect -- the caller sees the 500, the set sees the state.
-          yield* batched.batch(applied.statements).pipe(
-            Effect.tapError(() => store.update(TABLES.sets, set.id, { state: "failed" })),
-          )
+          yield* batched
+            .batch(applied.statements)
+            .pipe(Effect.tapError(() => store.update(TABLES.sets, set.id, { state: "failed" })))
           return { parsed: applied.parsed, malformed: applied.malformed }
         }),
 

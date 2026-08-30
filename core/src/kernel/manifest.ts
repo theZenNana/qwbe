@@ -206,6 +206,15 @@ export type Manifest = {
    * provenance, so a plugin cannot ask for `auth.sqlite`.
    */
   readonly dataMigration?: readonly DataMigration[]
+  /**
+   * DECLARED CAPABILITY: this cube's store carries the raw SQL `batch` method.
+   *
+   * Without this flag a cube's store is the six-operation CubeStore and nothing else. The
+   * batch runs arbitrary SQL under the cube's own role, so it is a privilege like the
+   * switches: declared by the cube, checked at mount, and `grep -r usesBatch` returns the
+   * complete list of holders (QWB-45 review, item 9).
+   */
+  readonly usesBatch?: boolean
 }
 
 /** What a credential provider offers, and a consumer receives. Never the hash itself. */

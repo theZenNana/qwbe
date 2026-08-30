@@ -26,6 +26,10 @@ export const cube = defineCube(stagingGroup, {
       { name: "staging:write", roles: ["admin"] },
     ],
     publishes: ["staging.set.created"],
+    // DECLARED CAPABILITY: staging is the one cube whose store carries the raw SQL batch
+    // (`grep -r usesBatch` returns the complete list). Why it needs it: profiling in SQL, a
+    // multi-row import in one transaction, a two-table atomic delete -- see batch.ts.
+    usesBatch: true,
   },
 
   create: (tools: CubeTools) => stagingHandlers(tools, asBatchStore(tools.store)),

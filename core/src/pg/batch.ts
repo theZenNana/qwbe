@@ -16,7 +16,7 @@
 
 import { Effect } from "effect"
 import type { CubeStore } from "../kernel/manifest.ts"
-import { ensureCubeSchema, schemaName, withRole } from "./setup.ts"
+import { ensureCubeSchema, q, schemaName, withRole } from "./setup.ts"
 
 /** One SQL statement inside a batch: text plus bound values. Identifiers are never parameters
  *  and never arrive here -- the caller quotes them itself (see `q`), values are always bound. */
@@ -42,7 +42,9 @@ export const batchFor =
         // The cube's statements use its OWN table names unqualified -- the schema is the
         // cube's context, like the SQLite file was. search_path is set per transaction, so an
         // unqualified name can only ever resolve inside the cube's own schema.
-        await c.query(`SELECT set_config('search_path', $1, true)`, [schemaName(cube)])
+        await c.query(`SELECT set_config('search_path', $1, true)`, [q(schemaName(cube))])
+        // The schema name is QUOTED: child cube names contain `--`, and the GUC value is a raw
+        // string, not an identifier (QWB-45 review, item 18).
         const results: Array<ReadonlyArray<Record<string, unknown>>> = []
         for (const s of statements) {
           const r = await c.query(s.text, [...(s.values ?? [])])

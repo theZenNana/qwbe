@@ -36,7 +36,11 @@ after(async () => {
 
 describe("CubeStore over Postgres", () => {
   it("inserts, reads, pages, counts and updates like the old store", async () => {
-    const a = await Effect_run(store.insert("items", "item", "itm", { name: "a" }))
+    const a = (await Effect_run(store.insert("items", "item", "itm", { name: "a" }))) as {
+      id: string
+      type: string
+      deleted: boolean
+    }
     const b = await Effect_run(store.insert("items", "item", "itm", { name: "b" }))
     assert.match(a.id as string, /^itm-[0-9a-f]{8}$/)
     assert.equal(a.type, "item")

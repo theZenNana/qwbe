@@ -171,5 +171,9 @@ export const parseCsv = (text: string, startLine = 1, header?: ReadonlyArray<str
   return { records, malformed }
 }
 
-export const parseChunk = (format: "jsonl" | "csv", text: string, startLine = 1, header?: ReadonlyArray<string>): ParseResult =>
-  format === "jsonl" ? parseJsonl(text, startLine) : parseCsv(text, startLine, header)
+export const parseChunk = (
+  format: "jsonl" | "csv",
+  text: string,
+  startLine = 1,
+  header?: ReadonlyArray<string>,
+): ParseResult => (format === "jsonl" ? parseJsonl(text, startLine) : parseCsv(text, startLine, header))

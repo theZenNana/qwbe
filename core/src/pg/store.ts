@@ -19,6 +19,7 @@
 // operations on a pooled connection.
 
 import { Effect } from "effect"
+import type { CubeStore } from "../kernel/manifest.ts"
 import type { Page, PageRequest } from "../kernel/pagination.ts"
 import { type BatchStore, batchFor } from "./batch.ts"
 import { ForeignTableError } from "./errors.ts"
@@ -32,7 +33,9 @@ export const storeFor = (
   tables: ReadonlyArray<string>,
   /** Fields this cube permits sorting by. Anything else is ignored; the response says so. */
   sortable: ReadonlyArray<string> = [],
-): BatchStore => {
+  /** The raw SQL batch capability is handed over ONLY on the manifest's declared `usesBatch`. */
+  withBatch = false,
+): CubeStore & { readonly batch?: BatchStore["batch"] } => {
   const allowed = new Set(tables)
   const sortableFields = new Set(sortable)
 
@@ -147,7 +150,7 @@ export const storeFor = (
         })
       }),
 
-    batch: batchFor(cube),
+    ...(withBatch ? { batch: batchFor(cube) } : {}),
 
     count: (table: string) =>
       Effect.promise(async () => {

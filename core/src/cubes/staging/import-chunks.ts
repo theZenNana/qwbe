@@ -55,7 +55,13 @@ export const insertRowsStatement = (
       // live as a duplicate-key failure at ~64k rows. Deterministic ids would be safer still,
       // but a re-import of a deleted set would then collide with nothing left to distinguish.
       const n = values.length
-      values.push(`row-${randomBytes(12).toString("hex")}`, "staging.row", new Date().toISOString(), start + i, JSON.stringify(record))
+      values.push(
+        `row-${randomBytes(12).toString("hex")}`,
+        "staging.row",
+        new Date().toISOString(),
+        start + i,
+        JSON.stringify(record),
+      )
       return `($${n + 1}, $${n + 2}, $${n + 3}, $${n + 4}::int, $${n + 5}::jsonb)`
     })
     statements.push({
