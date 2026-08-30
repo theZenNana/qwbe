@@ -52,7 +52,11 @@ const outboxInsert = (cube: string, table: string, id: string, op: string, versi
  * so "every operation runs under the cube's role inside a transaction" is enforced in exactly
  * one place rather than remembered in six.
  */
-const withRole = async <T>(cube: string, fn: (client: Pool) => Promise<T>): Promise<T> => {
+/**
+ * Exported for the transaction test: the rollback guarantee is exactly this function's
+ * catch branch, and the test drives it directly rather than duplicating its SQL.
+ */
+export const withRole = async <T>(cube: string, fn: (client: Pool) => Promise<T>): Promise<T> => {
   const schema = await ensureCubeSchema(cube)
   const p = getPool()
   const client = await p.connect()
@@ -94,7 +98,7 @@ export const storeFor = (
       return { sql: `ORDER BY ${q(column)} ${dir}`, params: [] as Array<string>, applied: sortBy }
     }
     if (!sortableFields.has(sortBy)) return fallback
-    return { sql: `ORDER BY body ->> $SORTBY ${dir}`, params: [sortBy], applied: sortBy }
+    return { sql: `ORDER BY body ->> $SORTBY::text ${dir}`, params: [sortBy], applied: sortBy }
   }
 
   const whereClause = (where?: { field: string; value: string }): { sql: string; params: Array<string | boolean> } => {
@@ -105,7 +109,7 @@ export const storeFor = (
       const column = where.field === "createdAt" ? "created_at" : where.field
       return { sql: `AND ${q(column)} = $1::timestamptz`, params: [where.value] }
     }
-    return { sql: `AND body ->> $1 = $2`, params: [where.field, where.value] }
+    return { sql: `AND body ->> $1::text = $2::text`, params: [where.field, where.value] }
   }
 
   // $SORTBY is a placeholder for the parameter index, which depends on how many WHERE
@@ -135,12 +139,16 @@ export const storeFor = (
           const o = orderClause(page.sortBy, page.descending ?? false)
           const n = w.params.length
           const osql = renumber(o.sql, n)
+          // The sort parameter (if any) takes index n+1; LIMIT and OFFSET come after whatever
+          // the WHERE and ORDER clauses actually used.
+          const limitIdx = n + 1 + o.params.length
+          const offsetIdx = limitIdx + 1
           const count = await c.query(
             `SELECT COUNT(*)::int AS c FROM ${q(schemaName(cube))}.${q(t)} WHERE deleted = false ${w.sql}`,
             w.params,
           )
           const rows = await c.query(
-            `SELECT * FROM ${q(schemaName(cube))}.${q(t)} WHERE deleted = false ${w.sql} ${osql} LIMIT $${n + 2} OFFSET $${n + 3}`,
+            `SELECT * FROM ${q(schemaName(cube))}.${q(t)} WHERE deleted = false ${w.sql} ${osql} LIMIT $${limitIdx} OFFSET $${offsetIdx}`,
             [...w.params, ...o.params, page.limit, page.offset],
           )
           return {

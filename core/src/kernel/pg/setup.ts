@@ -48,7 +48,10 @@ export const ensureCubeSchema = async (cube: string): Promise<string> => {
   await p.query(
     `ALTER DEFAULT PRIVILEGES IN SCHEMA ${q(schema)} GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO ${q(role)}`,
   )
+  await p.query(`GRANT USAGE ON SCHEMA qwbe TO ${q(role)}`)
   await p.query(`GRANT INSERT ON qwbe.outbox TO ${q(role)}`)
+  // bigserial draws from a sequence; INSERT on the table alone does not cover it.
+  await p.query(`GRANT USAGE ON SEQUENCE qwbe.outbox_id_seq TO ${q(role)}`)
   ensuredSchemas.add(schema)
   return schema
 }
