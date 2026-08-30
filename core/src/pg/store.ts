@@ -19,8 +19,8 @@
 // operations on a pooled connection.
 
 import { Effect } from "effect"
-import type { CubeStore } from "../kernel/manifest.ts"
 import type { Page, PageRequest } from "../kernel/pagination.ts"
+import { type BatchStore, batchFor } from "./batch.ts"
 import { ForeignTableError } from "./errors.ts"
 import { decode, newId, orderClause, outboxInsert, renumber, whereClause } from "./rows.ts"
 import { ensureCubeSchema, ensureTable, q, schemaName, withRole } from "./setup.ts"
@@ -32,7 +32,7 @@ export const storeFor = (
   tables: ReadonlyArray<string>,
   /** Fields this cube permits sorting by. Anything else is ignored; the response says so. */
   sortable: ReadonlyArray<string> = [],
-): CubeStore => {
+): BatchStore => {
   const allowed = new Set(tables)
   const sortableFields = new Set(sortable)
 
@@ -146,6 +146,8 @@ export const storeFor = (
           return merged
         })
       }),
+
+    batch: batchFor(cube),
 
     count: (table: string) =>
       Effect.promise(async () => {
