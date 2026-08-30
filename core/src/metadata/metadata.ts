@@ -18,6 +18,7 @@
 
 import { createHash } from "node:crypto"
 import type { PropertySignature } from "effect/SchemaAST"
+import { EntityMeta } from "../kernel/entity.ts"
 import { classify, encodedLiteralOf, entityStructOf, groupEndpoints } from "./ast.ts"
 import type { MetadataDeclarations } from "./declarations.ts"
 import type { CubeMetadata, FieldMetadata } from "./schemas.ts"
@@ -39,7 +40,12 @@ export type MetadataCube = {
 
 type DeclaredManifest = MetadataCube["manifest"]
 
-const META_FIELDS = new Set(["id", "type", "createdAt", "deleted"])
+// The meta columns every entity row carries, taken from EntityMeta itself -- a second
+// hand-written copy of that list is exactly the drift this module exists to prevent.
+const META_FIELDS = new Set(Object.keys(EntityMeta))
+// Sortable defaults to the meta columns a caller may order by; `deleted` is a filter, not an
+// ordering, so it stays out -- but it is still derived, not re-typed.
+const SORTABLE_DEFAULT = Object.keys(EntityMeta).filter((name) => name !== "deleted")
 
 const humanize = (name: string): string => {
   const spaced = name.replaceAll(/([a-z0-9])([A-Z])/g, "$1 $2")
@@ -87,7 +93,7 @@ export const deriveCubeMetadata = (
     m.searchable ??
       (cube.parts.relational?.search ? links.filter((l) => l.from === cube.name).map((l) => l.field) : []),
   )
-  const sortableSet = new Set(m.sortable ?? ["id", "type", "createdAt"])
+  const sortableSet = new Set(m.sortable ?? SORTABLE_DEFAULT)
 
   const fields: ReadonlyArray<FieldMetadata> = firstPass.map(({ name, shape }) => {
     // Required/editable read the CREATE payload's ENCODED side: a field with a default

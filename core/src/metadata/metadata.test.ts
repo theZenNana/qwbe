@@ -84,6 +84,10 @@ describe("deriveCubeMetadata", () => {
     const byName = new Map(md.fields.map((f) => [f.name, f]))
     assert.equal(byName.get("createdAt")!.sortable, true)
     assert.equal(byName.get("name")!.sortable, false)
+    // The default list is derived from EntityMeta, minus `deleted`: every meta column sorts,
+    // and the list cannot drift from the entity shape by being retyped here.
+    for (const meta of ["id", "type", "createdAt"]) assert.equal(byName.get(meta)!.sortable, true)
+    assert.equal(byName.get("deleted")!.sortable, false)
     // No space link reaches this cube -> nothing is searchable, even with search implemented.
     const searching = mount({ search: { search: () => undefined as never } }) as never
     const withSearch = deriveCubeMetadata(searching, [], [])
