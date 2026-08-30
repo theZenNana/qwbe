@@ -10,12 +10,13 @@
 // deleted -- once the checks pass. A row that fails to convert stops the migration and is
 // reported by id; the second half of the probe plants such a row and expects exactly that.
 
-import { existsSync, mkdtempSync } from "node:fs"
+import { existsSync, mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { DatabaseSync } from "node:sqlite"
 import pg from "pg"
 
+import { makeScore } from "./lib.mjs"
 import { createScratchDatabase, dropScratchDatabase } from "./pg-scratch.mjs"
 
 const score = makeScore()
