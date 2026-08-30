@@ -7,9 +7,8 @@
 // the server from starting -- and pass once the version is bumped. That is the drift gate,
 // proven against a real mounted cube, not by hand.
 
-import { existsSync } from "node:fs"
 import { responseConforms } from "./contract-validator.mjs"
-import { dropFixture, fixtureRoot, writeFixture } from "./cube-metadata-fixture.mjs"
+import { dropFixture, sweepFixture, writeFixture } from "./cube-metadata-fixture.mjs"
 import { client, dropScratch, freePort, makeScore, scratchDataDir, startServer, stopServer } from "./lib.mjs"
 
 const port = await freePort()
@@ -17,10 +16,9 @@ const data = scratchDataDir("cube-metadata")
 const score = makeScore()
 const api = client(port)
 
-if (existsSync(fixtureRoot)) {
-  console.error(`refused: ${fixtureRoot} already exists and was not planted by this probe`)
-  process.exit(1)
-}
+// A previous run killed hard leaves the fixture planted; sweeping beats refusing, because a
+// leftover cube is mounted by every dev boot until someone notices.
+sweepFixture()
 
 const start = async (env = {}) => {
   const s = await startServer(port, { QWBE_DATA_DIR: data, ...env })

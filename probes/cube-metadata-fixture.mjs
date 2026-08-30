@@ -1,11 +1,20 @@
 // Fixture cube for the cube-metadata probe: a real plugin directory, generated so the probe
 // can CHANGE its schema mid-run -- a committed fixture could not. `extraField` appends a field
 // to the entity; `version` is what the drift gate compares.
+//
+// The directory lives inside core/plugins (gitignored), which means a probe killed hard would
+// otherwise leave a bogus cube behind that every later dev boot mounts and records in the
+// provenance ledger. So the FIRST thing the probe does is sweep the path -- a stale leftover
+// from a killed run is exactly what a restart of the probe must remove, and the fixture name
+// is owned by this probe alone.
 import { mkdirSync, rmSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 
 export const fixtureRoot = join(import.meta.dirname, "..", "core", "plugins", "meta-drift-fixture")
 const fixtureCube = join(fixtureRoot, "cubes", "metadrift")
+
+/** Remove the fixture whether or not this run planted it. Safe to call at any time. */
+export const sweepFixture = () => rmSync(fixtureRoot, { recursive: true, force: true })
 
 const fixtureSource = (
   extraField,
