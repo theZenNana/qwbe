@@ -12,7 +12,8 @@
     "./entity": "./src/entity-contracts.ts",
     "./errors": "./src/error-contracts.ts",
     "./pagination": "./src/pagination-contracts.ts",
-    "./permissions": "./src/permissions-contracts.ts"
+    "./permissions": "./src/permissions-contracts.ts",
+    "./package-contract": "./src/package-contract.ts"
   },
   "description": "Qwbe — kernel that discovers cubes from disk. Knows no cube by name.",
   "engines": {

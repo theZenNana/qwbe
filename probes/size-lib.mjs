@@ -19,6 +19,9 @@ const SKIP_DIR = new Set([
   "build",
   "store",
   "probes",
+  // A pack's own UI is outside the cube contract (QWB-40): it is judged by the browser build,
+  // not by the size gate, so a fat frontend/ beside the cubes never reddens this gate.
+  "frontend",
 ])
 
 /**

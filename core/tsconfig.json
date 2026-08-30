@@ -17,7 +17,8 @@
       "qwbe-core/errors": ["./src/error-contracts.ts"],
       "qwbe-core/http": ["./src/http-contracts.ts"],
       "qwbe-core/pagination": ["./src/pagination-contracts.ts"],
-      "qwbe-core/permissions": ["./src/permissions-contracts.ts"]
+      "qwbe-core/permissions": ["./src/permissions-contracts.ts"],
+      "qwbe-core/package-contract": ["./src/package-contract.ts"]
     },
 
     "allowImportingTsExtensions": true,
