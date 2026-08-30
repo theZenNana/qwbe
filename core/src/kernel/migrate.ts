@@ -109,7 +109,12 @@ export const renameSchema = async (fromSchema: string, toSchema: string): Promis
   try {
     await client.query("BEGIN")
     await client.query(`ALTER SCHEMA ${q(fromSchema)} RENAME TO ${q(toSchema)}`)
-    await client.query(`ALTER ROLE ${q(roleName(fromSchema))} RENAME TO ${q(roleName(toSchema))}`)
+    // The role is renamed only if it exists: a schema that arrived outside the store's setup
+    // (a legacy database, or the migration tool's import) may not have one yet.
+    const roles = await client.query(`SELECT 1 FROM pg_roles WHERE rolname = $1`, [roleName(fromSchema)])
+    if ((roles.rowCount ?? 0) > 0) {
+      await client.query(`ALTER ROLE ${q(roleName(fromSchema))} RENAME TO ${q(roleName(toSchema))}`)
+    }
     await client.query("COMMIT")
   } catch (e) {
     await client.query("ROLLBACK").catch(() => {})

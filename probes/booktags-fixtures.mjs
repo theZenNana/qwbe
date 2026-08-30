@@ -1,25 +1,43 @@
 // Fixtures and behaviour checks for the Booktags hierarchy probe.
 
-import { existsSync, mkdirSync } from "node:fs"
-import { join } from "node:path"
-import { DatabaseSync } from "node:sqlite"
+import pg from "pg"
 import { detailBehaviour } from "./booktags-detail-fixtures.mjs"
 
-/** Plant one flat, pre-hierarchy bookmarks database. */
-export const plantLegacyBookmarks = (dataDir) => {
-  mkdirSync(dataDir, { recursive: true })
-  const flat = new DatabaseSync(join(dataDir, "bookmarks.sqlite"))
-  flat.exec(
-    `CREATE TABLE "bookmarks" (id TEXT PRIMARY KEY, type TEXT NOT NULL, createdAt TEXT NOT NULL, deleted INTEGER NOT NULL DEFAULT 0, body TEXT NOT NULL)`,
-  )
-  flat
-    .prepare(`INSERT INTO "bookmarks" (id, type, createdAt, deleted, body) VALUES (?, ?, ?, 0, ?)`)
-    .run("bm-legacy01", "Bookmark", new Date().toISOString(), JSON.stringify({ label: "legacy", url: "https://old" }))
-  flat.close()
+/**
+ * Plant one flat, pre-hierarchy bookmarks SCHEMA. What was a SQLite file named
+ * bookmarks.sqlite is, since QWB-44, a Postgres schema named "bookmarks" with the same table
+ * -- the exact shape the kernel's data migration (a schema rename) expects to find.
+ */
+export const plantLegacyBookmarks = async (dbUrl) => {
+  const c = new pg.Client({ connectionString: dbUrl })
+  await c.connect()
+  try {
+    await c.query(`CREATE SCHEMA "bookmarks"`)
+    await c.query(`CREATE TABLE "bookmarks"."bookmarks" (
+      id TEXT PRIMARY KEY, type TEXT NOT NULL, created_at timestamptz NOT NULL,
+      deleted BOOLEAN NOT NULL DEFAULT false, version INTEGER NOT NULL DEFAULT 1, body JSONB NOT NULL)`)
+    await c.query(
+      `INSERT INTO "bookmarks"."bookmarks" (id, type, created_at, deleted, version, body)
+       VALUES ('bm-legacy01', 'Bookmark', now(), false, 1, $1)`,
+      [JSON.stringify({ label: "legacy", url: "https://old" })],
+    )
+  } finally {
+    await c.end()
+  }
 }
 
-export const migratedFiles = (dataDir) =>
-  !existsSync(join(dataDir, "bookmarks.sqlite")) && existsSync(join(dataDir, "booktags--bookmarks.sqlite"))
+/** The migration happened when the flat schema is gone and the child's schema holds the row. */
+export const migratedSchemas = async (dbUrl) => {
+  const c = new pg.Client({ connectionString: dbUrl })
+  await c.connect()
+  try {
+    const flat = await c.query(`SELECT 1 FROM information_schema.schemata WHERE schema_name = 'bookmarks'`)
+    const child = await c.query(`SELECT 1 FROM information_schema.schemata WHERE schema_name = 'booktags--bookmarks'`)
+    return flat.rowCount === 0 && child.rowCount === 1
+  } finally {
+    await c.end()
+  }
+}
 
 const post = (api, H, path, body) => api.call(path, { method: "POST", headers: H, body: JSON.stringify(body) })
 

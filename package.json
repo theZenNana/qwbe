@@ -47,7 +47,7 @@
     "e2e": "NEXT_PUBLIC_QWBE_API=http://127.0.0.1:4520 npm --prefix web run build && playwright test",
     "screenshots": "node screenshots.mjs",
     "probe:lifecycle": "node probes/lifecycle.mjs",
-    "probe:store": "node probes/store.mjs",
+    "probe:store": "node probes/store.mjs && node probes/store-isolation.mjs && node probes/store-migration.mjs",
     "probe:sizecaps-baseline": "node probes/sizecaps-baseline.mjs",
     "probe:external-auth": "node probes/external-auth.mjs",
     "db:up": "docker compose up -d postgres",

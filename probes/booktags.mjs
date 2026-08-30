@@ -8,22 +8,22 @@
 // The design these checks serve: docs/booktags-hierarchy.md. The fixture and the behaviour
 // sequence live in booktags-fixtures.mjs (file cap).
 
-import { existsSync } from "node:fs"
-import { join } from "node:path"
-import { hierarchyBehaviour, migratedFiles, plantLegacyBookmarks } from "./booktags-fixtures.mjs"
-import { client, dropScratch, freePort, makeScore, scratchDataDir, startServer, stopServer } from "./lib.mjs"
+import { hierarchyBehaviour, migratedSchemas, plantLegacyBookmarks } from "./booktags-fixtures.mjs"
+import { client, dropDatabase, freePort, makeScore, scratchDatabase, startServer, stopServer } from "./lib.mjs"
 
 const PORT = await freePort()
-const dataDir = scratchDataDir("booktags")
+const dbUrl = await scratchDatabase("booktags")
 const score = makeScore()
 const api = client(PORT)
 
-plantLegacyBookmarks(dataDir)
+// The planted schema is PRE-LEDGER history: no provenance.json exists, so the migration needs
+// the operator's explicit authorization -- exactly the path a real pre-ledger upgrade takes.
+await plantLegacyBookmarks(dbUrl)
 
 // The planted file is PRE-LEDGER history: no provenance.json exists, so the migration needs
 // the operator's explicit authorization -- exactly the path a real pre-ledger upgrade takes.
 const server = await startServer(PORT, {
-  QWBE_DATA_DIR: dataDir,
+  QWBE_DATABASE_URL: dbUrl,
   QWBE_LEGACY_MIGRATIONS: "bookmarks:example-plugin,tags:example-plugin",
 })
 if (!server.alive) {
@@ -74,8 +74,8 @@ try {
 
   // --- migration of the flat cube's data ---
   score.check(
-    "the flat bookmarks.sqlite was renamed to the child's file",
-    migratedFiles(dataDir),
+    "the flat bookmarks schema was renamed to the child's schema",
+    await migratedSchemas(dbUrl),
     "old gone, new present",
   )
   const legacy = await api.call("/bookmarks?limit=10", { headers: H })
@@ -91,7 +91,7 @@ try {
 }
 
 // --- restart: everything above is still true after a fresh boot ---
-const server2 = await startServer(PORT, { QWBE_DATA_DIR: dataDir })
+const server2 = await startServer(PORT, { QWBE_DATABASE_URL: dbUrl })
 try {
   if (!server2.alive) throw new Error(`second boot failed:\n${server2.output}`)
   const session = await api.login()
@@ -101,7 +101,7 @@ try {
     "after a restart the migrated data is still served",
     legacy.status === 200 &&
       (legacy.body?.rows ?? []).some((r) => r.id === "bm-legacy01") &&
-      existsSync(join(dataDir, "booktags--bookmarks.sqlite")),
+      (await migratedSchemas(dbUrl)),
     `http=${legacy.status}`,
   )
   const strictStill = await api.call("/bookmarks", {
@@ -122,7 +122,7 @@ try {
   )
 } finally {
   await stopServer(server2)
-  dropScratch(dataDir)
+  await dropDatabase(dbUrl)
 }
 
 process.exit(score.report("Booktags hierarchy probe"))

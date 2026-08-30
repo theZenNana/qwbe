@@ -136,12 +136,15 @@ try {
   let errorName = ""
   try {
     // Lazy: the Effect must actually be RUN for the throw to happen. Running it is the point -
-    // otherwise the probe would pass without testing anything.
-    Effect.runSync(storeFor("notes", ["notes"]).all("accounts"))
+    // otherwise the probe would pass without testing anything. The store is async now (QWB-44),
+    // so the throw surfaces through runPromise as a die whose message names the error.
+    await Effect.runPromise(storeFor("notes", ["notes"]).all("accounts"))
   } catch (e) {
     threw = true
-    errorName = String(e?.cause?.constructor?.name ?? e?.constructor?.name ?? "")
-    if (!errorName.includes("ForeignTable") && String(e).includes("ForeignTable")) errorName = "ForeignTableError"
+    const text = String(e?.cause ?? e)
+    errorName = text.includes("ForeignTableError")
+      ? "ForeignTableError"
+      : String(e?.cause?.constructor?.name ?? e?.constructor?.name ?? "")
   }
   score.check(
     "a cube cannot open another cube's table",

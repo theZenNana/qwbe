@@ -9,10 +9,23 @@
 
 import { responseConforms } from "./contract-validator.mjs"
 import { dropFixture, sweepFixture, writeFixture } from "./cube-metadata-fixture.mjs"
-import { client, dropScratch, freePort, makeScore, scratchDataDir, startServer, stopServer } from "./lib.mjs"
+import {
+  client,
+  dropDatabase,
+  dropScratch,
+  freePort,
+  makeScore,
+  scratchDatabase,
+  scratchDataDir,
+  startServer,
+  stopServer,
+} from "./lib.mjs"
 
 const port = await freePort()
 const data = scratchDataDir("cube-metadata")
+// One database for the WHOLE probe: the drift gate is about restarts, and a session from the
+// previous boot must still be valid -- which is only true if the database survives them.
+const dbUrl = await scratchDatabase("cube-metadata")
 const score = makeScore()
 const api = client(port)
 
@@ -21,7 +34,7 @@ const api = client(port)
 sweepFixture()
 
 const start = async (env = {}) => {
-  const s = await startServer(port, { QWBE_DATA_DIR: data, ...env })
+  const s = await startServer(port, { QWBE_DATA_DIR: data, QWBE_DATABASE_URL: dbUrl, ...env })
   if (!s.alive) throw new Error(`server did not start:\n${s.output}`)
   return s
 }
@@ -110,7 +123,7 @@ try {
   // --- the drift gate: same version, changed schema -> the server refuses to start ---
   await stopServer(server)
   writeFixture(", flag: Schema.Boolean", "1.0.0")
-  const drifted = await startServer(port, { QWBE_DATA_DIR: data })
+  const drifted = await startServer(port, { QWBE_DATA_DIR: data, QWBE_DATABASE_URL: dbUrl })
   score.check(
     "RED: a field added without bumping the version keeps the server from starting",
     !drifted.alive && drifted.output.includes("but its schema changed"),
@@ -124,6 +137,7 @@ try {
   score.check(
     "after the version bump the fixture mounts and publishes version 1.1.0",
     bumped.status === 200 && bumped.body?.version === "1.1.0" && bumped.body?.fields?.some((f) => f.name === "flag"),
+    `http=${bumped.status} version=${bumped.body?.version}`,
   )
 } catch (e) {
   console.error(e.message)
@@ -132,6 +146,7 @@ try {
   if (server) await stopServer(server).catch(() => {})
   dropFixture()
   dropScratch(data)
+  await dropDatabase(dbUrl)
 }
 
 process.exit(score.report("cube metadata probe"))

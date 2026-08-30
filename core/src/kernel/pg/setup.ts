@@ -45,6 +45,9 @@ export const ensureCubeSchema = async (cube: string): Promise<string> => {
   await p.query(`GRANT ${q(role)} TO ${q(appUser)}`)
   await p.query(`REVOKE ALL ON SCHEMA ${q(schema)} FROM PUBLIC`)
   await p.query(`GRANT USAGE ON SCHEMA ${q(schema)} TO ${q(role)}`)
+  // ALL TABLES covers tables that already exist (a renamed-in schema, a migrated import);
+  // DEFAULT PRIVILEGES covers the ones ensureTable creates afterwards.
+  await p.query(`GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA ${q(schema)} TO ${q(role)}`)
   await p.query(
     `ALTER DEFAULT PRIVILEGES IN SCHEMA ${q(schema)} GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO ${q(role)}`,
   )
@@ -59,10 +62,16 @@ export const ensureCubeSchema = async (cube: string): Promise<string> => {
 /** The kernel forgets its setup cache -- used by tests that create and drop databases. */
 export const forgetEnsured = (): void => {
   ensuredSchemas.clear()
+  ensuredTables.clear()
 }
 
 /** The one row shape, created on first touch of a table -- the cube writes no migrations yet. */
+/** Created once per process: DDL under concurrency is lock churn for no information. */
+const ensuredTables = new Set<string>()
+
 export const ensureTable = async (schema: string, table: string): Promise<void> => {
+  const key = `${schema}.${table}`
+  if (ensuredTables.has(key)) return
   const p = getPool()
   await p.query(
     `CREATE TABLE IF NOT EXISTS ${q(schema)}.${q(table)} (
@@ -75,6 +84,7 @@ export const ensureTable = async (schema: string, table: string): Promise<void> 
      )`,
   )
   await p.query(`CREATE INDEX IF NOT EXISTS ${q(`${table}_body_gin`)} ON ${q(schema)}.${q(table)} USING GIN (body)`)
+  ensuredTables.add(key)
 }
 
 /** Does the schema exist? The data-migration checks ask this instead of looking at files. */

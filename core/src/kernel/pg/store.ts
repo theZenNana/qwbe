@@ -121,8 +121,8 @@ export const storeFor = (
     all: <A>(table: string) =>
       Effect.promise(async () => {
         const t = check(table)
+        await ensureTable(schemaName(cube), t)
         return withRole(cube, async (c) => {
-          await ensureTable(schemaName(cube), t)
           const r = await c.query(
             `SELECT * FROM ${q(schemaName(cube))}.${q(t)} WHERE deleted = false ORDER BY created_at ASC`,
           )
@@ -131,10 +131,10 @@ export const storeFor = (
       }),
 
     page: <A>(table: string, page: PageRequest, where?: { field: string; value: string }) =>
-      Effect.promise((): Promise<Page<A>> => {
+      Effect.promise(async (): Promise<Page<A>> => {
         const t = check(table)
+        await ensureTable(schemaName(cube), t)
         return withRole(cube, async (c) => {
-          await ensureTable(schemaName(cube), t)
           const w = whereClause(where)
           const o = orderClause(page.sortBy, page.descending ?? false)
           const n = w.params.length
@@ -164,8 +164,8 @@ export const storeFor = (
     byId: <A>(table: string, id: string) =>
       Effect.promise(async () => {
         const t = check(table)
+        await ensureTable(schemaName(cube), t)
         return withRole(cube, async (c) => {
-          await ensureTable(schemaName(cube), t)
           const r = await c.query(`SELECT * FROM ${q(schemaName(cube))}.${q(t)} WHERE id = $1 AND deleted = false`, [
             id,
           ])
@@ -176,8 +176,8 @@ export const storeFor = (
     insert: (table: string, entityType: string, prefix: string, values: Record<string, unknown>) =>
       Effect.promise(async () => {
         const t = check(table)
+        await ensureTable(schemaName(cube), t)
         return withRole(cube, async (c) => {
-          await ensureTable(schemaName(cube), t)
           const row = {
             id: newId(prefix),
             type: entityType,
@@ -199,8 +199,8 @@ export const storeFor = (
     update: (table: string, id: string, patch: Record<string, unknown>) =>
       Effect.promise(async () => {
         const t = check(table)
+        await ensureTable(schemaName(cube), t)
         return withRole(cube, async (c) => {
-          await ensureTable(schemaName(cube), t)
           const current = await c.query(`SELECT * FROM ${q(schemaName(cube))}.${q(t)} WHERE id = $1`, [id])
           if (!current.rows[0]) return undefined
           const merged = { ...decode(current.rows[0] as Record<string, unknown>), ...patch }
@@ -220,8 +220,8 @@ export const storeFor = (
     count: (table: string) =>
       Effect.promise(async () => {
         const t = check(table)
+        await ensureTable(schemaName(cube), t)
         return withRole(cube, async (c) => {
-          await ensureTable(schemaName(cube), t)
           const r = await c.query(`SELECT COUNT(*)::int AS c FROM ${q(schemaName(cube))}.${q(t)} WHERE deleted = false`)
           return (r.rows[0] as { c: number }).c
         })
