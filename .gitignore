@@ -53,11 +53,7 @@ web/tsconfig.tsbuildinfo
 # runtime per masina: copia din core/plugins se reconstruieste din store la boot, store-ul
 # se populeaza din directorul-sursa al administratorului. Niciuna nu e sursa de comis.
 # example-plugin ramane comis -- e fixture al repo-ului, nu pachet instalat.
-core/store/*
-# QWB-39: the historical customfields-pack is restored INTO the repo (port ticket QWB-46
-# will modernise it); it must be committable, unlike the per-machine installed packs.
-!core/store/customfields-pack
-core/plugins/*/
+core/store/*core/plugins/*/
 !core/plugins/example-plugin/
 
 # per-machine agent instructions; AGENTS.md is the tracked one

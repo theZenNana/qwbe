@@ -23,7 +23,6 @@
     "check": "node scripts/check.mjs",
     "check:strict": "node scripts/check.mjs --strict",
     "probe:smoke": "node probes/smoke.mjs",
-    "probe:customfields": "node probes/customfields.mjs",
     "probe:booktags": "node probes/booktags.mjs",
     "probe:contract": "node probes/contract.mjs",
     "probe:permissions": "node probes/permissions.mjs",
