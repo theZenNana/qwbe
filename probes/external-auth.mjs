@@ -12,12 +12,19 @@ import { client, dropScratch, freePort, makeScore, scratchDataDir, startServer, 
 
 const score = makeScore()
 
+// Raw fetch, because the CORS verdict lives in the response headers, which `client` drops.
+const preflightOn = (port) => async (origin) =>
+  fetch(`http://127.0.0.1:${port}/notes`, {
+    method: "OPTIONS",
+    headers: { origin, "access-control-request-method": "GET" },
+  }).then((r) => r.headers.get("access-control-allow-origin"))
+
 // --- part 1: login / me / logout / 401, on a server with no origin configuration ---
 
 const PORT1 = await freePort()
 const dataDir1 = scratchDataDir("extauth-default")
 const api1 = client(PORT1)
-const server1 = await startServer(PORT1, { QWBE_DATA_DIR: dataDir1 })
+const server1 = await startServer(PORT1, { QWBE_DATA_DIR: dataDir1, QWBE_ALLOWED_ORIGINS: undefined })
 if (!server1.alive) {
   console.error(`server did not start:\n${server1.output}`)
   process.exit(1)
@@ -53,6 +60,11 @@ try {
 
   const noToken = await api1.call("/auth/me")
   score.check("no token at all -> 401", noToken.status === 401, `http=${noToken.status}`)
+
+  // With the variable unset the allowlist is ["*"]: any Origin must get the literal `*`
+  // header, exactly the pre-QWB-42 behaviour.
+  const wildcard = await preflightOn(PORT1)("http://evil.example")
+  score.check("unset variable, any origin -> allow header is *", wildcard === "*", `header=${wildcard}`)
 } finally {
   await stopServer(server1)
   dropScratch(dataDir1)
@@ -70,12 +82,7 @@ if (!server2.alive) {
   process.exit(1)
 }
 
-// Raw fetch, because the CORS verdict lives in the response headers, which `client` drops.
-const preflight = async (origin) =>
-  fetch(`http://127.0.0.1:${PORT2}/notes`, {
-    method: "OPTIONS",
-    headers: { origin, "access-control-request-method": "GET" },
-  }).then((r) => r.headers.get("access-control-allow-origin"))
+const preflight = preflightOn(PORT2)
 
 const actual = async (origin) =>
   fetch(`http://127.0.0.1:${PORT2}/auth/login`, {
@@ -132,6 +139,36 @@ try {
   dropScratch(dataDir2)
 }
 
+// --- part 2b: a SINGLE-entry allowlist must still check every request ---
+//
+// Effect's cors middleware only compares the Origin when the array has more than one entry;
+// a one-entry array stamps its constant value on every response, listed origin or not. The
+// server passes a predicate instead, so this case must behave like the multi-entry one.
+
+const PORT5 = await freePort()
+const dataDir5 = scratchDataDir("extauth-single")
+const server5 = await startServer(PORT5, {
+  QWBE_DATA_DIR: dataDir5,
+  QWBE_ALLOWED_ORIGINS: "http://localhost:3000",
+})
+if (!server5.alive) {
+  console.error(`server did not start:\n${server5.output}`)
+  process.exit(1)
+}
+try {
+  const listed = await preflightOn(PORT5)("http://localhost:3000")
+  score.check(
+    "single-entry list, listed origin -> allow header echoes it",
+    listed === "http://localhost:3000",
+    `header=${listed}`,
+  )
+  const stranger = await preflightOn(PORT5)("http://evil.example")
+  score.check("single-entry list, unlisted origin -> no allow header", stranger === null, `header=${stranger}`)
+} finally {
+  await stopServer(server5)
+  dropScratch(dataDir5)
+}
+
 // --- part 3: malformed QWBE_ALLOWED_ORIGINS stops the startup ---
 
 const PORT3 = await freePort()
@@ -158,5 +195,16 @@ score.check(
 )
 await stopServer(server4)
 dropScratch(dataDir4)
+
+// A SET-but-empty variable is malformed, not "unset": it must refuse to start rather than
+// silently widen back to *. (Spawn drops undefined env values, so `undefined` above really
+// exercises the unset case; `""` here really exercises the empty case.)
+
+const PORT6 = await freePort()
+const dataDir6 = scratchDataDir("extauth-empty")
+const server6 = await startServer(PORT6, { QWBE_DATA_DIR: dataDir6, QWBE_ALLOWED_ORIGINS: "" })
+score.check("empty QWBE_ALLOWED_ORIGINS -> server refuses to start", !server6.alive, `alive=${server6.alive}`)
+await stopServer(server6)
+dropScratch(dataDir6)
 
 process.exit(score.report("external-auth (QWB-42)"))
