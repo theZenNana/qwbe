@@ -67,7 +67,7 @@ export const insertRowsStatement = (
     statements.push({
       text: `WITH base AS (SELECT count(*)::int AS n FROM "${TABLES.rows}" WHERE body->>'setId' = $1)
              INSERT INTO "${TABLES.rows}" (id, type, created_at, deleted, version, body)
-             SELECT x.id, x.type, x.created_at, false, 1,
+             SELECT x.id, x.type, x.created_at::timestamptz, false, 1,
                     jsonb_build_object('setId', $1, 'rowNum', base.n + x.rn, 'record', x.rec)
              FROM base, (VALUES ${rows.join(", ")}) AS x(id, type, created_at, rn, rec)`,
       values,
@@ -96,7 +96,9 @@ export const tallyStatement = (
   sampleDelta: ReadonlyArray<Malformed>,
   csvHeader?: ReadonlyArray<string>,
 ): SqlStatement => {
-  const sample = `(body->'malformedSample' || $4::jsonb)[1:${MALFORMED_SAMPLE_MAX}]`
+  // jsonb does not support array slices, so the cap uses a JSONPath range -- still computed
+  // against the LIVE sample row, inside the batch transaction (QWB-45 review, item 15).
+  const sample = `coalesce(jsonb_path_query_array(body->'malformedSample' || $4::jsonb, '$[0 to ${MALFORMED_SAMPLE_MAX - 1}]'), '[]'::jsonb)`
   const inner = `jsonb_set(
                  jsonb_set(
                    jsonb_set(body, '{rowCount}', to_jsonb((body->>'rowCount')::int + $2)),

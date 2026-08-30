@@ -159,7 +159,8 @@ describe("import chunking", () => {
       25,
       Array.from({ length: 25 }, (_, i) => ({ line: i + 1, reason: "x" })),
     )
-    assert.match(tally.text, new RegExp(`\\[1:${MALFORMED_SAMPLE_MAX}\\]`))
+    assert.match(tally.text, /jsonb_path_query_array/)
+    assert.match(tally.text, new RegExp(`0 to ${MALFORMED_SAMPLE_MAX - 1}`))
     // The full fresh sample travels as a value; the slice, not the caller, does the capping.
     const sampleValue = tally.values?.[3] as string | undefined
     assert.equal((sampleValue ?? "").length > 0, true)
