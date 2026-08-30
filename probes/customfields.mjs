@@ -5,12 +5,15 @@
 // QWB-46 acceptance, end to end: values live in the TARGET row's own body under the reserved
 // `custom` sub-object, not in a sidecar table. The walk itself lives in customfields-walk.mjs
 // (phase 1) and customfields-orphan.mjs (phase 2) -- split out because the file passed the size
-// cap. This driver owns the environment: it installs the pack, restarts so the cube mounts, and
-// leaves the tree exactly as it was found. The database is created and dropped by this probe,
-// so the restart proves persistence.
+// cap. This driver owns the environment: it installs the fixture cube and the pack, restarts so
+// they mount, and leaves the tree exactly as it was found. The database is created and dropped
+// by this probe, so the restart proves persistence.
+//
+// The TARGET is a fixture cube shipped under probes/fixtures/ (review fix 20): the walk used to
+// refuse unless an untracked crm-pack install existed, so the acceptance criterion could not
+// run on CI or a fresh checkout. Nothing about the fold is crm-specific.
 
 import { existsSync, rmSync } from "node:fs"
-import { homedir } from "node:os"
 import { join } from "node:path"
 import { walkPhase2 } from "./customfields-orphan.mjs"
 import { walkPhase1 } from "./customfields-walk.mjs"
@@ -29,8 +32,10 @@ import {
 
 // Overridable with CUSTOMFIELDS_PACK; the default is the sibling checkout, never a literal
 // home path (the secretlint rule in .secretlintrc.json exists to keep those out).
-const SOURCE = process.env.CUSTOMFIELDS_PACK ?? join(homedir(), "Projects", "Qwbe", "plugins", "customfields-pack")
+const SOURCE = process.env.CUSTOMFIELDS_PACK ?? join(root, "..", "plugins", "customfields-pack")
 const PACK = "customfields-pack"
+const FIXTURE = join(root, "probes", "fixtures", "guestbook-pack")
+const FIXTURE_PACK = "guestbook-pack"
 const score = makeScore()
 
 if (!existsSync(SOURCE)) {
@@ -38,20 +43,19 @@ if (!existsSync(SOURCE)) {
   console.error("set CUSTOMFIELDS_PACK to the customfields-pack checkout and retry.")
   process.exit(1)
 }
-// crm/contacts must be mounted for the acceptance walk: the probe uses the per-machine
-// crm-pack install when this checkout has one (core/plugins, gitignored, never committed).
-if (!existsSync(join(root, "core", "plugins", "crm-pack", "cubes", "crm", "contacts"))) {
-  console.error("refused: crm-pack is not installed in core/plugins, so crm/contacts cannot mount.")
-  console.error("Copy a crm-pack install into core/plugins (per machine, untracked) and retry.")
+if (!existsSync(FIXTURE)) {
+  console.error(`refused: the fixture pack does not exist: ${FIXTURE}`)
   process.exit(1)
 }
 
 // A leftover copy from an earlier run would make the install below a silent no-op (or a
 // refusal), so the probe refuses to guess whose it is - the same rule install-from uses.
-const liveAt = join(root, "core", "plugins", PACK)
-if (existsSync(liveAt)) {
-  console.error(`refused: ${liveAt} already exists. Remove it first (it should not be committed).`)
-  process.exit(1)
+for (const name of [PACK, FIXTURE_PACK]) {
+  const liveAt = join(root, "core", "plugins", name)
+  if (existsSync(liveAt)) {
+    console.error(`refused: ${liveAt} already exists. Remove it first (it should not be committed).`)
+    process.exit(1)
+  }
 }
 
 const port = await freePort()
@@ -70,7 +74,13 @@ if (!server.alive) {
   process.exit(1)
 }
 
-/** Stop, boot again, log in again: sessions do not survive a restart. */
+/** Stop, boot again, log in again, and return a FRESH session for the new server.
+ *
+ *  Sessions live in Postgres and DO survive a restart (measured: a pre-restart caller keeps
+ *  working). Each reboot still logs in again on purpose -- a probe must never silently depend
+ *  on session persistence -- and every caller below is the one created AFTER the restart it
+ *  addresses (review fix 18: the walk used to pass a caller from before the restart, which
+ *  only worked by the accident above). */
 const reboot = async () => {
   await stopServer(server)
   server = await boot()
@@ -82,36 +92,48 @@ const reboot = async () => {
   return (path, options = {}) => client(port).call(path, { ...options, headers: fresh.headers })
 }
 
+const install = async (asAdmin, path, name) => {
+  const r = await asAdmin("/settings/packages/install-from", {
+    method: "POST",
+    body: JSON.stringify({ path }),
+  })
+  score.check(
+    `${name} installs from its source directory`,
+    r.status === 200,
+    `http=${r.status} ${JSON.stringify(r.body).slice(0, 200)}`,
+  )
+}
+
 try {
   const first = await client(port).login()
   const asAdmin = (path, options = {}) => client(port).call(path, { ...options, headers: first.headers })
 
-  // ---- install from the pack's own repository, restart, confirm the mount --------------------
-  const install = await asAdmin("/settings/packages/install-from", {
-    method: "POST",
-    body: JSON.stringify({ path: SOURCE }),
-  })
-  score.check(
-    "the pack installs from its own repository",
-    install.status === 200 && install.body?.package?.name === PACK,
-    `http=${install.status}`,
-  )
+  // ---- install the fixture cube and the pack, restart, confirm both mount -------------------
+  await install(asAdmin, FIXTURE, "the fixture cube")
+  await install(asAdmin, SOURCE, "the pack")
 
   await asAdmin("/settings/restart", { method: "POST", body: "{}" })
-  const asAdmin2 = await reboot()
+  await reboot()
 
   const phase1 = await walkPhase1({ score, asAdmin, reboot })
-  await walkPhase2({ score, asAdmin2, contactId: phase1.contactId })
+  // The fresh caller walkPhase1 created AFTER its reboot is the live one (review fix 18): the
+  // outer caller from before that restart only worked by the accident that sessions live in
+  // Postgres and survive. Use what the phase that did the restart returned.
+  await walkPhase2({ score, asAdmin2: phase1.asAdmin2, entryId: phase1.entryId, cube: "guestbook" })
 
-  // ---- leave as found: the install goes, so the next run installs from scratch ---------------
-  const undo = await asAdmin2(`/settings/packages/${PACK}`, { method: "DELETE" })
-  score.check("the pack uninstalls cleanly at the end", undo.status === 200, `http=${undo.status}`)
+  // ---- leave as found: the installs go, so the next run installs from scratch ---------------
+  for (const name of [PACK, FIXTURE_PACK]) {
+    const undo = await phase1.asAdmin2(`/settings/packages/${name}`, { method: "DELETE" })
+    score.check(`${name} uninstalls cleanly at the end`, undo.status === 200, `http=${undo.status}`)
+  }
 } catch (e) {
   console.error(e.message)
   score.check("probe ran to completion", false, e.message)
 } finally {
   await stopServer(server).catch(() => {})
-  rmSync(liveAt, { recursive: true, force: true })
+  for (const name of [PACK, FIXTURE_PACK]) {
+    rmSync(join(root, "core", "plugins", name), { recursive: true, force: true })
+  }
   dropScratch(dataDir)
   await dropDatabase(dbUrl)
 }
