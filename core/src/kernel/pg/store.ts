@@ -121,6 +121,7 @@ export const storeFor = (
     all: <A>(table: string) =>
       Effect.promise(async () => {
         const t = check(table)
+        await ensureCubeSchema(cube)
         await ensureTable(schemaName(cube), t)
         return withRole(cube, async (c) => {
           const r = await c.query(
@@ -133,6 +134,7 @@ export const storeFor = (
     page: <A>(table: string, page: PageRequest, where?: { field: string; value: string }) =>
       Effect.promise(async (): Promise<Page<A>> => {
         const t = check(table)
+        await ensureCubeSchema(cube)
         await ensureTable(schemaName(cube), t)
         return withRole(cube, async (c) => {
           const w = whereClause(where)
@@ -164,6 +166,7 @@ export const storeFor = (
     byId: <A>(table: string, id: string) =>
       Effect.promise(async () => {
         const t = check(table)
+        await ensureCubeSchema(cube)
         await ensureTable(schemaName(cube), t)
         return withRole(cube, async (c) => {
           const r = await c.query(`SELECT * FROM ${q(schemaName(cube))}.${q(t)} WHERE id = $1 AND deleted = false`, [
@@ -176,6 +179,7 @@ export const storeFor = (
     insert: (table: string, entityType: string, prefix: string, values: Record<string, unknown>) =>
       Effect.promise(async () => {
         const t = check(table)
+        await ensureCubeSchema(cube)
         await ensureTable(schemaName(cube), t)
         return withRole(cube, async (c) => {
           const row = {
@@ -199,6 +203,7 @@ export const storeFor = (
     update: (table: string, id: string, patch: Record<string, unknown>) =>
       Effect.promise(async () => {
         const t = check(table)
+        await ensureCubeSchema(cube)
         await ensureTable(schemaName(cube), t)
         return withRole(cube, async (c) => {
           const current = await c.query(`SELECT * FROM ${q(schemaName(cube))}.${q(t)} WHERE id = $1`, [id])
@@ -220,6 +225,7 @@ export const storeFor = (
     count: (table: string) =>
       Effect.promise(async () => {
         const t = check(table)
+        await ensureCubeSchema(cube)
         await ensureTable(schemaName(cube), t)
         return withRole(cube, async (c) => {
           const r = await c.query(`SELECT COUNT(*)::int AS c FROM ${q(schemaName(cube))}.${q(t)} WHERE deleted = false`)

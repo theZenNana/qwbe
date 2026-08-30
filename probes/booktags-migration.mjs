@@ -1,45 +1,60 @@
-// The migration edge cases: conflict on the SECOND entry, and the batch rolling back whole.
+// The migration edge cases: conflict on the SECOND entry, preflight before ANY rename.
 //
 //   node probes/booktags-migration.mjs
 //
-// The main probe migrates a clean flat database. This one plants the trap the reviewer
-// described: the FIRST migration is clean, the SECOND finds both files present. Preflight
-// must refuse the boot BEFORE the first rename -- the data directory afterwards must hold
-// exactly what it held before, byte for byte. And a sub-directory without an index.ts next
-// to the children must be ignored, not imported.
+// The main probe migrates a clean flat schema. This one plants the trap the reviewer
+// described: the FIRST migration is clean, the SECOND finds both schemas present. Preflight
+// must refuse the boot BEFORE the first rename -- the database afterwards must hold exactly
+// what it held before. And a sub-directory without an index.ts next to the children must be
+// ignored, not imported.
+//
+// Since QWB-44 the data lives in one Postgres schema per cube, so the planted history is a
+// set of schemas in a scratch database, and a mid-batch rollback is no longer reachable from
+// the outside (a schema rename has no filesystem permission to deny) -- that path is covered
+// by the unit test in core/src/kernel/migrate.test.ts, which injects a failing renamer.
 
-import { existsSync, mkdirSync, rmSync } from "node:fs"
-import { tmpdir } from "node:os"
-import { join } from "node:path"
-import { DatabaseSync } from "node:sqlite"
-import { freePort, makeScore, startServer } from "./lib.mjs"
+import pg from "pg"
+import { dropDatabase, freePort, makeScore, scratchDatabase, startServer } from "./lib.mjs"
 
 const score = makeScore()
-const dataDir = join(tmpdir(), `qwbe-migration-${process.pid}`)
-mkdirSync(dataDir, { recursive: true })
+const dbUrl = await scratchDatabase("migration")
 
-const plant = (file, table) => {
-  const db = new DatabaseSync(join(dataDir, file))
-  db.exec(
-    `CREATE TABLE "${table}" (id TEXT PRIMARY KEY, type TEXT NOT NULL, createdAt TEXT NOT NULL, deleted INTEGER NOT NULL DEFAULT 0, body TEXT NOT NULL)`,
-  )
-  db.prepare(`INSERT INTO "${table}" (id, type, createdAt, deleted, body) VALUES (?, ?, ?, 0, ?)`).run(
-    `${table}-1`,
-    "T",
-    new Date().toISOString(),
-    "{}",
-  )
-  db.close()
+const plant = async (schema, table) => {
+  const c = new pg.Client({ connectionString: dbUrl })
+  await c.connect()
+  try {
+    await c.query(`CREATE SCHEMA "${schema}"`)
+    await c.query(`CREATE TABLE "${schema}"."${table}" (
+      id TEXT PRIMARY KEY, type TEXT NOT NULL, created_at timestamptz NOT NULL,
+      deleted BOOLEAN NOT NULL DEFAULT false, version INTEGER NOT NULL DEFAULT 1, body JSONB NOT NULL)`)
+    await c.query(
+      `INSERT INTO "${schema}"."${table}" (id, type, created_at, deleted, version, body)
+       VALUES ($1, 'T', now(), false, 1, '{}')`,
+      [`${table}-1`],
+    )
+  } finally {
+    await c.end()
+  }
 }
 
-// bookmarks.sqlite migrates cleanly; tags.sqlite + booktags--tags.sqlite collide.
-plant("bookmarks.sqlite", "bookmarks")
-plant("tags.sqlite", "tags")
-plant("booktags--tags.sqlite", "tags")
+const schemaThere = async (schema) => {
+  const c = new pg.Client({ connectionString: dbUrl })
+  await c.connect()
+  try {
+    const r = await c.query(`SELECT 1 FROM information_schema.schemata WHERE schema_name = $1`, [schema])
+    return (r.rowCount ?? 0) > 0
+  } finally {
+    await c.end()
+  }
+}
 
-const PORT = await freePort()
+// bookmarks migrates cleanly; tags + booktags--tags collide.
+await plant("bookmarks", "bookmarks")
+await plant("tags", "tags")
+await plant("booktags--tags", "tags")
+
 const LEGACY = "bookmarks:example-plugin,tags:example-plugin"
-const server = await startServer(PORT, { QWBE_DATA_DIR: dataDir, QWBE_LEGACY_MIGRATIONS: LEGACY })
+const server = await startServer(await freePort(), { QWBE_DATABASE_URL: dbUrl, QWBE_LEGACY_MIGRATIONS: LEGACY })
 score.check(
   "a conflict on the second migration stops the boot with the named refusal",
   !server.alive && server.output.includes("Data migration refused"),
@@ -47,25 +62,24 @@ score.check(
 )
 score.check(
   "preflight ran before ANY rename: the first migration's source is still in place",
-  existsSync(join(dataDir, "bookmarks.sqlite")) && !existsSync(join(dataDir, "booktags--bookmarks.sqlite")),
+  (await schemaThere("bookmarks")) && !(await schemaThere("booktags--bookmarks")),
   "nothing moved",
 )
 score.check(
   "the conflicting pair is untouched, both directions",
-  existsSync(join(dataDir, "tags.sqlite")) && existsSync(join(dataDir, "booktags--tags.sqlite")),
-  "both files present",
+  (await schemaThere("tags")) && (await schemaThere("booktags--tags")),
+  "both schemas present",
 )
 
-rmSync(dataDir, { recursive: true, force: true })
+await dropDatabase(dbUrl)
 
 // Two mount-selection rules, both verified by booting a narrowed set:
 //   - a child requested without its parent pulls the parent in (the mask requires it);
 //   - a package whose migration destination is NOT mounted refuses the boot -- a migration
 //     runs only when its destination is, so half the package cannot slip through.
-const dataDir2 = join(tmpdir(), `qwbe-mounted-${process.pid}`)
-mkdirSync(dataDir2, { recursive: true })
+const dbUrl2 = await scratchDatabase("migration-mounted")
 const childOnly = await startServer(await freePort(), {
-  QWBE_DATA_DIR: dataDir2,
+  QWBE_DATABASE_URL: dbUrl2,
   QWBE_MOUNTED: "auth,account,settings,cli,booktags/bookmarks",
 })
 score.check(
@@ -76,7 +90,7 @@ score.check(
 childOnly.proc.kill()
 
 const wholePackage = await startServer(await freePort(), {
-  QWBE_DATA_DIR: dataDir2,
+  QWBE_DATABASE_URL: dbUrl2,
   QWBE_MOUNTED: "auth,account,settings,cli,booktags,booktags/bookmarks,booktags/tags,booktags/settings",
 })
 score.check(
@@ -88,7 +102,7 @@ wholePackage.proc.kill()
 
 // The expansion itself: asking for the children and NOT the parent still mounts the parent.
 const childPullsParent = await startServer(await freePort(), {
-  QWBE_DATA_DIR: dataDir2,
+  QWBE_DATABASE_URL: dbUrl2,
   QWBE_MOUNTED: "auth,account,settings,cli,booktags/bookmarks,booktags/tags,booktags/settings",
 })
 score.check(
@@ -98,42 +112,6 @@ score.check(
 )
 childPullsParent.proc.kill()
 
-rmSync(dataDir2, { recursive: true, force: true })
-
-// The ownership walls (a migration pointing at another package's data, a plugin pointing at
-// the LIVE auth cube) live in booktags-migration-ownership.mjs -- file cap.
-
-// A rename failing MID-BATCH (first file moved, second throws) is covered by the unit test
-// in core/src/kernel/migrate.test.ts: migrateDataFiles takes its renamer as a parameter, so
-// the fault is injected directly -- no environment variable in the production path. What
-// remains for the boot-level probe: a data directory that rejects EVERY write stops the boot
-// with the failure named, and nothing moves.
-import { chmodSync } from "node:fs"
-
-const dataDir4 = join(tmpdir(), `qwbe-midmove-${process.pid}`)
-mkdirSync(dataDir4, { recursive: true })
-const flat4 = new DatabaseSync(join(dataDir4, "bookmarks.sqlite"))
-flat4.exec(
-  `CREATE TABLE "bookmarks" (id TEXT PRIMARY KEY, type TEXT NOT NULL, createdAt TEXT NOT NULL, deleted INTEGER NOT NULL DEFAULT 0, body TEXT NOT NULL)`,
-)
-flat4.close()
-chmodSync(dataDir4, 0o555)
-const midMove = await startServer(await freePort(), {
-  QWBE_DATA_DIR: dataDir4,
-  QWBE_LEGACY_MIGRATIONS: LEGACY,
-})
-chmodSync(dataDir4, 0o755)
-score.check(
-  "a data directory that rejects writes stops the boot with the failure named",
-  !midMove.alive && midMove.output.includes("rolled back"),
-  midMove.output.split("\n").find((l) => l.includes("igration")) ?? "(no error line)",
-)
-score.check(
-  "nothing moved: source file in place, destination absent",
-  existsSync(join(dataDir4, "bookmarks.sqlite")) && !existsSync(join(dataDir4, "booktags--bookmarks.sqlite")),
-  "nothing moved",
-)
-midMove.proc.kill()
-rmSync(dataDir4, { recursive: true, force: true })
+await dropDatabase(dbUrl2)
 
 process.exit(score.report("Booktags migration probe"))
