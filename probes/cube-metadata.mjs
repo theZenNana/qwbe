@@ -99,10 +99,13 @@ try {
   )
   const denied = await readerMetadata("permissions")
   score.check(
-    "a caller without the cube's read permission gets 403, not the shape",
-    denied.status === 403 && responseConforms(spec, "/catalog/{cube}/metadata", "get", 403, denied.body),
+    "a caller without the cube's read permission gets 404, indistinguishable from unknown",
+    denied.status === 404 && responseConforms(spec, "/catalog/{cube}/metadata", "get", 404, denied.body),
   )
-  score.check("an unknown cube is 404, never an empty shape", (await metadataOf("no-such-cube")).status === 404)
+  score.check(
+    "an unknown cube is 404 for a reader too, so cubes cannot be enumerated",
+    (await readerMetadata("no-such-cube")).status === 404,
+  )
 
   // --- the drift gate: same version, changed schema -> the server refuses to start ---
   await stopServer(server)

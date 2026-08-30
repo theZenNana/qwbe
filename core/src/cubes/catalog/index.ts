@@ -7,8 +7,8 @@
 //
 // Permission model: the metadata of a cube is readable exactly as far as the cube itself is.
 // There is no `catalog:read` -- the check is the target cube's own read permission, computed
-// per request. A caller without it gets 403 and learns no shape; an unknown or disabled cube
-// gets 404, like every disabled cube's routes.
+// per request. A caller without it gets 404, same as an unknown or disabled cube: a 403 would
+// let any authenticated caller enumerate which cubes exist.
 
 import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema } from "@effect/platform"
 import { Effect, Schema } from "effect"
@@ -40,13 +40,19 @@ export const cube = defineCube(group, {
     handlers: {
       metadata: ({ path }: { path: { cube: string } }) =>
         Effect.gen(function* () {
-          // Order matters: unknown or disabled first (404, matching the disabled-cube rule that
-          // runs in front of authentication), THEN the target cube's own read permission.
+          // "No permission" answers 404, exactly like an unknown or disabled cube: answering
+          // 403 would let any authenticated caller tell "exists but forbidden" from "does not
+          // exist" and enumerate the mounted cubes. The cost is that a caller who may not
+          // read the cube cannot tell WHY -- the metadata teaches nothing either way.
           const entry = catalogue().find((c) => c.name === path.cube)
+          yield* requirePermission(readPermissionOf(path.cube)).pipe(
+            Effect.catchTag("Forbidden", () =>
+              Effect.fail(new NotFound({ message: `cube ${path.cube} is not mounted` })),
+            ),
+          )
           if (!entry?.enabled) {
             return yield* Effect.fail(new NotFound({ message: `cube ${path.cube} is not mounted` }))
           }
-          yield* requirePermission(readPermissionOf(path.cube))
           if (!entry.metadata) {
             return yield* Effect.fail(new NotFound({ message: `cube ${path.cube} publishes no field metadata` }))
           }
