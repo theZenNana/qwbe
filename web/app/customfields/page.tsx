@@ -3,14 +3,18 @@
 // THE CUSTOM FIELDS SCREEN -- where an administrator adds a field to another cube.
 //
 // It replaces the generic list for this one cube, because a list of rows is not what a person
-// wants here: they want to add a field and see, per cube, what is already there. Next.js gives
-// this static segment precedence over `[cube]`, so the sidebar link needs no special case.
+// wants here: they want to add a field and see, per cube, what is already there. The sidebar
+// link exists because the cube's manifest declares `screen: true` -- the shell renders a tab
+// for it from that declaration alone, no special case here.
 //
 // The list of cubes you may extend comes from the catalogue -- the same source the sidebar uses --
 // so a cube installed five minutes ago is in the dropdown without a line changed here.
+//
+// The form and the defined-fields table live in AddFieldForm.tsx and DefinedFields.tsx (file
+// cap); this file keeps the state and the API calls.
 
 import { useCallback, useEffect, useState } from "react"
-import { type CubeInfo, catalogue } from "../../lib/api"
+import { ApiError, type CubeInfo, catalogue } from "../../lib/api"
 import {
   type CustomFieldDef,
   customFieldDefs,
@@ -19,14 +23,17 @@ import {
   removeCustomField,
 } from "../../lib/customfields-api"
 import { Shell } from "../Shell"
-
-const TYPES: Array<FieldType> = ["text", "number", "date", "bool", "select"]
+import { AddFieldForm } from "./AddFieldForm"
+import { DefinedFields } from "./DefinedFields"
 
 export default function CustomFieldsAdmin() {
   const [cubes, setCubes] = useState<Array<CubeInfo>>([])
   const [defs, setDefs] = useState<Array<CustomFieldDef> | null>(null)
+  const [total, setTotal] = useState(0)
+  const [notInstalled, setNotInstalled] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
 
   const [targetCube, setTargetCube] = useState("")
   const [name, setName] = useState("")
@@ -40,8 +47,15 @@ export default function CustomFieldsAdmin() {
   const reload = useCallback(
     () =>
       customFieldDefs()
-        .then((p) => setDefs([...p.rows]))
+        .then((p) => {
+          setDefs([...p.rows])
+          setTotal(p.total)
+          setNotInstalled(false)
+        })
         .catch((e: Error) => {
+          // A 404 means the customfields cube is not installed (or is switched off) -- not an
+          // error to shout about, but no form either: there is nothing to add a field to.
+          setNotInstalled(e instanceof ApiError && e.status === 404)
           setDefs([])
           setError(e.message)
         }),
@@ -91,165 +105,57 @@ export default function CustomFieldsAdmin() {
 
   const drop = async (d: CustomFieldDef) => {
     setError(null)
+    setDeletingId(d.id)
     try {
       await removeCustomField(d.id)
       await reload()
     } catch (e) {
       setError((e as Error).message)
+    } finally {
+      setDeletingId(null)
     }
   }
-
-  const byCube = (defs ?? []).reduce<Record<string, Array<CustomFieldDef>>>((acc, d) => {
-    acc[d.targetCube] = (acc[d.targetCube] ?? []).concat(d)
-    return acc
-  }, {})
 
   return (
     <Shell>
       <h2>customfields</h2>
       <p className="subtitlu">extra fields for any cube * the values live in this cube, next to the definitions</p>
 
-      {error && <div className="eroare">{error}</div>}
+      {notInstalled ? (
+        <div className="gol">The customfields cube is not installed. Install it from Settings to add extra fields.</div>
+      ) : (
+        <>
+          {error && <div className="eroare">{error}</div>}
 
-      <div className="panou">
-        <h3>Add a field</h3>
-        <table>
-          <tbody>
-            <tr>
-              <td style={{ width: 180, color: "var(--sters)" }}>cube</td>
-              <td>
-                <select data-testid="cf-cube" value={targetCube} onChange={(e) => setTargetCube(e.target.value)}>
-                  <option value="">-- pick a cube --</option>
-                  {cubes.map((c) => (
-                    <option key={c.name} value={c.name}>
-                      {c.name}
-                      {c.plugin ? ` (${c.plugin})` : ""}
-                    </option>
-                  ))}
-                </select>
-              </td>
-            </tr>
-            <tr>
-              <td style={{ color: "var(--sters)" }}>name</td>
-              <td>
-                <input
-                  data-testid="cf-name"
-                  value={name}
-                  placeholder="cnp"
-                  onChange={(e) => setName(e.target.value)}
-                  style={{ width: "100%" }}
-                />
-                <div className="mic">
-                  a letter, then letters, digits or underscores -- it is the key the value is stored under
-                </div>
-              </td>
-            </tr>
-            <tr>
-              <td style={{ color: "var(--sters)" }}>label</td>
-              <td>
-                <input
-                  data-testid="cf-label"
-                  value={label}
-                  placeholder="CNP"
-                  onChange={(e) => setLabel(e.target.value)}
-                  style={{ width: "100%" }}
-                />
-                <div className="mic">what the form shows. Empty means the name is used.</div>
-              </td>
-            </tr>
-            <tr>
-              <td style={{ color: "var(--sters)" }}>type</td>
-              <td>
-                <select
-                  data-testid="cf-type"
-                  value={fieldType}
-                  onChange={(e) => setFieldType(e.target.value as FieldType)}
-                >
-                  {TYPES.map((t) => (
-                    <option key={t} value={t}>
-                      {t}
-                    </option>
-                  ))}
-                </select>
-              </td>
-            </tr>
-            {fieldType === "select" && (
-              <tr>
-                <td style={{ color: "var(--sters)" }}>options</td>
-                <td>
-                  <input
-                    data-testid="cf-options"
-                    value={options}
-                    placeholder="junior, mid, senior"
-                    onChange={(e) => setOptions(e.target.value)}
-                    style={{ width: "100%" }}
-                  />
-                  <div className="mic">comma separated. A value outside this list is refused by the API.</div>
-                </td>
-              </tr>
-            )}
-            <tr>
-              <td style={{ color: "var(--sters)" }}>required</td>
-              <td>
-                <input
-                  data-testid="cf-required"
-                  type="checkbox"
-                  checked={required}
-                  onChange={(e) => setRequired(e.target.checked)}
-                />
-                <span className="mic"> a required field cannot be emptied once it has a value</span>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-        <div className="rand-paginare">
-          <button type="button" data-testid="cf-add" disabled={busy || !targetCube || !name} onClick={add}>
-            {busy ? "adding..." : "add field"}
-          </button>
-          <span className="mic">the new field shows up on every row of that cube, at once</span>
-        </div>
-      </div>
+          <AddFieldForm
+            cubes={cubes}
+            targetCube={targetCube}
+            setTargetCube={setTargetCube}
+            name={name}
+            setName={setName}
+            label={label}
+            setLabel={setLabel}
+            fieldType={fieldType}
+            setFieldType={setFieldType}
+            options={options}
+            setOptions={setOptions}
+            required={required}
+            setRequired={setRequired}
+            busy={busy}
+            onAdd={add}
+          />
 
-      <div className="panou">
-        <h3>Defined fields</h3>
-        {defs === null && <div className="mic">loading...</div>}
-        {defs !== null && defs.length === 0 && <div className="gol">No custom fields yet.</div>}
-        {Object.entries(byCube).map(([cube, list]) => (
-          <div key={cube} style={{ marginBottom: 14 }}>
-            <div className="mic" style={{ marginBottom: 6 }}>
-              {cube}
+          {/* limit=200 is the server's MAX_LIMIT; if more definitions exist than came back, say
+              so instead of silently showing a subset (whose positions are then also partial). */}
+          {defs !== null && total > defs.length && (
+            <div className="eroare">
+              showing {defs.length} of {total} definitions -- the rest are past the server's page limit
             </div>
-            <table>
-              <tbody>
-                {list
-                  .slice()
-                  .sort((a, b) => a.position - b.position || a.name.localeCompare(b.name))
-                  .map((d) => (
-                    <tr key={d.id}>
-                      <td style={{ width: 200 }} data-field={`${d.targetCube}.${d.name}`}>
-                        {d.label}
-                      </td>
-                      <td className="mic">
-                        {d.name} * {d.fieldType}
-                        {d.required ? " * required" : ""}
-                        {d.options.length > 0 ? ` * [${d.options.join(" | ")}]` : ""}
-                      </td>
-                      <td style={{ width: 90 }}>
-                        <button type="button" onClick={() => drop(d)}>
-                          remove
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-              </tbody>
-            </table>
-          </div>
-        ))}
-        <p className="mic">
-          Removing a field takes its stored values with it. Defining the same name again starts empty -- an old value
-          cannot come back under a new type.
-        </p>
-      </div>
+          )}
+
+          <DefinedFields defs={defs} deletingId={deletingId} onDrop={drop} />
+        </>
+      )}
     </Shell>
   )
 }
