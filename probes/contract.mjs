@@ -24,18 +24,17 @@ if (!server.alive) {
 }
 
 try {
-  const sessionForSpec = await api.login()
-  const openapi = await api.call("/openapi.json", { headers: sessionForSpec.headers })
+  const session = await api.login()
+  const openapi = await api.call("/openapi.json", { headers: session.headers })
   const spec = openapi.body
   score.check("OpenAPI is served as 3.1 JSON", openapi.status === 200 && spec?.openapi === "3.1.0")
-  score.check("the spec is not readable without a session", (await api.call("/openapi.json")).status === 401)
+  score.check("the spec rejects anonymous callers", (await api.call("/openapi.json")).status === 401)
 
   // The inventory below guards the kernel's own API -- core cubes plus the committed
   // example-plugin fixture. Cubes mounted from an INSTALLED package (QWB-28/29) extend the
   // surface at runtime; their contract is the package's own probe, not this inventory. Their
   // routes are filtered out by cube prefix so the gate stays green both ways.
-  const sessionForFilter = await api.login()
-  const catalogue = await api.call("/settings/cubes", { headers: sessionForFilter.headers })
+  const catalogue = await api.call("/settings/cubes", { headers: session.headers })
   const installedCubePrefixes = new Set(
     (catalogue.body ?? []).filter((c) => c.plugin && c.plugin !== "example-plugin").map((c) => `/${c.prefix}`),
   )
@@ -58,7 +57,7 @@ try {
     JSON.stringify(actualInventory) === JSON.stringify(EXPECTED_OPERATIONS),
   )
   score.check(
-    "every parameter, payload and declared response/error has a resolvable schema",
+    "every parameter, payload and response has a resolvable schema",
     operations.every(({ path, operation }) => operationContractIsDeclared(spec, path, operation)),
   )
 
@@ -93,9 +92,8 @@ try {
     badAnonymous ? `${badAnonymous.method.toUpperCase()} ${badAnonymous.path}: http=${badAnonymous.result.status}` : "",
   )
 
-  const session = await api.login()
-  // The shared login helper intentionally returns only the token and headers. Read the complete
-  // response once as contract evidence rather than fabricating the omitted fields.
+  // The shared login helper returns only token and headers; read the complete login response
+  // once as contract evidence rather than fabricating the omitted fields.
   const login = await api.call("/auth/login", {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -127,7 +125,7 @@ try {
   const mutatedBody = Array.isArray(cubes)
     ? cubes.map((cube, index) => (index === 0 ? { ...cube, enabled: "yes" } : cube))
     : cubes
-  score.check("mutation sentinel rejects a wrong response field type", !validates(spec, schema, mutatedBody))
+  score.check("mutation sentinel rejects a wrong field type", !validates(spec, schema, mutatedBody))
 
   const mutatedSpec = structuredClone(spec)
   delete mutatedSpec.paths["/auth/me"].get.responses["401"]

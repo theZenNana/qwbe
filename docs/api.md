@@ -38,9 +38,12 @@ Permission: `settings:read`. The frontend draws the sidebar and the tabs from th
 
 ## Rows: list, get, create
 
-Each entity cube serves its own prefix (`/notes`, `/contracts`, `crm/contacts` ...) with the
-same three shapes. Reading requires the cube's `read` permission (`notes:read`,
-`crm/contacts:read`, ...); writing requires its `write` permission.
+Each entity cube serves its own prefix (`/notes`, `/contracts`, `/contacts` ...) with the
+same three shapes. The prefix is the cube's ENDPOINT path, not its name: the cube named
+`crm/contacts` serves `/contacts`, and `booktags/bookmarks` serves `/bookmarks`. Which prefix
+belongs to which cube is published per cube in `GET /settings/cubes` -- read it from there
+rather than guessing from the name. Reading requires the cube's `read` permission
+(`notes:read`, `crm/contacts:read`, ...); writing requires its `write` permission.
 
 `GET /notes?offset=0&limit=2&sortBy=createdAt&descending=true` (a page, never the whole table):
 
@@ -74,8 +77,15 @@ POST /notes
 ```
 
 Response 200: the full row, as above. A field the schema gives a default to (see `required` in
-the metadata) may be omitted. Search goes through the links surface: a relation field on one
-cube is searched from the cube that holds it (`GET /links/...`).
+the metadata) may be omitted.
+
+Search goes through the links surface, and it has ONE direction:
+`GET /links/{entity}/{id}/{cube}` returns the rows OF `{cube}` whose LINK FIELD equals `{id}`
+of `{entity}` -- the reverse lookup, not a free-text search. Concretely: with the space link
+`crm/contracts.partyId -> Contact`, a frontend that has contact `ct-1` open calls
+`GET /links/Contact/ct-1/crm%2Fcontracts` and gets the contracts whose `partyId` is `ct-1`,
+paged. A `searchable: true` field in the metadata (see below) is exactly a field that can
+serve as such a link field -- the metadata never promises free-text search.
 
 ## Per-cube field metadata
 
@@ -97,8 +107,8 @@ Response 200 (real, abridged to two fields):
 {
   "cube": "crm/contracts",
   "entity": "Contract",
-  "version": null,
-  "schemaHash": "82a4c5c158a3b2b8857baa10623555a917b378e9fceffce6d183ab2fe5587539",
+  "version": "1.0.0",
+  "schemaHash": "<64 hex characters, changes with the schema>",
   "fields": [
     {
       "name": "id",
@@ -106,7 +116,19 @@ Response 200 (real, abridged to two fields):
       "type": "string",
       "required": false,
       "editable": false,
-      "sortable": false,
+      "sortable": true,
+      "searchable": false,
+      "nullable": false,
+      "enum": null,
+      "relation": null
+    },
+    {
+      "name": "title",
+      "label": "Title",
+      "type": "string",
+      "required": true,
+      "editable": true,
+      "sortable": true,
       "searchable": false,
       "nullable": false,
       "enum": null,
@@ -125,9 +147,11 @@ Field by field:
   default is editable but not required.
 - `editable` -- the caller may set it on create. The meta columns (`id`, `type`, `createdAt`,
   `deleted`) never are.
-- `sortable` -- from the manifest's `sortable` list (default: the meta columns).
-- `searchable` -- from the manifest's `searchable` list; default: text fields, when the cube
-  implements search.
+- `sortable` -- from the manifest's `sortable` list (default: the meta columns except
+  `deleted`, which is a filter rather than an ordering).
+- `searchable` -- from the manifest's `searchable` list; default: the cube's space-link
+  fields, when the cube implements search. This is the field a `GET /links/{entity}/{id}/...`
+  request can match on -- not free-text search.
 - `nullable` and `enum` -- from the schema itself (`NullOr`, literal unions).
 - `relation` -- present when the field points at another cube. The target is resolved either
   from the cube's own manifest (`relations: { partyId: { target } }`) or from a space link --
@@ -135,7 +159,8 @@ Field by field:
   resolves a row summary for the target: `summaryById` when the target cube implements it,
   otherwise null. Nothing is invented for the metadata; the existing mechanism is published.
 
-The `partyId` field of `crm/contracts`, real response:
+The `partyId` field of `crm/contracts` (the field entry only; the fingerprint is a real
+sha256 hex string at runtime):
 
 ```json
 {
