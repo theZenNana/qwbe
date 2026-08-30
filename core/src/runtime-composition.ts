@@ -117,12 +117,17 @@ export const buildApi = (cubes: ReadonlyArray<MountedCube>): HttpApi.HttpApi<"cu
     }
     for (const endpoint of Object.values(group.endpoints ?? {})) {
       if (!endpoint || typeof endpoint !== "object") continue
-      const e = endpoint
-      if (e.payloadSchema !== undefined && Option.isSome(e.payloadSchema)) {
-        e.payloadSchema = Option.some(widenStruct(e.payloadSchema.value))
-      }
-      if (e.successSchema !== undefined && Option.isSome(e.successSchema)) {
-        e.successSchema = Option.some(widenStruct(e.successSchema.value))
+      const e = endpoint as Record<string, unknown>
+      for (const key of ["payloadSchema", "successSchema"] as const) {
+        const value = e[key] as Option.Option<unknown>
+        // Most endpoints carry these as Options; some store the bare schema. Both are widened
+        // in place, whichever shape they come in: a non-Option schema fails the isSome check
+        // and goes through the schema-like branch below.
+        if (Option.isSome(value)) {
+          e[key] = Option.some(widenStruct(value.value))
+        } else if (isSchemaLike(value)) {
+          e[key] = widenStruct(value)
+        }
       }
     }
   }
