@@ -54,7 +54,11 @@ export const checkCustomValue = (def: CustomFieldDef, value: unknown): string | 
   const asString = typeof value === "string" ? value : (JSON.stringify(value) ?? String(value))
   switch (def.fieldType) {
     case "text":
-      return asString.length > 1000 ? `"${def.name}" is longer than 1000 characters` : undefined
+      return typeof value === "string"
+        ? value.length > 1000
+          ? `"${def.name}" is longer than 1000 characters`
+          : undefined
+        : `"${def.name}" must be text`
     case "number":
       return Number.isFinite(Number(value)) ? undefined : `"${def.name}" must be a number`
     case "date":

@@ -62,6 +62,16 @@ export const walkPhase1 = async ({ score, asAdmin, reboot }) => {
   )
 
   // ---- a PATCH adding a second value: the merge path, end to end (review fix 21) -------------
+  // cnp2 needs its own definition first -- an undefined key is a 400 by design.
+  const define2 = await asAdmin("/customfields", {
+    method: "POST",
+    body: JSON.stringify({ targetCube: CUBE, name: "cnp2", fieldType: "text", label: "CNP 2" }),
+  })
+  score.check(
+    "a second field is defined on the target cube",
+    define2.status === 200 && define2.body?.name === "cnp2",
+    `http=${define2.status}`,
+  )
   const patched = await asAdmin(`/${CUBE}/${entryId}`, {
     method: "PATCH",
     body: JSON.stringify({ cnp2: "987654321" }),

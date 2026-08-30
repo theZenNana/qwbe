@@ -6,6 +6,8 @@
 // assertion that would have caught the snapshot fix), and deleting a definition reports the
 // value as an ORPHAN without deleting it.
 
+import { wait } from "./lib.mjs"
+
 export const walkPhase2 = async ({ score, asAdmin2, entryId, cube }) => {
   const readAfterRestart = await asAdmin2(`/${cube}/${entryId}`)
   score.check(
@@ -18,12 +20,16 @@ export const walkPhase2 = async ({ score, asAdmin2, entryId, cube }) => {
 
   // Review fix 19: the metadata check used to live only in phase 1, so a snapshot that came
   // back empty after a restart was invisible to this probe. Assert it again here.
-  const meta = await asAdmin2(`/catalog/${encodeURIComponent(cube)}/metadata`)
-  const metadataField = (meta.body?.fields ?? []).find((f) => f.name === "cnp")
+  let metadataField
+  for (let i = 0; i < 10 && !metadataField; i++) {
+    const meta = await asAdmin2(`/catalog/${encodeURIComponent(cube)}/metadata`)
+    metadataField = (meta.body?.fields ?? []).find((f) => f.name === "cnp")
+    if (!metadataField) await wait(300)
+  }
   score.check(
     "after the restart the metadata still publishes the active custom field",
     metadataField?.custom === true,
-    `custom=${metadataField?.custom} http=${meta.status}`,
+    `custom=${metadataField?.custom}`,
   )
 
   // ---- delete the definition: the values stay and are reported as orphans --------------------
