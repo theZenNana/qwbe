@@ -72,7 +72,11 @@ try {
 
   // --- delete: one transaction, gone, and a 404 afterwards ---
   const deleted = await api.call(`/staging/sets/${csvSet.body?.id}`, { method: "DELETE", headers: H })
-  score.check("DELETE /staging/sets/{id} -> removed", deleted.status === 200 && deleted.body?.removed === csvSet.body?.id, `http=${deleted.status}`)
+  score.check(
+    "DELETE /staging/sets/{id} -> removed",
+    deleted.status === 200 && deleted.body?.removed === csvSet.body?.id,
+    `http=${deleted.status}`,
+  )
   const afterDelete = await api.call(`/staging/sets/${csvSet.body?.id}`, { headers: H })
   score.check("deleted set -> 404", afterDelete.status === 404, `http=${afterDelete.status}`)
   const listAfter = await api.call("/staging/sets", { headers: H })

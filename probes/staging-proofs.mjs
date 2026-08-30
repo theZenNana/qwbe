@@ -46,8 +46,12 @@ try {
   })
   score.check(
     "multi-chunk CSV: both chunks parse with no malformed lines",
-    mc1.status === 200 && mc1.body?.parsed === 1 && mc1.body?.malformed?.length === 0 &&
-      mc2.status === 200 && mc2.body?.parsed === 2 && mc2.body?.malformed?.length === 0,
+    mc1.status === 200 &&
+      mc1.body?.parsed === 1 &&
+      mc1.body?.malformed?.length === 0 &&
+      mc2.status === 200 &&
+      mc2.body?.parsed === 2 &&
+      mc2.body?.malformed?.length === 0,
     `c1=${JSON.stringify(mc1.body)} c2=${JSON.stringify(mc2.body)}`,
   )
   const mcProfile = await api.call(`/staging/sets/${mcSet.body?.id}/profile`, { headers: H })

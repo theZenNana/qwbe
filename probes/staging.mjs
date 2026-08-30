@@ -3,11 +3,11 @@
 //
 // Starts its own server on a free port against its own throwaway database (see lib.mjs).
 
-import { client, freePort, makeScore, startServer, stopServer } from "./lib.mjs"
 // The drift check (QWB-45 review, item 16) imports the REAL detector module: the same source
 // file feeds the JS RegExp below and the SQL `~` patterns inside the kernel, so if they ever
 // disagree, this import is the place it shows.
 import { shapeOf } from "../core/src/cubes/staging/shapes.ts"
+import { client, freePort, makeScore, startServer, stopServer } from "./lib.mjs"
 
 const PORT = await freePort()
 const score = makeScore()
@@ -125,7 +125,14 @@ try {
       phone: "+40 722 111 222",
       joined: "2024-01-02",
     },
-    { name: "Dan Ionescu", email: "dan@example.com", age: 44, city: "Timisoara", phone: "0722 111 222", joined: "2024-03-04" },
+    {
+      name: "Dan Ionescu",
+      email: "dan@example.com",
+      age: 44,
+      city: "Timisoara",
+      phone: "0722 111 222",
+      joined: "2024-03-04",
+    },
     { name: "Maria Dima", email: "maria@example.com", city: "Iasi", joined: "2024-05-06" },
   ]
   // The four specific shapes must agree exactly; the enum-vs-text leftover bucket is a
@@ -142,7 +149,8 @@ try {
     }
     const actual = { filled: (f.shapes ?? []).reduce((n, s) => n + s.count, 0) }
     for (const s of f.shapes ?? []) if (s.shape !== "enum" && s.shape !== "text") actual[s.shape] = s.count
-    if (JSON.stringify(expected) !== JSON.stringify(actual)) drift = `${f.field}: js=${JSON.stringify(expected)} sql=${JSON.stringify(actual)}`
+    if (JSON.stringify(expected) !== JSON.stringify(actual))
+      drift = `${f.field}: js=${JSON.stringify(expected)} sql=${JSON.stringify(actual)}`
   }
   score.check("JS RegExp and SQL ~ agree on every field of the set", drift === null, drift ?? "all fields agree")
 } finally {
