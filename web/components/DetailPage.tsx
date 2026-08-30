@@ -16,6 +16,7 @@
 
 import Link from "next/link"
 import { useEffect, useState } from "react"
+import { CustomFields } from "../app/CustomFields"
 import { Shell } from "../app/Shell"
 import {
   type CubeInfo,
@@ -132,6 +133,10 @@ export function DetailPage({ cube, id, routeName }: { cube: string; id: string; 
           </table>
         </div>
       )}
+
+      {/* The customfields plugin's panel. Renders nothing itself when the cube is absent or
+          the request fails -- that is the component's contract, not this page's problem. */}
+      <CustomFields cube={identity} rowId={id} />
 
       {links && links.parents.filter((p) => p.summary).length > 0 && (
         <div className="panou">

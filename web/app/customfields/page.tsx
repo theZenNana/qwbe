@@ -40,7 +40,7 @@ export default function CustomFieldsAdmin() {
   const reload = useCallback(
     () =>
       customFieldDefs()
-        .then((p) => setDefs(p.rows))
+        .then((p) => setDefs([...p.rows]))
         .catch((e: Error) => {
           setDefs([])
           setError(e.message)
@@ -100,8 +100,9 @@ export default function CustomFieldsAdmin() {
   }
 
   const byCube = (defs ?? []).reduce<Record<string, Array<CustomFieldDef>>>((acc, d) => {
-    if (!acc[d.targetCube]) acc[d.targetCube] = []
-    acc[d.targetCube].push(d)
+    const list = acc[d.targetCube] ?? []
+    list.push(d)
+    acc[d.targetCube] = list
     return acc
   }, {})
 

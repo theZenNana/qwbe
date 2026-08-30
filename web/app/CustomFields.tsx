@@ -28,7 +28,7 @@ export function CustomFields({ cube, rowId }: { cube: string; rowId: string }) {
   useEffect(() => {
     rowCustomFields(cube, rowId)
       .then((r) => {
-        setFields(r.fields)
+        setFields([...r.fields])
         setDraft(Object.fromEntries(r.fields.map((f) => [f.name, f.value])))
       })
       .catch(() => setFields(null))
@@ -49,7 +49,7 @@ export function CustomFields({ cube, rowId }: { cube: string; rowId: string }) {
         fields.filter((f) => (draft[f.name] ?? "") !== f.value).map((f) => [f.name, draft[f.name] ?? ""]),
       )
       const r = await setRowCustomFields(cube, rowId, changed)
-      setFields(r.fields)
+      setFields([...r.fields])
       setDraft(Object.fromEntries(r.fields.map((f) => [f.name, f.value])))
       setSaved(true)
     } catch (e) {
