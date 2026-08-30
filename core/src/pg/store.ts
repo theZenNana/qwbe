@@ -145,7 +145,9 @@ export const storeFor = (
           )
           // ADR-0001 section 5 lists delete as its own op: a soft delete is not an update.
           await c.query(outboxInsert(cube, t, id, deleted === true ? "delete" : "update", version))
-          return merged
+          // Review fix 6 (QWB-46): the row stores the MERGE, so the response must too -- a
+          // PATCH response reporting `custom` as only the patched keys would lie about the row.
+          return { ...withCustom, id }
         })
       }),
 

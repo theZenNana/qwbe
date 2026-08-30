@@ -137,7 +137,13 @@ const customFieldMetadata = (d: CustomFieldDefinition): FieldMetadata => ({
  */
 const enrichWithCustomFields = (base: CubeMetadata | undefined, cube: string): CubeMetadata | undefined => {
   if (!base) return undefined
-  const custom = activeCustomFields(cube)
+  const taken = new Set(base.fields.map((f) => f.name))
+  const custom = activeCustomFields(cube).filter((d) => {
+    // Review fix 9 (QWB-46) backstop: a definition named like a declared field can never hold
+    // a value (the fold never touches declared keys), so publishing it would be a lie. The
+    // `define` handler refuses the collision; this drops any that slipped through earlier.
+    return !taken.has(d.name)
+  })
   if (custom.length === 0) return base
   const fields = [...base.fields, ...custom.map(customFieldMetadata)]
   return { ...base, fields, schemaHash: metadataHash(base.cube, base.entity, base.version, fields) }
