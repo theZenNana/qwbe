@@ -133,6 +133,25 @@ export const storeFor = (
           const current = await c.query(`SELECT * FROM ${q(schemaName(cube))}.${q(t)} WHERE id = $1`, [id])
           if (!current.rows[0]) return undefined
           const merged = { ...decode(current.rows[0] as Record<string, unknown>), ...patch }
+          // QWB-46: `custom` is the reserved sub-object holding undeclared (custom-field) keys.
+          // A PATCH is partial, so its `custom` MERGES with the row's -- replacing it wholesale
+          // would silently drop every custom value the patch did not mention. Declared fields
+          // keep the plain shallow-merge semantics above, exactly as before.
+          const previousCustom = (current.rows[0] as { body?: { custom?: unknown } }).body?.custom
+          const patchCustom = merged.custom
+          if (
+            typeof patchCustom === "object" &&
+            patchCustom !== null &&
+            !Array.isArray(patchCustom) &&
+            typeof previousCustom === "object" &&
+            previousCustom !== null &&
+            !Array.isArray(previousCustom)
+          ) {
+            merged.custom = {
+              ...(previousCustom as Record<string, unknown>),
+              ...(patchCustom as Record<string, unknown>),
+            }
+          }
           const { id: _i, type, createdAt, deleted, ...body } = merged
           const version = ((current.rows[0] as { version: number }).version ?? 1) + 1
           await c.query(
