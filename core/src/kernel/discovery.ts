@@ -25,7 +25,7 @@ import { discover } from "./scan.ts"
 export { BrokenCubeError, DoubleCapabilityError, DoublePrivilegeError, DuplicateCubeError } from "./errors-discovery.ts"
 
 import { BrokenCubeError, DoubleCapabilityError, DoublePrivilegeError } from "./errors-discovery.ts"
-import type { Ledger } from "./ledger.ts"
+
 import type { Catalogue, CommandInfo, CommandRunner, CommandSpec, CubeParts, Subscription } from "./manifest.ts"
 import {
   fullName,
@@ -144,13 +144,11 @@ export type MountedSystem = {
 export const mount = (
   definitions: ReadonlyArray<{ name: string; plugin: string | null; definition: CubeDefinition }>,
   spaces: ReadonlyArray<SpaceDefinition>,
-  ledger: Ledger,
-  // QWB-44: data migrations moved to main.ts (they are a schema rename in Postgres now, so
-  // the step is async and runs before this synchronous mount). The parameter stays -- the
-  // call sites pass the same snapshot main.ts already validated against -- and the type keeps
-  // the contract visible here.
+  // QWB-44: storage boot (Postgres init plus declared data migrations) moved to main.ts via
+  // bootStorage, and the ledger parameter mount used to swallow with `void ledger` is gone
+  // with it -- the only remaining caller is main.ts, AFTER bootStorage succeeded. Mounting
+  // against an unmigrated database is therefore unreachable from this module.
 ): MountedSystem => {
-  void ledger
   const manifests = definitions.map((d) => d.definition.manifest)
 
   checkUniqueTables(manifests.map((m) => ({ name: fullName(m), tables: m.tables })))

@@ -20,7 +20,14 @@ export const bootStorage = async (
   failAfterSnapshot: (e: Error, code: number) => never,
 ): Promise<void> => {
   await initStore().catch((e: Error) => fail(e, 2))
-  await migrateDataSchemas(await checkMigrationOwnership(definitions, ledgerSnapshot)).catch((e: Error) =>
-    failAfterSnapshot(e, 2),
-  )
+  // The awaits are sequenced INSIDE the try: writing `await f(await g()).catch(h)` evaluates
+  // g() before the call expression, so a MigrationOwnershipError escapes as a top-level
+  // rejection (exit 1 with a stack) and the ledger restore never runs. This shape is what
+  // the old synchronous mount() path guaranteed.
+  try {
+    const ms = await checkMigrationOwnership(definitions, ledgerSnapshot)
+    await migrateDataSchemas(ms)
+  } catch (e) {
+    failAfterSnapshot(e as Error, 2)
+  }
 }

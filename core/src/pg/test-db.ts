@@ -36,7 +36,7 @@ export const createTestDatabase = async (label: string): Promise<{ url: string; 
     drop: async () => {
       if (dropped) return
       dropped = true
-      await admin.query(`DROP DATABASE IF EXISTS ${name} WITH (FORCE)`).catch(() => {})
+      await admin.query(`DROP DATABASE IF EXISTS "${name}" WITH (FORCE)`).catch(() => {})
       await admin.end()
     },
   }

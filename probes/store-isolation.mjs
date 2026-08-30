@@ -27,6 +27,15 @@ try {
   await ensureCubeSchema("cube-b")
   await ensureTable("cube-a", "secrets")
   await ensureTable("cube-b", "notes")
+  // A non-superuser LOGIN that is a member of the cube roles: the application's own shape.
+  // Membership is what lets it `SET ROLE` to a cube; the grants each role carries are all it
+  // can then do. Superuser would bypass every check below, so it proves nothing.
+  const setup = new pg.Client({ connectionString: db.url })
+  await setup.connect()
+  await setup.query(`CREATE ROLE qwbe_probe_app LOGIN PASSWORD 'pw'`)
+  await setup.query(`GRANT "qwbe_cube_cube-a" TO qwbe_probe_app`)
+  await setup.query(`GRANT "qwbe_cube_cube-b" TO qwbe_probe_app`)
+  await setup.end()
   const client = new pg.Client({ connectionString: db.url })
   await client.connect()
 
@@ -70,6 +79,49 @@ try {
   )
   await client.query(`ROLLBACK`)
   await client.end()
+
+  // The same checks through the login the APPLICATION would use: a non-superuser that is a
+  // member of the cube roles, the shape the reviewer's finding 18 asked for. Table-level
+  // refusal seen from the superuser proves nothing about the application login.
+  const appUrl = new URL(db.url)
+  appUrl.username = "qwbe_probe_app"
+  appUrl.password = "pw"
+  const app = new pg.Client({ connectionString: appUrl.toString() })
+  await app.connect()
+  const refusedAs = async (sql) => {
+    try {
+      await app.query(`BEGIN`)
+      await app.query(`SET LOCAL ROLE "qwbe_cube_cube-a"`)
+      await app.query(sql)
+      await app.query(`ROLLBACK`)
+      return ""
+    } catch (e) {
+      await app.query(`ROLLBACK`).catch(() => {})
+      return e.message
+    }
+  }
+  let r = await refusedAs(`SELECT * FROM "cube-b".notes`)
+  score.check(
+    "the application login (a cube-role member) is refused another cube's schema",
+    /permission denied/.test(r),
+    r || "no error was raised",
+  )
+  r = await refusedAs(`SELECT * FROM qwbe.outbox`)
+  score.check(
+    "the application login is refused SELECT on qwbe.outbox (INSERT only)",
+    /permission denied/.test(r),
+    r || "no error was raised",
+  )
+  r = await refusedAs(`SELECT * FROM qwbe.migrations`)
+  score.check(
+    "the application login is refused SELECT on qwbe.migrations",
+    /permission denied/.test(r),
+    r || "no error was raised",
+  )
+  const ownWrite = await refusedAs(`INSERT INTO "cube-a".secrets (id, type, created_at, deleted, version, body)
+                                    VALUES ('s-2', 'secret', now(), false, 1, '{"hash":"y"}')`)
+  score.check("the application login still writes its own cube through its role", ownWrite === "", ownWrite)
+  await app.end()
 } finally {
   await closeAll()
   await dropScratchDatabase(db, adminUrl)

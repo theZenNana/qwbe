@@ -65,22 +65,45 @@ export const runMigrations = async (p: Pool): Promise<void> => {
   const files = readdirSync(dir)
     .filter((f) => f.endsWith(".sql"))
     .sort()
-  for (const file of files) {
-    const applied = await p.query(`SELECT 1 FROM qwbe.migrations WHERE name = $1`, [file]).catch(() => null)
-    if (applied?.rowCount === 1) continue
-    const sql = readFileSync(join(dir, file), "utf8")
-    const client = await p.connect()
-    try {
-      await client.query("BEGIN")
-      await client.query(sql)
-      await client.query(`INSERT INTO qwbe.migrations (name) VALUES ($1)`, [file])
-      await client.query("COMMIT")
-    } catch (e) {
-      await client.query("ROLLBACK").catch(() => {})
-      throw new Error(`Postgres migration "${file}" failed and the boot stopped: ${(e as Error).message}`)
-    } finally {
-      client.release()
+  // One session-level advisory lock around the whole loop: two processes booting against the
+  // same database must not both run the same file -- the second would die on the
+  // qwbe.migrations primary key. Session-scoped locks live per connection, so the lock is
+  // taken and held on one dedicated client for the duration and released after the loop.
+  const lockClient = await p.connect()
+  try {
+    await lockClient.query(`SELECT pg_advisory_lock(hashtext('qwbe-migrations'))`)
+    for (const file of files) {
+      // Only "relation does not exist" (42P01) means "not applied yet": the kernel schema
+      // simply is not there on a first boot. EVERY other failure of this probe -- a dropped
+      // connection, a permission error -- must stop the boot, because reading it as "not
+      // applied" would re-run an already-applied file.
+      const applied = await p
+        .query(`SELECT 1 FROM qwbe.migrations WHERE name = $1`, [file])
+        .catch((e: { code?: string }) => {
+          if (e?.code === "42P01") return null
+          throw e
+        })
+      if (applied?.rowCount === 1) continue
+      const sql = readFileSync(join(dir, file), "utf8")
+      const client = await p.connect()
+      let failed = false
+      try {
+        await client.query("BEGIN")
+        await client.query(sql)
+        await client.query(`INSERT INTO qwbe.migrations (name) VALUES ($1)`, [file])
+        await client.query("COMMIT")
+      } catch (e) {
+        failed = true
+        await client.query("ROLLBACK").catch(() => {})
+        client.release(e as Error)
+        throw new Error(`Postgres migration "${file}" failed and the boot stopped: ${(e as Error).message}`)
+      } finally {
+        if (!failed) client.release()
+      }
     }
+  } finally {
+    await lockClient.query(`SELECT pg_advisory_unlock(hashtext('qwbe-migrations'))`).catch(() => {})
+    lockClient.release()
   }
 }
 

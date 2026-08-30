@@ -141,7 +141,8 @@ export const storeFor = (
              WHERE id = $6`,
             [String(type), String(createdAt), deleted, version, JSON.stringify(body), id],
           )
-          await c.query(outboxInsert(cube, t, id, "update", version))
+          // ADR-0001 section 5 lists delete as its own op: a soft delete is not an update.
+          await c.query(outboxInsert(cube, t, id, deleted === true ? "delete" : "update", version))
           return merged
         })
       }),

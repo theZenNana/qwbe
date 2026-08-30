@@ -9,6 +9,9 @@ export const createScratchDatabase = async (label, adminUrl) => {
   const name = `qwbe_probe_${label}_${randomBytes(4).toString("hex")}`
   const admin = new pg.Pool({ connectionString: adminUrl, max: 1 })
   await admin.query(`CREATE DATABASE "${name}"`)
+  // The admin pool's only job is the CREATE; it ends here so it does not outlive the probe
+  // and hold open the very connection that would block the later WITH (FORCE) drop.
+  await admin.end()
   const base = new URL(adminUrl)
   base.pathname = `/${name}`
   return { url: base.toString(), name }

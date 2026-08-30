@@ -109,6 +109,18 @@ export const renameSchema = async (fromSchema: string, toSchema: string): Promis
   try {
     await client.query("BEGIN")
     await client.query(`ALTER SCHEMA ${q(fromSchema)} RENAME TO ${q(toSchema)}`)
+    // ADR-0001 section 5: no state in which the row changed and the event did not. A rename
+    // moves every row of the schema, so every table gets an outbox entry in the SAME
+    // transaction -- one per table, `row_id = '*'` meaning "the whole table moved".
+    const tables = await client.query(`SELECT table_name AS t FROM information_schema.tables WHERE table_schema = $1`, [
+      toSchema,
+    ])
+    for (const row of tables.rows) {
+      await client.query(
+        `INSERT INTO qwbe.outbox (cube, "table", row_id, op, version) VALUES ($1, $2, '*', 'update', 1)`,
+        [toSchema.replace(/--/g, "/"), (row as { t: string }).t],
+      )
+    }
     // The role is renamed only if it exists: a schema that arrived outside the store's setup
     // (a legacy database, or the migration tool's import) may not have one yet.
     const roles = await client.query(`SELECT 1 FROM pg_roles WHERE rolname = $1`, [roleName(fromSchema)])

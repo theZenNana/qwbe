@@ -95,6 +95,20 @@ describe("CubeStore over Postgres", () => {
     assert.equal(after, before, "the outbox row written by the failed transaction is gone")
   })
 
+  it("survives 8 concurrent first touches of one new cube (the DDL race)", async () => {
+    // The reviewer measured 7 failures in 8 concurrent first touches before the fix: each
+    // ran the whole DDL block and Postgres refused the duplicate schema creation. The
+    // in-flight-promise memoization plus the advisory lock must make every one succeed.
+    const burst = storeFor("pgrace", ["things"], [])
+    forgetEnsured()
+    const results = await Promise.all(
+      Array.from({ length: 8 }, () => Effect_run(burst.insert("things", "thing", "thg", { n: 1 }))),
+    )
+    assert.equal(results.length, 8)
+    assert.ok(results.every((r) => typeof (r as { id: string }).id === "string"))
+    assert.equal(await Effect_run(burst.count("things")), 8)
+  })
+
   it("leaves exactly one outbox row per successful insert and update", async () => {
     const before = await outboxCount()
     const row = await Effect_run(store.insert("items", "item", "itm", { name: "tracked" }))

@@ -69,7 +69,7 @@ await bootStorage(definitions, ledgerSnapshot, fail, failAfterSnapshot)
 
 let system: ReturnType<typeof mount>
 try {
-  system = mount(definitions, spaces, ledgerSnapshot)
+  system = mount(definitions, spaces)
 } catch (e) {
   failAfterSnapshot(e as Error, 2)
 }

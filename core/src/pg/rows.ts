@@ -33,9 +33,22 @@ export const orderClause = (sortBy: string | undefined, descending: boolean, sor
     return { sql: `ORDER BY ${q(column)} ${dir}`, params: [] as Array<string>, applied: sortBy }
   }
   if (!sortableFields.has(sortBy)) return fallback
-  return { sql: `ORDER BY body ->> $SORTBY::text ${dir}`, params: [sortBy], applied: sortBy }
+  // jsonb ordering (`body -> $n`), not text ordering (`body ->> $n`): the SQLite store sorted
+  // by the JSON value's own type, so 9 < 10 numerically and true > false. Text ordering would
+  // put "10" before "9" and silently change every numeric cube's page order and boundaries.
+  return { sql: `ORDER BY body -> $SORTBY ${dir}`, params: [sortBy], applied: sortBy }
 }
 
+/**
+ * WHERE clauses. Two documented semantics changes from the SQLite store:
+ *
+ *   - `deleted`: the old store compared the string "true"/"false" against an INTEGER column,
+ *     so `deleted=false` matched NOTHING. Here the value is bound as a real boolean, so
+ *     `deleted=false` returns the live rows and `deleted=true` the soft-deleted ones.
+ *   - `createdAt` is compared AS TEXT, never cast to timestamptz: a non-timestamp value must
+ *     yield an empty page, exactly like the old store, not a cast error that escapes
+ *     `Effect.promise` as a defect.
+ */
 export const whereClause = (where?: {
   field: string
   value: string
@@ -45,7 +58,7 @@ export const whereClause = (where?: {
     return { sql: `AND deleted = $1`, params: [where.value === "true"] as Array<string | boolean> }
   if (META_COLUMNS.has(where.field)) {
     const column = where.field === "createdAt" ? "created_at" : where.field
-    return { sql: `AND ${q(column)} = $1::timestamptz`, params: [where.value] }
+    return { sql: `AND ${q(column)}::text = $1`, params: [where.value] }
   }
   return { sql: `AND body ->> $1::text = $2::text`, params: [where.field, where.value] }
 }
