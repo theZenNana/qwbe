@@ -100,9 +100,7 @@ export default function CustomFieldsAdmin() {
   }
 
   const byCube = (defs ?? []).reduce<Record<string, Array<CustomFieldDef>>>((acc, d) => {
-    const list = acc[d.targetCube] ?? []
-    list.push(d)
-    acc[d.targetCube] = list
+    acc[d.targetCube] = (acc[d.targetCube] ?? []).concat(d)
     return acc
   }, {})
 
