@@ -92,7 +92,7 @@ if (dangling.length > 0) {
 }
 
 try {
-  checkSchemaDrift(catalogueMetadata(system!.cubes, system!.liveLinks()))
+  checkSchemaDrift(catalogueMetadata(system!.cubes, system!.liveLinks(), system!.isEnabled))
 } catch (e) {
   failAfterSnapshot(e as Error, 1)
 }

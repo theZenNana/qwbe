@@ -169,7 +169,7 @@ describe("deriveCubeMetadata", () => {
     assert.equal(md.fields.find((f) => f.name === "name")!.relation!.target, "other")
   })
 
-  it("refuses an ambiguous space link instead of guessing the target", () => {
+  it("resolves a space link the way the registry does: first among the ENABLED cubes", () => {
     const other = (name: string) => ({
       manifest: { name, tables: [], requiresAuth: true, entity: "Other" },
       name,
@@ -178,16 +178,11 @@ describe("deriveCubeMetadata", () => {
       commands: [],
     })
     const owner = mount() as never
-    // Two cubes claim entity "Other": first-match-wins would silently retarget the field.
-    assert.throws(
-      () =>
-        deriveCubeMetadata(
-          owner,
-          [owner, other("one"), other("two")],
-          [{ from: "things", field: "name", to: "Other" }],
-        ),
-      /ambiguous/,
-    )
+    const links = [{ from: "things", field: "name", to: "Other" }]
+    // A disabled rival mounted first must not win: the registry would never answer with it.
+    const md = deriveCubeMetadata(owner, [owner, other("one"), other("two")], links, (n) => n !== "one")
+    assert.ok(md)
+    assert.equal(md.fields.find((f) => f.name === "name")!.relation!.target, "two")
   })
 
   it("changes the schemaHash when a field changes", () => {

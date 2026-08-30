@@ -53,8 +53,9 @@ const humanize = (name: string): string => {
 export const deriveAllMetadata = (
   cubes: ReadonlyArray<MetadataCube>,
   links: ReadonlyArray<{ from: string; field: string; to: string }>,
+  isEnabled?: (name: string) => boolean,
 ): ReadonlyArray<CubeMetadata> =>
-  cubes.map((c) => deriveCubeMetadata(c, cubes, links)).filter((m): m is CubeMetadata => m !== undefined)
+  cubes.map((c) => deriveCubeMetadata(c, cubes, links, isEnabled)).filter((m): m is CubeMetadata => m !== undefined)
 
 /**
  * Derive the metadata of one mounted cube, given ALL mounted cubes (to resolve relation
@@ -65,6 +66,7 @@ export const deriveCubeMetadata = (
   cube: MetadataCube,
   cubes: ReadonlyArray<MetadataCube>,
   links: ReadonlyArray<{ from: string; field: string; to: string }>,
+  isEnabled?: (name: string) => boolean,
 ): CubeMetadata | undefined => {
   const struct = entityStructOf(cube.parts.group)
   if (!struct) return undefined
@@ -97,7 +99,7 @@ export const deriveCubeMetadata = (
     // (`optionalWith`) is present-but-optional there -- editable, not required.
     const payloadProp = payload?.propertySignatures.find((p) => String(p.name) === name)
     const inPayload = payloadProp !== undefined
-    const relation = resolveRelation(name, cube, cubes, links, m)
+    const relation = resolveRelation(name, cube, cubes, links, m, isEnabled)
     return {
       name,
       label: m.fields?.[name]?.label ?? humanize(name),
@@ -137,6 +139,7 @@ const resolveRelation = (
   cubes: ReadonlyArray<MetadataCube>,
   links: ReadonlyArray<{ from: string; field: string; to: string }>,
   m: DeclaredManifest,
+  isEnabled?: (name: string) => boolean,
 ): { target: string; entity: string; summary: string | null } | null => {
   const declaredTarget = m.relations?.[field]?.target
   const spaceLink = links.find((l) => l.from === cube.name && l.field === field)
@@ -144,18 +147,13 @@ const resolveRelation = (
   if (declaredTarget) {
     target = cubes.find((c) => c.name === declaredTarget)
   } else if (spaceLink) {
-    // Entity uniqueness is not enforced at mount, so "first match wins" would silently
-    // retarget the field to whichever cube mounted first. Two cubes claiming the link's
-    // entity is a configuration error: refuse to derive rather than guess.
-    const matches = cubes.filter((c) => c.manifest.entity === spaceLink.to)
-    if (matches.length > 1) {
-      throw new Error(
-        `space link ${cube.name}.${field} -> entity "${spaceLink.to}" is ambiguous: ` +
-          `${matches.map((c) => c.name).join(" and ")} both declare that entity. ` +
-          `Declare the target explicitly with relations: { ${field}: { target: ... } }.`,
-      )
-    }
-    target = matches[0]
+    // Resolve exactly like the registry does (`registry.summary` et al): among the ENABLED
+    // cubes, first match. A rival package may legitimately mount the same entity while the
+    // other side is switched off -- derivation must not retarget to a disabled cube the
+    // registry would never answer with, and among enabled rivals the first match IS the
+    // registry's own pick, so the published target and the served target agree.
+    const live = isEnabled ? cubes.filter((c) => isEnabled(c.name)) : cubes
+    target = live.find((c) => c.manifest.entity === spaceLink.to)
   }
   if (!target) return null
   return {

@@ -139,15 +139,16 @@ try {
           health.body?.state === "ready" &&
           goal.status === 200 &&
           goal.body?.answer === "no runtime here",
-        `health=${health.status} goal=${goal.status}`,
+        `h=${health.status} g=${goal.status}`,
       )
 
       const spec = await api.call("/openapi.json", { headers: admin.headers })
       const paths = Object.keys(spec.body?.paths ?? {})
-      const WANTED = ["/fakeagent/health", "/fakeagent/context", "/fakeagent/goals", "/fakeagent/trace"]
       score.check(
-        "the catalogue is the only client contract",
-        WANTED.every((p) => paths.includes(p)),
+        "the catalogue is the only contract",
+        ["/fakeagent/health", "/fakeagent/context", "/fakeagent/goals", "/fakeagent/trace"].every((p) =>
+          paths.includes(p),
+        ),
       )
     }
     await stopServer(server)

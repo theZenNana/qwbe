@@ -59,10 +59,11 @@ export const metadataDerivations = { count: 0 }
 export const catalogueMetadata = (
   cubes: ReadonlyArray<MetadataCube>,
   links: ReadonlyArray<{ from: string; to: string; field: string }>,
+  isEnabled?: (name: string) => boolean,
 ): ReadonlyArray<CubeMetadata> => {
   if (cubes.some((c) => !metadataCache.has(c.parts))) {
     metadataDerivations.count += 1
-    const derived = new Map(deriveAllMetadata(cubes, links).map((m) => [m.cube, m]))
+    const derived = new Map(deriveAllMetadata(cubes, links, isEnabled).map((m) => [m.cube, m]))
     for (const c of cubes) if (!metadataCache.has(c.parts)) metadataCache.set(c.parts, derived.get(c.name) ?? null)
   }
   return cubes.flatMap((c) => {
@@ -80,7 +81,7 @@ export const buildCatalogue = (
   const mountedCubes = definitions.flatMap((d) =>
     d.cube ? [{ name: d.name, manifest: d.manifest, parts: d.cube.parts }] : [],
   )
-  const metadataByName = new Map(catalogueMetadata(mountedCubes, links).map((m) => [m.cube, m]))
+  const metadataByName = new Map(catalogueMetadata(mountedCubes, links, enabled).map((m) => [m.cube, m]))
   return definitions.map(({ name, plugin, manifest, cube }) => {
     const endpoints = (cube?.parts.group as { endpoints?: Record<string, { path?: string }> } | undefined)?.endpoints
     const firstPath = Object.values(endpoints ?? {})[0]?.path
