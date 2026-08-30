@@ -28,6 +28,10 @@ import pg from "pg"
 
 import { canonical, RowFailedError, renameMigrated, sampleIds, sha256 } from "./migrate-proof.ts"
 import { closeAll, initStore } from "./pg/db.ts"
+
+// The probe drives renameMigrated next to migrateFile; it stays reachable from here.
+export { renameMigrated }
+
 import { ensureCubeSchema, ensureTable, q, schemaName } from "./pg/setup.ts"
 
 // The cube name is derived from a FILE NAME in the data directory; anything that does not
