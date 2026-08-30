@@ -47,7 +47,7 @@ name. A manifest cannot lie about who owns it.
 | Permissions | child's prefix is its full name: `booktags/bookmarks:read`. The existing rule "prefix must be the cube name" already covers this once the name is compound. |
 | Commands | `booktags/bookmarks:count`. The dispatcher splits on `:` for the owning cube -- unchanged. |
 | Events | `booktags/bookmarks.created` -- declared in `publishes`, visible in the catalogue, unchanged. |
-| Tables | owned per child exactly as today; `checkUniqueTables` unchanged. One SQLite file per cube, named with the compound name path-safe (`data/booktags--bookmarks.sqlite`; `/` is legal in a filename on Linux but the store name is also used in UI and CLI output where a path-looking string misleads, so it is flattened with `--`). |
+| Tables | owned per child exactly as today; `checkUniqueTables` unchanged. One Postgres schema per cube (since QWB-44), named with the compound name path-safe (`booktags--bookmarks`; `/` is not legal in a Postgres identifier and the store name is also used in UI and CLI output where a path-looking string misleads, so it is flattened with `--`). |
 | Entities | `Bookmark`, `Tag` stay global entity names -- entities are already a global namespace today and two applications both holding "Contact" is DIRECTION.md's problem for later, not this ticket's. |
 | Routes | HTTP groups own their paths as today (`/bookmarks`, `/tags`). The web route for a child screen is `/booktags/bookmarks` -- one Booktags entry in the sidebar, children as its surfaces. |
 
@@ -132,11 +132,11 @@ independently is a standalone cube -- the mechanism for that already exists and 
 ## 9. Migration of existing bookmarks/tags
 
 `example-plugin`'s flat `bookmarks` and `tags` cubes move into `booktags/` as children. Their
-data files are renamed `data/bookmarks.sqlite` -> `data/booktags--bookmarks.sqlite` (same for
-tags) by a one-time kernel migration at boot: if the old file exists and the new one does not,
+schemas are renamed `bookmarks` -> `booktags--bookmarks` (same for
+tags) by a one-time kernel migration at boot: if the old schema exists and the new one does not,
 rename. Both directions are checked before touching anything; a collision (both exist) stops
-startup with a named error rather than a guess. The schema is unchanged (same tables, same
-bodies) -- only the file name moves, so the migration is a rename, not a transform.
+startup with a named error rather than a guess. The rows are unchanged (same tables, same
+bodies) -- the migration is a rename inside Postgres, not a transform.
 
 Ownership comes from the kernel-written `data/provenance.json` ledger. A deployment whose data
 predates that ledger must authorize the first migration boot explicitly with
