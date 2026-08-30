@@ -13,14 +13,11 @@
  *   - `searchable`      -- fields callers may search by.
  *   - `fields`          -- human labels, where the schema cannot name one.
  *   - `relations`       -- fields holding another cube's id, with the target cube.
- *   - `usesCubeMetadata`-- the cube receives the derived metadata of every mounted cube.
  */
-export type { CubeMetadata } from "./schemas.ts"
 
 export type MetadataDeclarations = {
   readonly version?: string
   readonly searchable?: readonly string[]
   readonly fields?: Readonly<Record<string, { readonly label?: string }>>
   readonly relations?: Readonly<Record<string, { readonly target: string }>>
-  readonly usesCubeMetadata?: boolean
 }
