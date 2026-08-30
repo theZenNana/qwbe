@@ -1,0 +1,162 @@
+// Auth for external origins (QWB-42): the token lifecycle over HTTP, and the CORS
+// allowlist read from QWBE_ALLOWED_ORIGINS.
+//
+//   node probes/external-auth.mjs
+//
+// Two servers are started, each in its own scratch data directory on its own free port:
+// one with the allowlist set, one with the variable unset (the pre-QWB-42 default, which
+// must keep working). CORS is checked by sending an Origin header like a browser would
+// and reading back `access-control-allow-origin` -- the header the browser enforces on.
+
+import { client, dropScratch, freePort, makeScore, scratchDataDir, startServer, stopServer } from "./lib.mjs"
+
+const score = makeScore()
+
+// --- part 1: login / me / logout / 401, on a server with no origin configuration ---
+
+const PORT1 = await freePort()
+const dataDir1 = scratchDataDir("extauth-default")
+const api1 = client(PORT1)
+const server1 = await startServer(PORT1, { QWBE_DATA_DIR: dataDir1 })
+if (!server1.alive) {
+  console.error(`server did not start:\n${server1.output}`)
+  process.exit(1)
+}
+
+try {
+  const loginRaw = await api1.call("/auth/login", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ username: "admin", password: "admin" }),
+  })
+  score.check(
+    "login -> token and expiresAt",
+    loginRaw.status === 200 && !!loginRaw.body?.token && !!loginRaw.body?.expiresAt,
+    `http=${loginRaw.status}`,
+  )
+
+  const session = await api1.login()
+  score.check("login helper -> token", session.status === 200 && !!session.token, `http=${session.status}`)
+
+  const me = await api1.call("/auth/me", { headers: session.headers })
+  score.check(
+    "authenticated /auth/me -> 200",
+    me.status === 200 && me.body?.username === "admin",
+    `http=${me.status} user=${me.body?.username}`,
+  )
+
+  const out = await api1.call("/auth/logout", { method: "POST", headers: session.headers })
+  score.check("logout -> 200", out.status === 200, `http=${out.status}`)
+
+  const after = await api1.call("/auth/me", { headers: session.headers })
+  score.check("the same token after logout -> 401", after.status === 401, `http=${after.status}`)
+
+  const noToken = await api1.call("/auth/me")
+  score.check("no token at all -> 401", noToken.status === 401, `http=${noToken.status}`)
+} finally {
+  await stopServer(server1)
+  dropScratch(dataDir1)
+}
+
+// --- part 2: the CORS allowlist ---
+
+const PORT2 = await freePort()
+const dataDir2 = scratchDataDir("extauth-cors")
+const api2 = client(PORT2)
+const ALLOWED = "http://localhost:3000,https://crm.example.test"
+const server2 = await startServer(PORT2, { QWBE_DATA_DIR: dataDir2, QWBE_ALLOWED_ORIGINS: ALLOWED })
+if (!server2.alive) {
+  console.error(`server did not start:\n${server2.output}`)
+  process.exit(1)
+}
+
+// Raw fetch, because the CORS verdict lives in the response headers, which `client` drops.
+const preflight = async (origin) =>
+  fetch(`http://127.0.0.1:${PORT2}/notes`, {
+    method: "OPTIONS",
+    headers: { origin, "access-control-request-method": "GET" },
+  }).then((r) => r.headers.get("access-control-allow-origin"))
+
+const actual = async (origin) =>
+  fetch(`http://127.0.0.1:${PORT2}/auth/login`, {
+    method: "POST",
+    headers: { "content-type": "application/json", origin },
+    body: JSON.stringify({ username: "admin", password: "admin" }),
+  }).then((r) => r.headers.get("access-control-allow-origin"))
+
+try {
+  const listed = await preflight("http://localhost:3000")
+  score.check(
+    "preflight from a listed origin -> allow header echoes it",
+    listed === "http://localhost:3000",
+    `header=${listed}`,
+  )
+
+  const second = await preflight("https://crm.example.test")
+  score.check(
+    "preflight from a second listed origin -> allowed",
+    second === "https://crm.example.test",
+    `header=${second}`,
+  )
+
+  const stranger = await preflight("http://evil.example")
+  score.check("preflight from an unlisted origin -> no allow header", stranger === null, `header=${stranger}`)
+
+  const actualListed = await actual("http://localhost:3000")
+  score.check(
+    "actual request from a listed origin -> allow header",
+    actualListed === "http://localhost:3000",
+    `header=${actualListed}`,
+  )
+
+  const actualStranger = await actual("http://evil.example")
+  score.check(
+    "actual request from an unlisted origin -> no allow header",
+    actualStranger === null,
+    `header=${actualStranger}`,
+  )
+
+  // A non-browser client sends no Origin at all; CORS must not get in its way.
+  const noOrigin = await api2.call("/auth/login", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ username: "admin", password: "admin" }),
+  })
+  score.check(
+    "request without an Origin (non-browser) -> login still works",
+    noOrigin.status === 200,
+    `http=${noOrigin.status}`,
+  )
+} finally {
+  await stopServer(server2)
+  dropScratch(dataDir2)
+}
+
+// --- part 3: malformed QWBE_ALLOWED_ORIGINS stops the startup ---
+
+const PORT3 = await freePort()
+const dataDir3 = scratchDataDir("extauth-bad")
+const server3 = await startServer(PORT3, {
+  QWBE_DATA_DIR: dataDir3,
+  QWBE_ALLOWED_ORIGINS: "http://ok.test,,http://x.test",
+})
+score.check(
+  "empty item in QWBE_ALLOWED_ORIGINS -> server refuses to start",
+  !server3.alive && server3.output.includes("empty origin"),
+  `alive=${server3.alive}`,
+)
+await stopServer(server3)
+dropScratch(dataDir3)
+
+const PORT4 = await freePort()
+const dataDir4 = scratchDataDir("extauth-bad2")
+const server4 = await startServer(PORT4, { QWBE_DATA_DIR: dataDir4, QWBE_ALLOWED_ORIGINS: "localhost:3000" })
+score.check(
+  "origin without a scheme -> server refuses to start",
+  !server4.alive && server4.output.includes("not a bare origin"),
+  `alive=${server4.alive}`,
+)
+await stopServer(server4)
+dropScratch(dataDir4)
+
+process.exit(score.report("external-auth (QWB-42)"))
