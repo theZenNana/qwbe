@@ -7,10 +7,10 @@
 // exist" became "does the legacy schema exist" -- answered by Postgres, not the filesystem,
 // which is why the check is async and the caller (main.ts) awaits it before mount.
 
+import { getPool } from "../pg/db.ts"
+import { schemaName } from "../pg/setup.ts"
 import type { Ledger } from "./ledger.ts"
 import type { DataMigration, Manifest } from "./manifest.ts"
-import { getPool } from "./pg/db.ts"
-import { schemaName } from "./pg/setup.ts"
 
 export class MigrationOwnershipError extends Error {
   constructor(reason: string) {

@@ -8,38 +8,15 @@
 //   1. a core cube claiming its migration came from a plugin (provenance lie);
 //   2. a PLUGIN cube whose migration source is the LIVE `auth` cube of core (theft).
 
-import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs"
+import { mkdirSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import pg from "pg"
 import { coreDir, dropDatabase, freePort, makeScore, scratchDatabase, startServer } from "./lib.mjs"
+import { plantAuthSchema, schemaThere } from "./pg-scratch.mjs"
 
 // Since QWB-44 the legacy data a migration would move lives in a Postgres schema, not a
 // SQLite file -- so the planted victim is an "auth" schema in the probe's scratch database.
-const plantAuthSchema = async (dbUrl) => {
-  const c = new pg.Client({ connectionString: dbUrl })
-  await c.connect()
-  try {
-    await c.query(`CREATE SCHEMA "auth"`)
-    await c.query(`CREATE TABLE "auth"."sessions" (
-      id TEXT PRIMARY KEY, type TEXT NOT NULL, created_at timestamptz NOT NULL,
-      deleted BOOLEAN NOT NULL DEFAULT false, version INTEGER NOT NULL DEFAULT 1, body JSONB NOT NULL)`)
-  } finally {
-    await c.end()
-  }
-}
-
-const schemaThere = async (dbUrl, schema) => {
-  const c = new pg.Client({ connectionString: dbUrl })
-  await c.connect()
-  try {
-    const r = await c.query(`SELECT 1 FROM information_schema.schemata WHERE schema_name = $1`, [schema])
-    return (r.rowCount ?? 0) > 0
-  } finally {
-    await c.end()
-  }
-}
-
 const score = makeScore()
 
 const EVIL_CUBE = (migration) => `export const cube = {

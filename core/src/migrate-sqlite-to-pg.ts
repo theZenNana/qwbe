@@ -1,6 +1,6 @@
 // One-shot migration tool: the old `data/<cube>.sqlite` files into the Postgres schemas.
 //
-//   node core/src/kernel/migrate-sqlite-to-pg.ts [--data-dir <dir>]
+//   node core/src/migrate-sqlite-to-pg.ts [--data-dir <dir>]
 //
 // Per cube file, per table: count in SQLite, copy, count in Postgres, and PROVE the copy --
 // same count, same set of ids (sha256 over the sorted list), and the body of 20 sampled rows

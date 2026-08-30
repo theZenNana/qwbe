@@ -10,12 +10,12 @@
 // deleted -- once the checks pass. A row that fails to convert stops the migration and is
 // reported by id; the second half of the probe plants such a row and expects exactly that.
 
-import { existsSync, mkdtempSync, readdirSync, rmSync } from "node:fs"
+import { existsSync, mkdtempSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { DatabaseSync } from "node:sqlite"
 import pg from "pg"
-import { freePort, makeScore } from "./lib.mjs"
+
 import { createScratchDatabase, dropScratchDatabase } from "./pg-scratch.mjs"
 
 const score = makeScore()
@@ -59,8 +59,8 @@ plant(good, [
   { id: "con-0003", type: "contact", createdAt: iso(2), deleted: 1, body: JSON.stringify({ name: "Cleo" }) },
 ])
 
-const run = await import("../core/src/kernel/migrate-sqlite-to-pg.ts")
-const { initStore, closeAll } = await import("../core/src/kernel/pg/db.ts")
+const run = await import("../core/src/migrate-sqlite-to-pg.ts")
+const { initStore, closeAll } = await import("../core/src/pg/db.ts")
 const client = new pg.Client({ connectionString: db.url })
 await client.connect()
 await initStore()

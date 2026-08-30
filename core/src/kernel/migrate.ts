@@ -16,9 +16,9 @@
 // with files: EVERY migration is checked before a single rename runs, and a failed move rolls
 // the whole batch back.
 
+import { getPool } from "../pg/db.ts"
+import { q, roleName, schemaExists, schemaName } from "../pg/setup.ts"
 import type { DataMigration } from "./manifest.ts"
-import { getPool } from "./pg/db.ts"
-import { q, roleName, schemaExists, schemaName } from "./pg/setup.ts"
 
 export { MigrationOwnershipError } from "./migrate-ownership.ts"
 

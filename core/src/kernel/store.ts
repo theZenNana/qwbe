@@ -14,9 +14,9 @@
 // `closeAll`, `ForeignTableError`, `checkUniqueTables`, `DuplicateTableError` -- so the mount
 // code and every cube stay untouched. The implementation lives in `pg/`.
 
-export { closeAll, databaseUrl, initStore } from "./pg/db.ts"
-export { ForeignTableError } from "./pg/errors.ts"
-export { storeFor } from "./pg/store.ts"
+export { closeAll, databaseUrl, initStore } from "../pg/db.ts"
+export { ForeignTableError } from "../pg/errors.ts"
+export { storeFor } from "../pg/store.ts"
 
 /**
  * Two cubes cannot own the same table.

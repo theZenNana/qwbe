@@ -17,9 +17,9 @@ import { createTestDatabase } from "./test-db.ts"
 const db = await createTestDatabase("store")
 process.env.QWBE_DATABASE_URL = db.url
 
-const { initStore, closeAll } = await import("../store.ts")
-const { storeFor, withRole } = await import("./store.ts")
-const { getPool } = await import("./db.ts")
+const { initStore, closeAll } = await import("../kernel/store.ts")
+const { storeFor } = await import("./store.ts")
+const { getPool, withRole } = await import("./db.ts")
 const { forgetEnsured } = await import("./setup.ts")
 
 const store = storeFor("pgtest", ["items", "logs"], ["name"])
@@ -74,7 +74,7 @@ describe("CubeStore over Postgres", () => {
   it("rolls the whole transaction back: no row, no outbox entry", async () => {
     const before = await outboxCount()
     await assert.rejects(() =>
-      withRole("pgtest", async (c) => {
+      withRole("pgtest", async (c: { query: (sql: string, v?: unknown[]) => Promise<any> }) => {
         const id = `itm-${Math.random().toString(16).slice(2, 10)}`
         await c.query(
           `INSERT INTO "pgtest"."items" (id, type, created_at, deleted, version, body)

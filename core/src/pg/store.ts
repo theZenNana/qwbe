@@ -18,61 +18,15 @@
 // role was not granted, and `SET LOCAL` ends with the transaction, so nothing leaks between
 // operations on a pooled connection.
 
-import { randomBytes } from "node:crypto"
 import { Effect } from "effect"
-import type { CubeStore } from "../manifest.ts"
-import type { Page, PageRequest } from "../pagination.ts"
-import { getPool, type Pool } from "./db.ts"
+import type { CubeStore } from "../kernel/manifest.ts"
+import type { Page, PageRequest } from "../kernel/pagination.ts"
+import { withRole } from "./db.ts"
 import { ForeignTableError } from "./errors.ts"
-import { ensureCubeSchema, ensureTable, q, roleName, schemaName } from "./setup.ts"
+import { decode, newId, orderClause, outboxInsert, renumber, whereClause } from "./rows.ts"
+import { ensureCubeSchema, ensureTable, q, schemaName } from "./setup.ts"
 
 export { ForeignTableError } from "./errors.ts"
-
-/** Ids are random, not sequential -- see the comment this replaces from the SQLite store. */
-const newId = (prefix: string) => `${prefix}-${randomBytes(4).toString("hex")}`
-
-const decode = (row: Record<string, unknown>): Record<string, unknown> => ({
-  id: row.id,
-  type: row.type,
-  createdAt: new Date(row.created_at as string).toISOString(),
-  deleted: row.deleted === true,
-  ...(row.body as Record<string, unknown>),
-})
-
-/** Only these may be interpolated into SQL. Everything else is a bound parameter. */
-const META_COLUMNS = new Set(["id", "type", "createdAt", "deleted"])
-
-const outboxInsert = (cube: string, table: string, id: string, op: string, version: number) => ({
-  text: `INSERT INTO qwbe.outbox (cube, "table", row_id, op, version) VALUES ($1, $2, $3, $4, $5)`,
-  values: [cube, table, id, op, version],
-})
-
-/**
- * One client, one transaction, the cube's role. Everything the store does goes through here,
- * so "every operation runs under the cube's role inside a transaction" is enforced in exactly
- * one place rather than remembered in six.
- */
-/**
- * Exported for the transaction test: the rollback guarantee is exactly this function's
- * catch branch, and the test drives it directly rather than duplicating its SQL.
- */
-export const withRole = async <T>(cube: string, fn: (client: Pool) => Promise<T>): Promise<T> => {
-  const schema = await ensureCubeSchema(cube)
-  const p = getPool()
-  const client = await p.connect()
-  try {
-    await client.query("BEGIN")
-    await client.query(`SET LOCAL ROLE ${q(roleName(schema))}`)
-    const result = await fn(client as unknown as Pool)
-    await client.query("COMMIT")
-    return result
-  } catch (e) {
-    await client.query("ROLLBACK").catch(() => {})
-    throw e
-  } finally {
-    client.release()
-  }
-}
 
 export const storeFor = (
   cube: string,
@@ -87,35 +41,6 @@ export const storeFor = (
     if (!allowed.has(table)) throw new ForeignTableError(cube, table, tables)
     return table
   }
-
-  /** Prepared together with the WHERE clause so COUNT and the page always share a predicate. */
-  const orderClause = (sortBy: string | undefined, descending: boolean) => {
-    const dir = descending ? "DESC" : "ASC"
-    const fallback = { sql: `ORDER BY created_at ${dir}`, params: [] as Array<string>, applied: "createdAt" }
-    if (!sortBy) return fallback
-    if (META_COLUMNS.has(sortBy)) {
-      const column = sortBy === "createdAt" ? "created_at" : sortBy
-      return { sql: `ORDER BY ${q(column)} ${dir}`, params: [] as Array<string>, applied: sortBy }
-    }
-    if (!sortableFields.has(sortBy)) return fallback
-    return { sql: `ORDER BY body ->> $SORTBY::text ${dir}`, params: [sortBy], applied: sortBy }
-  }
-
-  const whereClause = (where?: { field: string; value: string }): { sql: string; params: Array<string | boolean> } => {
-    if (!where) return { sql: "", params: [] }
-    if (where.field === "deleted")
-      return { sql: `AND deleted = $1`, params: [where.value === "true"] as Array<string | boolean> }
-    if (META_COLUMNS.has(where.field)) {
-      const column = where.field === "createdAt" ? "created_at" : where.field
-      return { sql: `AND ${q(column)} = $1::timestamptz`, params: [where.value] }
-    }
-    return { sql: `AND body ->> $1::text = $2::text`, params: [where.field, where.value] }
-  }
-
-  // $SORTBY is a placeholder for the parameter index, which depends on how many WHERE
-  // parameters came before it. Renumbering happens in `page` -- the one place both clauses are
-  // combined and the only place the numbering is known.
-  const renumber = (sql: string, offset: number) => sql.replace("$SORTBY", `$${offset + 1}`)
 
   return {
     all: <A>(table: string) =>
@@ -138,7 +63,7 @@ export const storeFor = (
         await ensureTable(schemaName(cube), t)
         return withRole(cube, async (c) => {
           const w = whereClause(where)
-          const o = orderClause(page.sortBy, page.descending ?? false)
+          const o = orderClause(page.sortBy, page.descending ?? false, sortableFields)
           const n = w.params.length
           const osql = renumber(o.sql, n)
           // The sort parameter (if any) takes index n+1; LIMIT and OFFSET come after whatever

@@ -18,8 +18,8 @@ const adminUrl = process.env.QWBE_TEST_ADMIN_URL ?? adminUrlFromEnv()
 const db = await createScratchDatabase("isolation", adminUrl)
 process.env.QWBE_DATABASE_URL = db.url
 
-const { initStore, closeAll } = await import("../core/src/kernel/pg/db.ts")
-const { ensureCubeSchema, ensureTable } = await import("../core/src/kernel/pg/setup.ts")
+const { initStore, closeAll } = await import("../core/src/pg/db.ts")
+const { ensureCubeSchema, ensureTable } = await import("../core/src/pg/setup.ts")
 
 try {
   await initStore()

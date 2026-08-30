@@ -153,6 +153,10 @@ export const unitDirs = (root) => {
   for (const c of children(join(root, "core/src/cubes"))) add(`cube ${c.name}`, join(root, "core/src/cubes", c.name))
   for (const s of children(join(root, "core/src/spaces"))) add(`space ${s.name}`, join(root, "core/src/spaces", s.name))
   add("kernel", join(root, "core/src/kernel"))
+  // Born with QWB-44 (one Postgres, one schema per cube). Same precedent as `metadata`: the
+  // kernel was at its recorded unit ceiling, so the new subsystem became its own unit the day
+  // the directory was born -- measured from the first commit, never a blind spot.
+  add("pg store", join(root, "core/src/pg"))
   // Born with QWB-41 (per-cube field metadata). The kernel was at its recorded unit ceiling,
   // so the new subsystem became its own unit the day the directory was born -- measured from
   // the first commit, never a blind spot.

@@ -19,16 +19,14 @@ import {
 } from "@effect/platform"
 import { NodeHttpServer, NodeRuntime } from "@effect/platform-node"
 import { Effect, Layer } from "effect"
+import { bootStorage } from "./boot-storage.ts"
 import { catalogueMetadata } from "./catalogue.ts"
 import { Authorization } from "./kernel/auth-contract.ts"
 import { loadDefinitions, mount } from "./kernel/discovery.ts"
 import { readLedger, verifyLedgerUnchanged, writeLedger } from "./kernel/ledger.ts"
-import { migrateDataSchemas } from "./kernel/migrate.ts"
-import { checkMigrationOwnership } from "./kernel/migrate-ownership.ts"
 import { buildApi, buildHandlers, checkCubes, rejectDisabled } from "./kernel/mount.ts"
 import type { Registry, RegistryEntry } from "./kernel/registry.ts"
 import { loadSpaces } from "./kernel/space.ts"
-import { initStore } from "./kernel/store.ts"
 import { checkSchemaDrift } from "./metadata/schema-drift.ts"
 import { corsOriginMatcher, originsForStartup } from "./origins.ts"
 import { registryFrom } from "./registry-runtime.ts"
@@ -64,22 +62,8 @@ const definitions = await loadDefinitions().catch((e: Error) => failAfterSnapsho
 const spaces = await loadSpaces().catch((e: Error) => failAfterSnapshot(e, 2))
 verifyLedgerUnchanged(ledgerRead)
 
-// --- 2. storage: one Postgres, schema per cube (ADR-0001) ---
-//
-// Before anything mounts, the kernel schema and its migrations must exist. A missing or
-// unreachable database stops the boot here, with the variable named -- no fallback, no second
-// storage truth.
-await initStore().catch((e: Error) => fail(e, 2))
-
-// --- 2. data migrations: DECLARED by packages, executed by the kernel ---
-//
-// Validated against the mounted set AND the ledger snapshot taken BEFORE any plugin module
-// was imported (above) -- a plugin's top-level code can rewrite provenance.json, but it
-// cannot rewrite this snapshot. Since QWB-44 a migration is a schema rename in Postgres, so
-// the whole step is async and runs here, before the (synchronous) mount.
-await migrateDataSchemas(await checkMigrationOwnership(definitions, ledgerSnapshot)).catch((e: Error) =>
-  failAfterSnapshot(e, 2),
-)
+// --- 2. storage and declared data migrations (ADR-0001), split into boot-storage.ts ---
+await bootStorage(definitions, ledgerSnapshot, fail, failAfterSnapshot)
 
 // --- 2. mount: unique tables, single privilege, switches, per-cube tools ---
 
