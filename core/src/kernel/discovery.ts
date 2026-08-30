@@ -162,6 +162,11 @@ export const mount = (
   // arrangement -- the same visibility rule as `managesCubes`.
   const runners = manifests.filter((m) => m.runsCommands).map((m) => fullName(m))
   if (runners.length > 1) throw new DoubleCapabilityError("runsCommands", runners)
+  // The same single-holder rule for `providesCustomFields`: the flag hands out an unrestricted
+  // reader over every other cube's rows under that cube's own DB role. Two holders would mean
+  // two plugins reading each other's data with no permission gate between them.
+  const fieldReaders = manifests.filter((m) => m.providesCustomFields).map((m) => fullName(m))
+  if (fieldReaders.length > 1) throw new DoublePrivilegeError(fieldReaders)
   // The provider fills this during its own `create`; the consumer receives a wrapper that reads
   // it at call time. Late binding on purpose -- otherwise the two cubes would have to be created
   // in a particular order, and mount order is just the order of directory names on disk.

@@ -17,7 +17,7 @@
 import { Effect } from "effect"
 import type { CustomFieldTools } from "../catalogue.ts"
 import { registerCustomFieldProvider } from "../catalogue.ts"
-import { storeFor } from "../pg/store.ts"
+import { customRows } from "../pg/custom-rows.ts"
 
 export { closeAll, databaseUrl, initStore } from "../pg/db.ts"
 export { ForeignTableError } from "../pg/errors.ts"
@@ -73,22 +73,11 @@ export const customFieldToolsFor = (
       }
     | undefined,
 ): CustomFieldTools => ({
-  register: (provide) => registerCustomFieldProvider(provide),
+  register: (provide) => registerCustomFieldProvider((cube) => (find(cube) ? provide(cube) : [])),
   rows: (cube) =>
     Effect.gen(function* () {
       const target = find(cube)
       if (!target) return []
-      const tables = target.manifest.tables ?? []
-      const out: Array<{ id: string; custom: Record<string, unknown> }> = []
-      for (const table of tables) {
-        const rows = yield* storeFor(cube, tables, target.manifest.sortable ?? []).all<Record<string, unknown>>(table)
-        for (const row of rows) {
-          const custom = row.custom
-          if (typeof custom === "object" && custom !== null && !Array.isArray(custom)) {
-            out.push({ id: String(row.id), custom: custom as Record<string, unknown> })
-          }
-        }
-      }
-      return out
+      return yield* customRows(cube, target.manifest.tables ?? [])
     }),
 })

@@ -87,7 +87,11 @@ export type CustomFieldTools = {
   readonly register: (provide: (cube: string) => ReadonlyArray<CustomFieldDefinition>) => void
   readonly rows: (
     cube: string,
-  ) => Effect.Effect<ReadonlyArray<{ readonly id: string; readonly custom: Record<string, unknown> }>, never, never>
+  ) => Effect.Effect<
+    ReadonlyArray<{ readonly id: string; readonly custom: Record<string, unknown>; readonly deleted: boolean }>,
+    never,
+    never
+  >
 }
 
 /** Called by the kernel at mount, once per cube declaring `providesCustomFields`. */
