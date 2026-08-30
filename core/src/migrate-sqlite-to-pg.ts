@@ -21,12 +21,12 @@
 // all checks pass the old file is renamed to `<name>.sqlite.migrated-<YYYYMMDD>` (companions
 // too), so pointing the kernel back at SQLite is a rename in the other direction.
 
-import { createHash } from "node:crypto"
-import { existsSync, readdirSync, renameSync } from "node:fs"
+import { existsSync, readdirSync } from "node:fs"
 import { join } from "node:path"
 import { DatabaseSync } from "node:sqlite"
 import pg from "pg"
 
+import { canonical, RowFailedError, renameMigrated, sampleIds, sha256 } from "./migrate-proof.ts"
 import { closeAll, initStore } from "./pg/db.ts"
 import { ensureCubeSchema, ensureTable, q, schemaName } from "./pg/setup.ts"
 
@@ -44,48 +44,6 @@ const argDataDir = (): string => {
 }
 
 const admin = (): pg.Client => new pg.Client({ connectionString: process.env.QWBE_DATABASE_URL })
-
-const canonical = (body: string): string => {
-  const sorted = (v: unknown): unknown =>
-    Array.isArray(v)
-      ? v.map(sorted)
-      : v && typeof v === "object"
-        ? Object.fromEntries(
-            Object.entries(v as Record<string, unknown>)
-              .sort(([a], [b]) => a.localeCompare(b))
-              .map(([k, val]) => [k, sorted(val)]),
-          )
-        : v
-  return JSON.stringify(sorted(JSON.parse(body)))
-}
-
-const sha256 = (values: ReadonlyArray<string>): string =>
-  createHash("sha256")
-    .update([...values].sort().join("\n"))
-    .digest("hex")
-
-/** Twenty ids sampled evenly across the SORTED id range -- the first twenty in scan order
- * are whatever SQLite happens to return first, which proves nothing about the rest. */
-const sampleIds = (ids: ReadonlyArray<string>, n = 20): Array<string> => {
-  const sorted = [...ids].sort()
-  if (sorted.length <= n) return sorted
-  const out: Array<string> = []
-  for (let i = 0; i < n; i++) {
-    out.push(sorted[Math.floor((i * (sorted.length - 1)) / (n - 1))] as string)
-  }
-  return [...new Set(out)]
-}
-
-class RowFailedError extends Error {
-  readonly table: string
-  readonly id: string
-  constructor(table: string, id: string, cause: string) {
-    super(`Table "${table}", row "${id}": ${cause}`)
-    this.name = "RowFailedError"
-    this.table = table
-    this.id = id
-  }
-}
 
 export const migrateFile = async (
   pgClient: pg.Client,
@@ -191,17 +149,6 @@ export const migrateFile = async (
   }
   sqlite.close()
   return { cube, tables: tables.length, rows, tableNames: tables }
-}
-
-const stamp = (): string => new Date().toISOString().slice(0, 10).replace(/-/g, "")
-
-export const renameMigrated = (sqliteFile: string): string => {
-  const to = `${sqliteFile}.migrated-${stamp()}`
-  renameSync(sqliteFile, to)
-  for (const suffix of ["-wal", "-shm"]) {
-    if (existsSync(`${sqliteFile}${suffix}`)) renameSync(`${sqliteFile}${suffix}`, `${to}${suffix}`)
-  }
-  return to
 }
 
 const main = async (): Promise<number> => {
