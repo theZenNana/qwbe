@@ -2,7 +2,23 @@ import { createHash } from "node:crypto"
 import { lstatSync, readdirSync, readFileSync } from "node:fs"
 import { join, relative, sep } from "node:path"
 
-const LOCAL_SOURCE_DIRECTORIES = new Set(["node_modules", ".venv", ".git", "docs", "probes", "test"])
+// `frontend` belongs here for the same reason `probes` does: it is the authoring checkout's own
+// tooling, not part of the installable package. The contract scanner already skips it
+// (`package-contract-scan.ts`, SKIP_DIRECTORIES); without the same entry here the installer copied
+// a pack's whole `frontend/`, walked into `frontend/node_modules/.bin` and refused the install on
+// the first symlink it found - so a pack whose frontend had ever been installed could not be
+// installed at all. `dist` and `build` follow the scanner for the same reason.
+const LOCAL_SOURCE_DIRECTORIES = new Set([
+  "node_modules",
+  ".venv",
+  ".git",
+  "docs",
+  "probes",
+  "test",
+  "frontend",
+  "dist",
+  "build",
+])
 const LOCAL_SOURCE_FILES = new Set(["package.json", "package-lock.json", "tsconfig.json"])
 const LOCAL_SOURCE_FILE_PATTERN = /\.(test|spec)\.(mjs|js|jsx)$/
 const PACKAGE_NAME = /^[a-z][a-z0-9-]{0,31}$/
