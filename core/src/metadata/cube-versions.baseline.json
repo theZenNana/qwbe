@@ -7,10 +7,6 @@
     "version": "1.0.0",
     "hash": "c7d13cd9de09496a1cbc6f5f0619023545331c9dc932fb2305954f84f72151fc"
   },
-  "crm/contacts": {
-    "version": "1.0.0",
-    "hash": "70fb34676b2767a62e8ad86f038d3756a09020894b9449a52dd64c9a17bdde06"
-  },
   "crm/contracts": {
     "version": "1.0.0",
     "hash": "fedea1ac6cd1ed3d3d7f8e88182a53b838894b56acbdb46889a809dc9fba17dd"
