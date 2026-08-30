@@ -12,12 +12,12 @@ import { createServer } from "node:http"
 import { HttpApiBuilder, HttpApiSwagger, HttpMiddleware, HttpServer } from "@effect/platform"
 import { NodeHttpServer, NodeRuntime } from "@effect/platform-node"
 import { Layer } from "effect"
+import { catalogueMetadata } from "./catalogue.ts"
 import { loadDefinitions, mount } from "./kernel/discovery.ts"
 import { readLedger, verifyLedgerUnchanged, writeLedger } from "./kernel/ledger.ts"
 import { buildApi, buildHandlers, checkCubes, rejectDisabled } from "./kernel/mount.ts"
 import type { Registry, RegistryEntry } from "./kernel/registry.ts"
 import { loadSpaces } from "./kernel/space.ts"
-import { deriveAllMetadata } from "./metadata/metadata.ts"
 import { checkSchemaDrift } from "./metadata/schema-drift.ts"
 import { registryFrom } from "./registry-runtime.ts"
 
@@ -58,12 +58,10 @@ try {
 }
 
 // The metadata version gate: a cube that declared a `version` may not change its schema under
-// the same version -- clients cache metadata keyed by it. See `kernel/schema-drift.ts`.
-try {
-  checkSchemaDrift(deriveAllMetadata(system!.cubes, system!.liveLinks()))
-} catch (e) {
-  failAfterSnapshot(e as Error, 1)
-}
+// the same version -- clients cache metadata keyed by it. Runs AFTER the life rules: a boot
+// the life rules reject must not leave a version record behind for a system that never served.
+// The derivation goes through the catalogue's cache, so the catalogue later reads the same
+// values instead of walking every contract a second time. See `metadata/schema-drift.ts`.
 
 // --- 3. life rules. Any failure and the server does NOT start ---
 
@@ -83,6 +81,12 @@ if (dangling.length > 0) {
       dangling.map((d) => `    space "${d.space}": ${d.from} -> ${d.to} -- ${d.reason}`).join("\n") +
       `\n  Either a typo, or the cube holding that entity was removed. The system runs without them.\n`,
   )
+}
+
+try {
+  checkSchemaDrift(catalogueMetadata(system!.cubes, system!.liveLinks()))
+} catch (e) {
+  failAfterSnapshot(e as Error, 1)
 }
 
 const api = buildApi(system!.cubes)
