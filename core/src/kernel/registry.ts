@@ -13,8 +13,7 @@
 
 import { Context, type Effect } from "effect"
 import type { CurrentUser } from "./auth-contract.ts"
-import type { SummaryRow } from "./entity.ts"
-import type { RelationalPart, SearchResult } from "./manifest.ts"
+import type { RelationalPart, SearchResult, SummaryRow } from "./entity.ts"
 import type { PageRequest } from "./pagination.ts"
 import type { Link } from "./space.ts"
 

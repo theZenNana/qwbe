@@ -15,7 +15,7 @@ import { Layer } from "effect"
 import { loadDefinitions, mount } from "./kernel/discovery.ts"
 import { readLedger, verifyLedgerUnchanged, writeLedger } from "./kernel/ledger.ts"
 import { buildApi, buildHandlers, checkCubes, rejectDisabled } from "./kernel/mount.ts"
-import type { RegistryEntry } from "./kernel/registry.ts"
+import type { Registry, RegistryEntry } from "./kernel/registry.ts"
 import { loadSpaces } from "./kernel/space.ts"
 import { registryFrom } from "./registry-runtime.ts"
 
@@ -116,10 +116,20 @@ const RegistryLive = registryFrom(entries, system!.liveLinks, system!.isEnabled,
 //
 // They get the registry too: the auth cube reads user data the same way any cube would --
 // through the registry, never by opening the account cube's database.
+// The ONE audited type-erasure seam (QWB-19): with runtime discovery kept, the exact union of
+// services cube layers provide is unknowable to TypeScript. Providers are checked per cube at
+// `CubeParts.layers` (Provided inferred at defineCube, requirements bounded to `Registry`);
+// this adapter widens the provided side so `mergeAll` accepts a dynamic list. The only cast
+// in the kernel allowed to erase -- and the double step is deliberate: the compiler is told,
+// twice, that this is where the guarantee stops.
+const contributeLayer = (layer: Layer.Layer<never, unknown, never>): Layer.Layer<never, never, never> =>
+  layer as unknown as Layer.Layer<never, never, never>
+
 const CubeLayers = system!.cubes
   .map((c) => c.parts.layers)
-  .filter((l): l is Layer.Layer<never, never, never> => !!l)
+  .filter((l): l is Layer.Layer<never, unknown, Registry> => l !== undefined)
   .map((l) => l.pipe(Layer.provide(RegistryLive)))
+  .map(contributeLayer)
 
 const HandlersLive = buildHandlers(api, system!.cubes).pipe(Layer.provide(RegistryLive))
 

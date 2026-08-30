@@ -22,8 +22,16 @@ describe("permission-mediated relational registry", () => {
           name: "notes",
           entity: "Note",
           relational: {
-            summaryById: () => Effect.sync(() => (++calls, { id: "other", title: "leak", details: [] })),
-            fieldValue: () => Effect.sync(() => (++calls, "leak")),
+            summaryById: () =>
+              Effect.sync(() => {
+                calls += 1
+                return { id: "other", title: "leak", details: [] }
+              }),
+            fieldValue: () =>
+              Effect.sync(() => {
+                calls += 1
+                return "leak"
+              }),
           },
         },
       ],

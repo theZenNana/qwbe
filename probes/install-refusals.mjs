@@ -65,27 +65,27 @@ export const traversalIsRefused = async ({ api, score, admin }) => {
   )
 
   const { installerFor, InstallError } = await import(join(coreDir, "src", "kernel", "install.ts"))
+  // effect resolves from core's own node_modules -- probes sit outside that package scope.
+  const { createRequire } = await import("node:module")
+  const { Effect } = createRequire(join(coreDir, "package.json"))("effect")
   const direct = installerFor()
 
   for (const name of DIRECT_NAMES) {
     let refused = false
     let why = ""
-    try {
-      direct.install(name)
-    } catch (e) {
-      refused = e instanceof InstallError
-      why = e.name
+    // runPromiseExit, not runPromise: a typed failure arrives as an Exit carrying the error,
+    // not as a rejected promise wrapped in FiberFailure -- the instanceof must see the error.
+    const exit = await Effect.runPromiseExit(direct.install(name))
+    if (exit._tag === "Failure") {
+      refused = exit.cause.error instanceof InstallError
+      why = exit.cause.error?.name ?? "failure without InstallError"
     }
     score.check(`validator: install("${name}") is refused with no HTTP in the way`, refused, why || "no throw")
   }
 
   for (const [cube, plugin] of DIRECT_REMOVALS) {
-    let refused = false
-    try {
-      direct.remove(cube, plugin)
-    } catch (e) {
-      refused = e instanceof InstallError
-    }
+    const exit = await Effect.runPromiseExit(direct.remove(cube, plugin))
+    const refused = exit._tag === "Failure" && exit.cause.error instanceof InstallError
     score.check(`validator: remove("${cube}", ${JSON.stringify(plugin)}) is refused`, refused)
   }
 }
