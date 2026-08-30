@@ -140,11 +140,23 @@ const resolveRelation = (
 ): { target: string; entity: string; summary: string | null } | null => {
   const declaredTarget = m.relations?.[field]?.target
   const spaceLink = links.find((l) => l.from === cube.name && l.field === field)
-  const target = declaredTarget
-    ? cubes.find((c) => c.name === declaredTarget)
-    : spaceLink
-      ? cubes.find((c) => c.manifest.entity === spaceLink.to)
-      : undefined
+  let target: MetadataCube | undefined
+  if (declaredTarget) {
+    target = cubes.find((c) => c.name === declaredTarget)
+  } else if (spaceLink) {
+    // Entity uniqueness is not enforced at mount, so "first match wins" would silently
+    // retarget the field to whichever cube mounted first. Two cubes claiming the link's
+    // entity is a configuration error: refuse to derive rather than guess.
+    const matches = cubes.filter((c) => c.manifest.entity === spaceLink.to)
+    if (matches.length > 1) {
+      throw new Error(
+        `space link ${cube.name}.${field} -> entity "${spaceLink.to}" is ambiguous: ` +
+          `${matches.map((c) => c.name).join(" and ")} both declare that entity. ` +
+          `Declare the target explicitly with relations: { ${field}: { target: ... } }.`,
+      )
+    }
+    target = matches[0]
+  }
   if (!target) return null
   return {
     target: target.name,

@@ -169,6 +169,27 @@ describe("deriveCubeMetadata", () => {
     assert.equal(md.fields.find((f) => f.name === "name")!.relation!.target, "other")
   })
 
+  it("refuses an ambiguous space link instead of guessing the target", () => {
+    const other = (name: string) => ({
+      manifest: { name, tables: [], requiresAuth: true, entity: "Other" },
+      name,
+      parts: { group, handlers: {} },
+      plugin: null,
+      commands: [],
+    })
+    const owner = mount() as never
+    // Two cubes claim entity "Other": first-match-wins would silently retarget the field.
+    assert.throws(
+      () =>
+        deriveCubeMetadata(
+          owner,
+          [owner, other("one"), other("two")],
+          [{ from: "things", field: "name", to: "Other" }],
+        ),
+      /ambiguous/,
+    )
+  })
+
   it("changes the schemaHash when a field changes", () => {
     const before = deriveCubeMetadata(mount() as never, [], [])!
     const other = mount({ fields: { name: { label: "Renamed" } } }) as never
