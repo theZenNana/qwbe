@@ -142,7 +142,7 @@ try {
         `health=${health.status} goal=${goal.status}`,
       )
 
-      const openapi = await api.call("/openapi.json")
+      const openapi = await api.call("/openapi.json", { headers: admin.headers })
       const paths = Object.keys(openapi.body?.paths ?? {})
       score.check(
         "the catalogue is the only contract the client needs",

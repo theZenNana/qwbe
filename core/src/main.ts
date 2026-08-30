@@ -9,10 +9,18 @@
 //   rm -rf src/cubes/notes && node src/main.ts         starts, with nothing edited anywhere
 
 import { createServer } from "node:http"
-import { HttpApiBuilder, HttpApiSwagger, HttpMiddleware, HttpServer } from "@effect/platform"
+import {
+  HttpApiBuilder,
+  HttpApiSecurity,
+  HttpMiddleware,
+  HttpServer,
+  HttpServerResponse,
+  OpenApi,
+} from "@effect/platform"
 import { NodeHttpServer, NodeRuntime } from "@effect/platform-node"
-import { Layer } from "effect"
+import { Effect, Layer } from "effect"
 import { catalogueMetadata } from "./catalogue.ts"
+import { Authorization } from "./kernel/auth-contract.ts"
 import { loadDefinitions, mount } from "./kernel/discovery.ts"
 import { readLedger, verifyLedgerUnchanged, writeLedger } from "./kernel/ledger.ts"
 import { buildApi, buildHandlers, checkCubes, rejectDisabled } from "./kernel/mount.ts"
@@ -153,18 +161,41 @@ const HandlersLive = buildHandlers(api, system!.cubes).pipe(Layer.provide(Regist
 // visible: no cube layers, no extra `provide`.
 const withHandlers = HttpApiBuilder.api(api).pipe(Layer.provide(HandlersLive))
 const [firstCubeLayer, ...restCubeLayers] = CubeLayers
-const ApiLive =
+const provideCubeLayers = <A extends Layer.Layer<unknown, unknown, unknown>>(layer: A): A =>
   firstCubeLayer === undefined
-    ? withHandlers
-    : withHandlers.pipe(Layer.provide(Layer.mergeAll(firstCubeLayer, ...restCubeLayers)))
+    ? layer
+    : (layer.pipe(Layer.provide(Layer.mergeAll(firstCubeLayer, ...restCubeLayers))) as A)
+const ApiLive = provideCubeLayers(withHandlers)
 
 // --- 5. the server ---
+
+const GatedOpenApi = HttpApiBuilder.Router.use((router) =>
+  Effect.gen(function* () {
+    // Resolved ONCE at layer build, exactly like the auth cube resolves its registry: the
+    // route handler runs outside the context the api layer captured, so the service is closed
+    // over here rather than yielded per request.
+    const authenticate = yield* Authorization
+    const spec = OpenApi.fromApi(api)
+    yield* router.get(
+      "/openapi.json",
+      Effect.gen(function* () {
+        // The same decode the middleware machinery runs: read the Bearer token from the
+        // request, hand it to the auth cube's implementation, and turn a failure into an
+        // empty 401 -- the spec itself is never in the response.
+        const attempt = Effect.flatMap(HttpApiBuilder.securityDecode(HttpApiSecurity.bearer), authenticate.bearer)
+        return yield* Effect.catchAll(Effect.zipRight(attempt, HttpServerResponse.json(spec).pipe(Effect.orDie)), () =>
+          Effect.succeed(HttpServerResponse.empty({ status: 401 })),
+        )
+      }),
+    )
+  }),
+)
+
+const GatedOpenApiLive = provideCubeLayers(GatedOpenApi)
 
 const ServerLive = HttpApiBuilder.serve((app) =>
   HttpMiddleware.logger(rejectDisabled(system!.cubes, system!.isEnabled)(app)),
 ).pipe(
-  Layer.provide(HttpApiSwagger.layer({ path: "/docs" })),
-  Layer.provide(HttpApiBuilder.middlewareOpenApi({ path: "/openapi.json" })),
   // The web app is a sibling process on another port; without CORS they do not speak.
   Layer.provide(
     HttpApiBuilder.middlewareCors({
@@ -173,6 +204,7 @@ const ServerLive = HttpApiBuilder.serve((app) =>
       allowedMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     }),
   ),
+  Layer.provide(GatedOpenApiLive),
   Layer.provide(ApiLive),
   HttpServer.withLogAddress,
   Layer.provide(NodeHttpServer.layer(() => createServer(), { port: PORT })),

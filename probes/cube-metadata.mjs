@@ -33,7 +33,10 @@ try {
   writeFixture("", "1.0.0")
   server = await start()
 
-  const spec = (await api.call("/openapi.json")).body
+  // The spec carries every cube's schema, so it sits behind authentication like the metadata.
+  const adminForSpec = await api.login()
+  const spec = (await api.call("/openapi.json", { headers: adminForSpec.headers })).body
+  score.check("the spec is not readable without a session", (await api.call("/openapi.json")).status === 401)
 
   // --- authentication: the shape is not public ---
   const anonymous = await api.call("/catalog/notes/metadata")

@@ -24,9 +24,11 @@ if (!server.alive) {
 }
 
 try {
-  const openapi = await api.call("/openapi.json")
+  const sessionForSpec = await api.login()
+  const openapi = await api.call("/openapi.json", { headers: sessionForSpec.headers })
   const spec = openapi.body
   score.check("OpenAPI is served as 3.1 JSON", openapi.status === 200 && spec?.openapi === "3.1.0")
+  score.check("the spec is not readable without a session", (await api.call("/openapi.json")).status === 401)
 
   // The inventory below guards the kernel's own API -- core cubes plus the committed
   // example-plugin fixture. Cubes mounted from an INSTALLED package (QWB-28/29) extend the
