@@ -32,7 +32,7 @@ const hierarchyFindings = async (root: string, cubes: readonly string[]): Promis
   const findings: PackageFinding[] = []
   const manifests = new Map<
     string,
-    { readonly parent?: unknown; readonly screen?: unknown; readonly dataMigration?: unknown }
+    { readonly name?: unknown; readonly parent?: unknown; readonly screen?: unknown; readonly dataMigration?: unknown }
   >()
   for (const name of cubes) {
     const entry = join(root, "cubes", ...name.split("/"), "index.ts")
@@ -62,7 +62,11 @@ const hierarchyFindings = async (root: string, cubes: readonly string[]): Promis
   const parents = cubes.filter((c) => !c.includes("/"))
   for (const parent of parents) {
     const manifest = manifests.get(parent)
-    if (manifest?.screen !== true) {
+    // No manifest was already reported by the import loop above (module absent, broken, or
+    // exporting nothing) -- piling a misleading "must declare screen: true" on top of it
+    // would send the pack author hunting the wrong rule.
+    if (!manifest) continue
+    if (manifest.screen !== true) {
       findings.push({
         rule: "hierarchy",
         file: `cubes/${parent}/index.ts`,
@@ -86,6 +90,19 @@ const hierarchyFindings = async (root: string, cubes: readonly string[]): Promis
         rule: "hierarchy",
         file: `cubes/${child}/index.ts`,
         message: "child cube must declare dataMigration",
+      })
+    }
+  }
+  // A cube is addressed by its path; its manifest must say the same thing. The old per-pack
+  // test copies pinned `manifest.name` by hand; now every pack gets the check for free.
+  for (const name of cubes) {
+    const manifest = manifests.get(name)
+    const expected = name.split("/").pop()
+    if (manifest && manifest.name !== expected) {
+      findings.push({
+        rule: "hierarchy",
+        file: `cubes/${name}/index.ts`,
+        message: `cube manifest.name must be "${expected}"`,
       })
     }
   }

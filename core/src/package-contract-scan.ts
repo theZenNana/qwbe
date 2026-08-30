@@ -13,37 +13,42 @@ export type PackageFinding = {
 import { existsSync, readdirSync, readFileSync } from "node:fs"
 import { join, relative, sep } from "node:path"
 
+import { specifiers, stripCode } from "./package-contract-lex.ts"
+
 type Manifest = {
   readonly name?: unknown
   readonly kind?: unknown
   readonly cubes?: unknown
 }
 
-const BUILTIN_ROOTS = [
-  "node:fs",
-  "node:fs/promises",
-  "node:child_process",
-  "node:worker_threads",
-  "node:module",
-  "node:vm",
-  "node:sqlite",
-]
+// Bare names, judged with and without the `node:` prefix (below): the kernel's own cruiser rule
+// is written `^(node:)?(...)$` because a first attempt matching only `node:`-prefixed specifiers
+// was half-open -- `import { readFileSync } from "fs"` slipped through (see the comment at
+// `cubes-may-not-touch-storage-directly` in `core/.dependency-cruiser.cjs`). Depcruise never
+// runs over a pack repo, so for a pack this checker is the only net; it must not be half-open.
+const BUILTIN_ROOTS = ["fs", "fs/promises", "child_process", "worker_threads", "module", "vm", "sqlite"]
 
-// Directories that are never package source. `frontend` is the pack's UI, judged by the
-// browser build, not by the cube contract; `probes` runs in the authoring checkout by design.
-const SKIP_DIRECTORIES = new Set(["node_modules", ".git", "frontend", "probes", "store", "dist", "build"])
+const isBuiltin = (specifier: string): boolean =>
+  BUILTIN_ROOTS.some((b) => specifier === b || specifier === `node:${b}`)
+
+// Directories that are never package source, honoured at the TOP level of the package only:
+// `frontend` is the pack's UI, judged by the browser build, not by the cube contract; `probes`
+// runs in the authoring checkout by design; `store`, `dist` and `build` are generated. Nested
+// directories of these names are ordinary source -- a top-level-only exemption must not become
+// a one-directory bypass (the size gate made exactly that mistake once).
+const SKIP_DIRECTORIES = new Set(["frontend", "probes", "store", "dist", "build"])
 const SOURCE_FILE = /\.(ts|tsx|mjs|js|jsx)$/
 // Tests exercise the rules, so they may name the forbidden thing: a test file's job is to
 // import node:fs or call writeFile to build a fixture. The rules below therefore judge
 // everything EXCEPT test files; the internal-import rule has no such exception.
 const TEST_FILE = /\.(test|spec)\.(ts|tsx|mjs|js|jsx)$/
-const IMPORT_LINE = /^\s*import\b|\bimport\s*\(/
-
-const isImportLine = (line: string): boolean => IMPORT_LINE.test(line)
 
 export const walkSources = (root: string, current: string = root): string[] => {
   const found: string[] = []
   for (const entry of readdirSync(current, { withFileTypes: true })) {
+    // Dotted directories and node_modules are never package source, at ANY depth: a stray
+    // `.claude/` or a nested `node_modules/` raises findings the pack author cannot fix.
+    if (entry.name.startsWith(".") || entry.name === "node_modules") continue
     if (current === root && SKIP_DIRECTORIES.has(entry.name)) continue
     const path = join(current, entry.name)
     if (entry.isDirectory()) found.push(...walkSources(root, path))
@@ -77,6 +82,18 @@ export const manifestFindings = (root: string): { findings: PackageFinding[]; cu
   if (typeof manifest.name !== "string" || manifest.name.length === 0) {
     findings.push({ rule: "manifest", file: "qwbe-package.json", message: "manifest.name must be a non-empty string" })
   }
+  if (manifest.kind !== undefined && (typeof manifest.kind !== "string" || manifest.kind.length === 0)) {
+    findings.push({
+      rule: "manifest",
+      file: "qwbe-package.json",
+      message: "manifest.kind must be a non-empty string when present",
+    })
+  }
+  const cubesDir = join(root, "cubes")
+  if (!existsSync(cubesDir)) {
+    findings.push({ rule: "manifest", file: "cubes/", message: "the cubes/ directory is missing" })
+    return { findings, cubes: [] }
+  }
   const cubes = manifest.cubes
   if (!Array.isArray(cubes) || cubes.some((c) => typeof c !== "string")) {
     findings.push({
@@ -88,7 +105,7 @@ export const manifestFindings = (root: string): { findings: PackageFinding[]; cu
   }
   // Declared cubes must exist on disk, and cubes on disk must be declared. Both directions:
   // a manifest pointing at nothing installs air, an undeclared directory installs unreviewed.
-  const onDisk = readdirSync(join(root, "cubes"), { withFileTypes: true })
+  const onDisk = readdirSync(cubesDir, { withFileTypes: true })
     .filter((e) => e.isDirectory())
     .flatMap((e) => {
       const nested = readdirSync(join(root, "cubes", e.name), { withFileTypes: true })
@@ -122,21 +139,22 @@ export const manifestFindings = (root: string): { findings: PackageFinding[]; cu
 export const importFindings = (root: string, files: readonly string[]): PackageFinding[] => {
   const findings: PackageFinding[] = []
   for (const file of files) {
-    const text = readFileSync(file, "utf8")
+    const text = stripCode(readFileSync(file, "utf8"))
     const relFile = rel(root, file)
-    if (/(?:\.\.\/)+src\//.test(text) || /qwbe-core\/src\//.test(text)) {
+    // The deep-relative form is the exact shape a pack sitting beside the kernel checkout would
+    // write: `../../../qwbe/core/src/kernel/discovery.ts` reaches internals through a `../` run
+    // that does not have `src/` immediately after it.
+    if (/(?:\.\.\/)+.*\/src\//.test(text) || /qwbe-core\/src\//.test(text)) {
       findings.push({
         rule: "imports-internal",
         file: relFile,
         message: "imports kernel internals; qwbe is reachable only through public qwbe-core/* subpaths",
       })
     }
-    const inCube = (relFile === "cubes" || relFile.startsWith("cubes/")) && !TEST_FILE.test(relFile)
-    if (!inCube) continue
-    const imports = text.split("\n").filter(isImportLine).join("\n")
-    for (const builtin of BUILTIN_ROOTS) {
-      if (imports.includes(builtin)) {
-        findings.push({ rule: "cube-builtins", file: relFile, message: `${builtin} imported by the cube` })
+    if (!relFile.startsWith("cubes/") || TEST_FILE.test(relFile)) continue
+    for (const specifier of specifiers(text)) {
+      if (isBuiltin(specifier)) {
+        findings.push({ rule: "cube-builtins", file: relFile, message: `${specifier} imported by the cube` })
       }
     }
   }
@@ -148,7 +166,7 @@ export const readOnlyFindings = (root: string, files: readonly string[]): Packag
   for (const file of files) {
     const relFile = rel(root, file)
     if (TEST_FILE.test(relFile)) continue
-    const text = readFileSync(file, "utf8")
+    const text = stripCode(readFileSync(file, "utf8"), true)
     for (const verb of [
       "HttpApiEndpoint.post",
       "HttpApiEndpoint.put",

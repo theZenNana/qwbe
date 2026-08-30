@@ -107,6 +107,29 @@ module.exports = {
       to: { path: "^(node:)?(sqlite|fs|fs/promises|child_process|worker_threads|module|vm)$" },
     },
     {
+      // The package checker is the one kernel module that EXECUTES foreign code: with the
+      // `hierarchy` option it imports a pack's cube modules to read their manifests, and
+      // `import()` runs arbitrary top-level code from a caller-supplied directory. Execution is
+      // genuinely required -- the manifests are runtime exports, not text -- so this is stated
+      // in docs/package-contract.md instead of pretended away. What CAN be pinned here is who
+      // may reach the module: nobody in the kernel graph but its own test. A future kernel
+      // module importing it must argue its case here, in the open.
+      name: "package-contract-is-the-pack-door",
+      comment:
+        "Only the checker's own test may import package-contract. It executes pack cube modules; " +
+        "widening its importers widens who may run foreign top-level code.",
+      severity: "error",
+      from: {
+        path: ".",
+        pathNot: [
+          "^src/package-contract\\.test\\.ts$",
+          "^src/package-contract\\.ts$",
+          "^src/package-contract-scan\\.ts$",
+        ],
+      },
+      to: { path: "^src/package-contract.*\\.ts$" },
+    },
+    {
       name: "no-circular",
       comment: "Composable blocks, not tangles.",
       severity: "error",

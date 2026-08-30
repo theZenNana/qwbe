@@ -1,13 +1,13 @@
 # The Qwbe package contract
 
 One page, read whole, and you can write and verify a pack without opening the kernel.
-The shared checker lives in qwbe and is exported as **`qwbe-core/package-contract`**
+The shared checker lives in qwbe and is exported as **`qwbe-core/package`**
 (source: `core/src/package-contract.ts` + `core/src/package-contract-scan.ts`). A pack
 runs it from its own directory and gets a list of findings -- each one a `{ rule, file,
 message }`. No findings means the package keeps its side of the contract.
 
 ```js
-import { checkPackageSource } from "qwbe-core/package-contract"
+import { checkPackageSource } from "qwbe-core/package"
 const findings = await checkPackageSource(import.meta.dirname, { readOnly: false, hierarchy: false })
 ```
 
@@ -23,7 +23,10 @@ size gate (`probes/size-lib.mjs` skips `frontend/` too).
 { "name": "crm-pack", "kind": "plugin", "cubes": ["crm", "crm/contacts", "crm/contracts"] }
 ```
 
-- `name` -- the package slug.
+- `name` -- the package slug. Under the `hierarchy` option, each cube's manifest must also
+  carry the same name as its path (`crm/contacts` declares `"contacts"`).
+- `kind` -- when present, a non-empty string (the packs use `"plugin"`). Declared and
+  validated, read by nothing else today.
 - `cubes` -- every cube the package ships, as the kernel addresses them: a standalone cube
   is one segment (`crm`), a child is `parent/child` (`crm/contacts`). The declared list
   must match the disk exactly, in both directions: a declared cube without
@@ -34,7 +37,7 @@ size gate (`probes/size-lib.mjs` skips `frontend/` too).
 
 - A cube reaches qwbe **only through public `qwbe-core/*` subpaths** -- the list lives in
   `core/package.json` `exports` (`qwbe-core/cube`, `/agent`, `/http`, `/auth`, `/entity`,
-  `/errors`, `/pagination`, `/permissions`, `/package-contract`). Anything reaching
+  `/errors`, `/pagination`, `/permissions`, `/package`). Anything reaching
   `../../src/...` or `qwbe-core/src/...` pins the pack to one kernel checkout and breaks
   the moment the kernel moves (rule `imports-internal`).
 - A cube imports **no** `node:fs`, `node:fs/promises`, `node:child_process`,
@@ -60,14 +63,17 @@ printed every run. The fix for an over-cap file is to split it, never to raise t
 - Unit tests per cube, run by `npm test` in the pack. A cube without tests is a work-queue
   entry in qwbe's own gate (`probes/testgate.mjs`); a pack should not need reminding.
 - The source-contract check: a test file that calls `checkPackageSource` with the pack's
-  options and asserts zero findings. See `plugins/crm-pack/source-contract.test.mjs` and
-  `plugins/agents-tools/source-contract.test.mjs` for the whole pattern.
+  options and asserts zero findings. See the `source-contract.test.mjs` at the root of the
+  `plugins/crm-pack` and `plugins/agents-tools` repositories (sibling checkouts of this one)
+  for the whole pattern.
 - A runtime probe that boots the kernel on a scratch directory and attacks the installed
   cube over HTTP (crm-pack's `probes/crm.mjs` is the model).
 - Two optional rule sets, on by the pack that needs them:
   - `readOnly` -- no mutating endpoint (`HttpApiEndpoint.post/put/patch/del`) and no
-    `writeFile`/`appendFile` anywhere in the package (rules `readonly-endpoint`,
-    `readonly-write`). For packs that only read.
+    `writeFile`/`appendFile` in package source (rules `readonly-endpoint`, `readonly-write`).
+    Exemptions, on purpose: `*.test.*` and `*.spec.*` files (a test's job is to name the
+    forbidden thing), and the top-level `probes/`, `store/`, `dist/` and `build/` directories.
+    For packs that only read.
   - `hierarchy` -- child cubes declare `parent`, the parent declares `screen: true`, and
     every child declares `dataMigration` (rule `hierarchy`). For parent/child packs.
 
@@ -86,4 +92,16 @@ not the shelf.
 ## 6. What the contract ignores
 
 `frontend/` at the top level of a package: skipped by the checker's scan, skipped by the
-size gate. Bring your own build for it; the kernel never looks inside.
+size gate. Bring your own build for it; the kernel never looks inside. A `frontend/`
+nested deeper -- inside a cube -- is ordinary source: judged, and capped.
+
+## 7. The one place the checker executes pack code
+
+With the `hierarchy` option, `core/src/package-contract.ts` imports each cube's `index.ts`
+to read the manifest it exports -- and importing a module runs its top-level code, from a
+caller-supplied directory. Execution is genuinely required: the manifests are runtime
+exports, not text, and parsing them back out of source would be a second, drift-prone
+statement of what a manifest is. The compensating pin is in the boundary graph:
+dependency-cruiser rule `package-contract-is-the-pack-door` (`core/.dependency-cruiser.cjs`)
+allows no module in the kernel to import `package-contract` except its own test. If kernel
+code ever needs the checker, that rule is the visible place to argue it.

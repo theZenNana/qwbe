@@ -192,6 +192,9 @@ children with it; a child can still be off alone. Discovery is exactly one level
 child whose leaf name collides with a mounted cube serves under `<parent>-<name>`. The
 canonical example is `booktags` in the example plugin (docs/booktags-hierarchy.md).
 
+Shipping a whole PACKAGE - a directory with a `qwbe-package.json` and its own cubes - has
+its own contract, in one page: docs/package-contract.md.
+
 A space keeps relation knowledge outside both cubes. Without it, `notes` would need the string
 `"Account"` inside its own directory - not an import, but still knowledge of another cube.
 
