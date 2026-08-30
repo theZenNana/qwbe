@@ -27,6 +27,7 @@ import { buildApi, buildHandlers, checkCubes, rejectDisabled } from "./kernel/mo
 import type { Registry, RegistryEntry } from "./kernel/registry.ts"
 import { loadSpaces } from "./kernel/space.ts"
 import { checkSchemaDrift } from "./metadata/schema-drift.ts"
+import { corsOriginMatcher, originsForStartup } from "./origins.ts"
 import { registryFrom } from "./registry-runtime.ts"
 
 const PORT = Number(process.env.QWBE_PORT ?? 4500)
@@ -35,6 +36,10 @@ const fail = (e: Error, code: number): never => {
   console.error(`\n${e.message}\n`)
   process.exit(code)
 }
+
+// Browser origins for CORS (QWB-42): parse, warn on the unset default, exit on malformed
+// values -- all in origins.ts.
+const ALLOWED_ORIGINS: ReadonlyArray<string> = originsForStartup(process.env.QWBE_ALLOWED_ORIGINS)
 
 // --- 1. discovery: level 0 (cubes + plugins) and level 1 (spaces) ---
 //
@@ -193,10 +198,15 @@ const GatedOpenApi = HttpApiBuilder.Router.use((router) =>
 const ServerLive = HttpApiBuilder.serve((app) =>
   HttpMiddleware.logger(rejectDisabled(system!.cubes, system!.isEnabled)(app)),
 ).pipe(
-  // The web app is a sibling process on another port; without CORS they do not speak.
+  // QWB-42: browser origins come from QWBE_ALLOWED_ORIGINS. Unset means ["*"], the
+  // pre-QWB-42 behaviour, so local development needs no configuration. With the variable
+  // set, unlisted origins get no access-control-allow-origin header and the browser blocks
+  // them. Note: this is CORS, a browser enforcement only -- it is NOT authentication, and
+  // non-browser clients never send an Origin at all. The matcher (array vs predicate) is
+  // chosen in origins.ts.
   Layer.provide(
     HttpApiBuilder.middlewareCors({
-      allowedOrigins: ["*"],
+      allowedOrigins: corsOriginMatcher(ALLOWED_ORIGINS),
       allowedHeaders: ["Content-Type", "Authorization"],
       allowedMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     }),
