@@ -25,7 +25,7 @@ import { discover } from "./scan.ts"
 export { BrokenCubeError, DoubleCapabilityError, DoublePrivilegeError, DuplicateCubeError } from "./errors-discovery.ts"
 
 import { BrokenCubeError, DoubleCapabilityError, DoublePrivilegeError } from "./errors-discovery.ts"
-import type { Ledger } from "./ledger.ts"
+
 import type { Catalogue, CommandInfo, CommandRunner, CommandSpec, CubeParts, Subscription } from "./manifest.ts"
 import {
   fullName,
@@ -36,8 +36,6 @@ import {
   validateCommands,
   validateManifest,
 } from "./manifest-validation.ts"
-import { migrateDataFiles } from "./migrate.ts"
-import { checkMigrationOwnership } from "./migrate-ownership.ts"
 import { activeLinks, type SpaceDefinition } from "./space.ts"
 import { type Switches, switchesFrom } from "./state.ts"
 import { checkUniqueTables, storeFor } from "./store.ts"
@@ -146,13 +144,11 @@ export type MountedSystem = {
 export const mount = (
   definitions: ReadonlyArray<{ name: string; plugin: string | null; definition: CubeDefinition }>,
   spaces: ReadonlyArray<SpaceDefinition>,
-  ledger: Ledger,
+  // QWB-44: storage boot (Postgres init plus declared data migrations) moved to main.ts via
+  // bootStorage, and the ledger parameter mount used to swallow with `void ledger` is gone
+  // with it -- the only remaining caller is main.ts, AFTER bootStorage succeeded. Mounting
+  // against an unmigrated database is therefore unreachable from this module.
 ): MountedSystem => {
-  // Data migrations are DECLARED by packages, validated against the mounted set AND the
-  // ledger snapshot taken BEFORE any plugin module was imported (main.ts) -- a plugin's
-  // top-level code can rewrite the file on disk, but it cannot rewrite the snapshot.
-  migrateDataFiles(checkMigrationOwnership(definitions, ledger))
-
   const manifests = definitions.map((d) => d.definition.manifest)
 
   checkUniqueTables(manifests.map((m) => ({ name: fullName(m), tables: m.tables })))
@@ -309,9 +305,7 @@ export const mount = (
   // the re-enablement on the bus; any cube whose events matter to a sibling subscribes and
   // replays its CURRENT values. The kernel publishes the fact, never the payload -- it knows
   // nothing about what a setting contains.
-  switches._wireOnEnable((cube) => {
-    Effect.runSync(bus.for("qwbe").publish("qwbe/cube.enabled", { cube }))
-  })
+  switches._wireOnEnable((cube) => bus.for("qwbe").publish("qwbe/cube.enabled", { cube }))
 
   return {
     cubes,

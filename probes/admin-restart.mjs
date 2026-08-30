@@ -3,11 +3,22 @@
 import { spawn } from "node:child_process"
 import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
-import { client, dropScratch, freePort, makeScore, root, scratchDataDir, wait } from "./lib.mjs"
+import {
+  client,
+  dropDatabase,
+  dropScratch,
+  freePort,
+  makeScore,
+  root,
+  scratchDatabase,
+  scratchDataDir,
+  wait,
+} from "./lib.mjs"
 
 const apiPort = await freePort()
 const webPort = await freePort()
 const dataDir = scratchDataDir("admin-restart")
+const dbUrl = await scratchDatabase("admin-restart")
 const webDistName = `.next-admin-restart-${webPort}`
 const webDistDir = join(root, "web", webDistName)
 const generatedFiles = ["next-env.d.ts", "tsconfig.json", "AGENTS.md", "CLAUDE.md"].map((name) =>
@@ -23,6 +34,7 @@ const child = spawn(process.execPath, ["scripts/start.mjs"], {
     QWBE_WEB_PORT: String(webPort),
     QWBE_WEB_DIST_DIR: webDistName,
     QWBE_DATA_DIR: dataDir,
+    QWBE_DATABASE_URL: dbUrl,
     QWBE_ADMIN_PASSWORD: "admin",
   },
   stdio: ["ignore", "pipe", "pipe"],
@@ -83,6 +95,7 @@ try {
     /* already stopped */
   }
   dropScratch(dataDir)
+  await dropDatabase(dbUrl)
   rmSync(webDistDir, { recursive: true, force: true })
   for (const [path, content] of generatedBefore) {
     if (content === null) rmSync(path, { force: true })

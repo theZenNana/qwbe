@@ -4,12 +4,14 @@
 //
 //   node probes/booktags-migration-ledger.mjs
 
-import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs"
+import { mkdirSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { DatabaseSync } from "node:sqlite"
-import { coreDir, freePort, makeScore, startServer } from "./lib.mjs"
+import { coreDir, dropDatabase, freePort, makeScore, scratchDatabase, startServer } from "./lib.mjs"
+import { plantAuthSchema, schemaThere } from "./pg-scratch.mjs"
 
+// Since QWB-44 the legacy data a migration would move lives in a Postgres schema, not a
+// SQLite file -- the planted victim is an "auth" schema in the probe's scratch database.
 const score = makeScore()
 
 const EVIL_CUBE = (migration) => `export const cube = {
@@ -28,11 +30,8 @@ const EVIL_CUBE = (migration) => `export const cube = {
 // source is refused without the operator's explicit legacy authorization.
 const dataDir4 = join(tmpdir(), `qwbe-evil4-${process.pid}`)
 mkdirSync(dataDir4, { recursive: true })
-const authdb4 = new DatabaseSync(join(dataDir4, "auth.sqlite"))
-authdb4.exec(
-  `CREATE TABLE "sessions" (id TEXT PRIMARY KEY, type TEXT NOT NULL, createdAt TEXT NOT NULL, deleted INTEGER NOT NULL DEFAULT 0, body TEXT NOT NULL)`,
-)
-authdb4.close()
+const dbUrl4 = await scratchDatabase("evil4")
+await plantAuthSchema(dbUrl4)
 const evilPlugin4 = join(coreDir, "plugins", "evil-plugin", "cubes", "evil-migration")
 mkdirSync(evilPlugin4, { recursive: true })
 writeFileSync(
@@ -41,6 +40,7 @@ writeFileSync(
 )
 const evil4 = await startServer(await freePort(), {
   QWBE_DATA_DIR: dataDir4,
+  QWBE_DATABASE_URL: dbUrl4,
   QWBE_MOUNTED: "account,settings,cli,evil-migration",
 })
 score.check(
@@ -49,9 +49,9 @@ score.check(
   evil4.output.split("\n").find((l) => l.includes("record") || l.includes("igration")) ?? "(no error line)",
 )
 score.check(
-  "auth.sqlite was NOT moved (ledger absent)",
-  existsSync(join(dataDir4, "auth.sqlite")) && !existsSync(join(dataDir4, "evil-migration.sqlite")),
-  "file untouched",
+  "the auth schema was NOT renamed (ledger absent)",
+  (await schemaThere(dbUrl4, "auth")) && !(await schemaThere(dbUrl4, "evil-migration")),
+  "schema untouched",
 )
 evil4.proc.kill()
 
@@ -60,6 +60,7 @@ evil4.proc.kill()
 writeFileSync(join(dataDir4, "provenance.json"), "{ not json")
 const evil4b = await startServer(await freePort(), {
   QWBE_DATA_DIR: dataDir4,
+  QWBE_DATABASE_URL: dbUrl4,
   QWBE_MOUNTED: "account,settings,cli,evil-migration",
 })
 score.check(
@@ -68,9 +69,9 @@ score.check(
   evil4b.output.split("\n").find((l) => l.includes("ledger")) ?? "(no error line)",
 )
 score.check(
-  "auth.sqlite was NOT moved (ledger corrupt)",
-  existsSync(join(dataDir4, "auth.sqlite")) && !existsSync(join(dataDir4, "evil-migration.sqlite")),
-  "file untouched",
+  "the auth schema was NOT renamed (ledger corrupt)",
+  (await schemaThere(dbUrl4, "auth")) && !(await schemaThere(dbUrl4, "evil-migration")),
+  "schema untouched",
 )
 evil4b.proc.kill()
 
@@ -78,6 +79,7 @@ evil4b.proc.kill()
 writeFileSync(join(dataDir4, "provenance.json"), JSON.stringify({ auth: 42 }))
 const evil4c = await startServer(await freePort(), {
   QWBE_DATA_DIR: dataDir4,
+  QWBE_DATABASE_URL: dbUrl4,
   QWBE_MOUNTED: "account,settings,cli,evil-migration",
 })
 score.check(
@@ -86,12 +88,13 @@ score.check(
   evil4c.output.split("\n").find((l) => l.includes("owner") || l.includes("ledger")) ?? "(no error line)",
 )
 score.check(
-  "auth.sqlite was NOT moved (ledger shape invalid)",
-  existsSync(join(dataDir4, "auth.sqlite")) && !existsSync(join(dataDir4, "evil-migration.sqlite")),
-  "file untouched",
+  "the auth schema was NOT renamed (ledger shape invalid)",
+  (await schemaThere(dbUrl4, "auth")) && !(await schemaThere(dbUrl4, "evil-migration")),
+  "schema untouched",
 )
 evil4c.proc.kill()
 rmSync(join(coreDir, "plugins", "evil-plugin"), { recursive: true, force: true })
+await dropDatabase(dbUrl4)
 rmSync(dataDir4, { recursive: true, force: true })
 
 // Attack 5: the plugin's TOP-LEVEL code rewrites the ledger at import time, before the mount
@@ -99,11 +102,8 @@ rmSync(dataDir4, { recursive: true, force: true })
 // check reads the snapshot -- and the file stays.
 const dataDir5 = join(tmpdir(), `qwbe-evil5-${process.pid}`)
 mkdirSync(dataDir5, { recursive: true })
-const authdb5 = new DatabaseSync(join(dataDir5, "auth.sqlite"))
-authdb5.exec(
-  `CREATE TABLE "sessions" (id TEXT PRIMARY KEY, type TEXT NOT NULL, createdAt TEXT NOT NULL, deleted INTEGER NOT NULL DEFAULT 0, body TEXT NOT NULL)`,
-)
-authdb5.close()
+const dbUrl5 = await scratchDatabase("evil5")
+await plantAuthSchema(dbUrl5)
 writeFileSync(join(dataDir5, "provenance.json"), JSON.stringify({ auth: null }, null, 2))
 const evilPlugin5 = join(coreDir, "plugins", "evil-plugin", "cubes", "evil-migration")
 mkdirSync(evilPlugin5, { recursive: true })
@@ -131,6 +131,7 @@ export const cube = {
 )
 const evil5 = await startServer(await freePort(), {
   QWBE_DATA_DIR: dataDir5,
+  QWBE_DATABASE_URL: dbUrl5,
   QWBE_MOUNTED: "account,settings,cli,evil-migration",
 })
 score.check(
@@ -139,13 +140,14 @@ score.check(
   evil5.output.split("\n").find((l) => l.includes("ledger") || l.includes("igration")) ?? "(no error line)",
 )
 score.check(
-  "auth.sqlite was NOT moved (ledger rewritten at import)",
-  existsSync(join(dataDir5, "auth.sqlite")) && !existsSync(join(dataDir5, "evil-migration.sqlite")),
-  "file untouched",
+  "the auth schema was NOT renamed (ledger rewritten at import)",
+  (await schemaThere(dbUrl5, "auth")) && !(await schemaThere(dbUrl5, "evil-migration")),
+  "schema untouched",
 )
 evil5.proc.kill()
 const evil5second = await startServer(await freePort(), {
   QWBE_DATA_DIR: dataDir5,
+  QWBE_DATABASE_URL: dbUrl5,
   QWBE_MOUNTED: "account,settings,cli,evil-migration",
 })
 score.check(
@@ -154,12 +156,13 @@ score.check(
   evil5second.output.split("\n").find((l) => l.includes("ledger") || l.includes("igration")) ?? "(no error line)",
 )
 score.check(
-  "auth.sqlite is still untouched after the second boot",
-  existsSync(join(dataDir5, "auth.sqlite")) && !existsSync(join(dataDir5, "evil-migration.sqlite")),
-  "file untouched twice",
+  "the auth schema is still untouched after the second boot",
+  (await schemaThere(dbUrl5, "auth")) && !(await schemaThere(dbUrl5, "evil-migration")),
+  "schema untouched twice",
 )
 evil5second.proc.kill()
 rmSync(join(coreDir, "plugins", "evil-plugin"), { recursive: true, force: true })
+await dropDatabase(dbUrl5)
 rmSync(dataDir5, { recursive: true, force: true })
 
 process.exit(score.report("Booktags migration ledger probe"))

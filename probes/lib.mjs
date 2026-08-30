@@ -6,11 +6,13 @@
 // the same place as the act.
 
 import { spawn } from "node:child_process"
+import { randomBytes } from "node:crypto"
 import { mkdtempSync, rmSync } from "node:fs"
 import { createServer } from "node:net"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
+import pg from "pg"
 
 const here = dirname(fileURLToPath(import.meta.url))
 export const root = join(here, "..")
@@ -83,7 +85,54 @@ export const freePort = () =>
     })
   })
 
+/**
+ * A throwaway Postgres database for one server run.
+ *
+ * What was here before: QWBE_DATA_DIR pointed the server at a scratch DIRECTORY of SQLite
+ * files. Since QWB-44 the store is one Postgres database (ADR-0001), so the equivalent
+ * isolation is a fresh database, created here and dropped when the server stops. A probe that
+ * needs to inspect or plant state in the database itself sets QWBE_DATABASE_URL itself and
+ * startServer leaves it alone.
+ */
+export const adminUrl = () => {
+  const u = new URL("postgres://localhost/postgres")
+  u.hostname = process.env.QWBE_PG_HOST ?? "localhost"
+  u.port = process.env.QWBE_PG_PORT ?? "5433"
+  u.username = process.env.QWBE_PG_USER ?? "postgres"
+  u.password = process.env.QWBE_PG_PASSWORD ?? "qwbe"
+  return u.toString()
+}
+
+export const scratchDatabase = async (label = "probe") => {
+  const name = `qwbe_${label}_${randomBytes(4).toString("hex")}`
+  const admin = new pg.Pool({ connectionString: adminUrl(), max: 1 })
+  await admin.query(`CREATE DATABASE "${name}"`)
+  await admin.end()
+  const base = new URL(adminUrl())
+  base.pathname = `/${name}`
+  return base.toString()
+}
+
+export const dropDatabase = async (url) => {
+  if (!url) return
+  const name = new URL(url).pathname.replace(/^\//, "")
+  const admin = new pg.Pool({ connectionString: adminUrl(), max: 1 })
+  await admin.query(`DROP DATABASE IF EXISTS "${name}" WITH (FORCE)`).catch(() => {})
+  await admin.end()
+}
+
 export const startServer = async (port, env = {}) => {
+  // Unless the probe manages its own database, every server run gets a fresh one -- the same
+  // isolation scratchDataDir used to buy, now at the level the store actually lives.
+  let dbUrl = env.QWBE_DATABASE_URL ?? process.env.QWBE_DATABASE_URL
+  // Only a database THIS call created is dropped on stop -- a probe managing its own database
+  // is responsible for it.
+  let ownsDb = false
+  if (!dbUrl) {
+    dbUrl = await scratchDatabase()
+    env.QWBE_DATABASE_URL = dbUrl
+    ownsDb = true
+  }
   const proc = spawn(process.execPath, ["src/main.ts"], {
     cwd: coreDir,
     env: {
@@ -105,6 +154,8 @@ export const startServer = async (port, env = {}) => {
       return {
         proc,
         alive: false,
+        dbUrl,
+        ownsDb,
         get output() {
           return output
         },
@@ -116,6 +167,8 @@ export const startServer = async (port, env = {}) => {
         return {
           proc,
           alive: true,
+          dbUrl,
+          ownsDb,
           get output() {
             return output
           },
@@ -128,6 +181,8 @@ export const startServer = async (port, env = {}) => {
   return {
     proc,
     alive: false,
+    dbUrl,
+    ownsDb,
     get output() {
       return output
     },
@@ -137,6 +192,7 @@ export const startServer = async (port, env = {}) => {
 export const stopServer = async (s) => {
   s.proc.kill("SIGTERM")
   await wait(400)
+  if (s.dbUrl && s.ownsDb) await dropDatabase(s.dbUrl)
 }
 
 /** Tiny JSON client. Returns status and parsed body, never throws on a non-2xx. */

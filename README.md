@@ -10,7 +10,7 @@ that flag does not make the source license private.
 
 Implemented now: seven core cubes, one example plugin (a runtime hierarchy), one relation
 space, package lifecycle, entity ownership and sharing, metadata-driven screens, CLI commands, paging
-and declared data-file migrations. Not implemented: application namespaces beyond one
+and declared data migrations. Not implemented: application namespaces beyond one
 hierarchy level, external rules, workflows, schema migrations, multi-tenancy or process
 isolation. Those belong to the roadmap in `wiki/qwbe/DIRECTION.md`, not to current capability.
 
@@ -20,9 +20,14 @@ Two steps, both from the project root. Node 22.18 or newer - the API and tests e
 directly through Node type stripping.
 
 ```bash
-npm run setup        # npm ci at root/core/web, creates data/, checks the Node version
-npm start            # API on :4500 and the web app on :4510, in one terminal
+npm run db:up       # starts the Postgres container (docker compose)
+npm run setup       # npm ci at root/core/web, creates data/, checks the Node version
+npm start           # API on :4500 and the web app on :4510, in one terminal
 ```
+
+Storage is one Postgres database with one schema per cube (ADR-0001). The server names it with
+`QWBE_DATABASE_URL` (see `.env.example`); missing or unreachable, it refuses to start. No SQLite
+per cube any more.
 
 `npm start` prefixes every log line with `[api]` or `[web]`, and Ctrl-C stops both. Neither
 script adds a dependency: they are plain Node, `scripts/setup.mjs` and `scripts/start.mjs`.
@@ -38,7 +43,7 @@ Moving the ports: `QWBE_PORT=4530 npm start` moves the API and tells the fronten
 went. `QWBE_WEB_PORT=4540 npm start` overrides the web port; otherwise the `-p` argument in
 `web/package.json` remains its source. The start runner respawns a cleanly exited API, so the
 admin restart action returns under this documented flow without stopping the frontend.
-`QWBE_DATA_DIR` moves the databases.
+`QWBE_DATABASE_URL` moves the database.
 
 ### First account and password storage
 
@@ -85,8 +90,8 @@ NEXT_PUBLIC_QWBE_API=http://<host-ip>:4500 QWBE_DEV_ORIGINS=<host-ip> npm start
   `--reload` — the `--permanent` flag alone does not touch the running rules).
 
 Locked out because the printed bootstrap password is gone (say, the first start ran in a
-terminal nobody kept)? Stop Qwbe, set `QWBE_ADMIN_PASSWORD`, delete `data/*.sqlite*` — this
-**erases all data**, acceptable only on a fresh install — and start again to reseed.
+terminal nobody kept)? Stop Qwbe, set `QWBE_ADMIN_PASSWORD`, drop the server's database and let
+the next start recreate it -- this **erases all data**, acceptable only on a fresh install.
 
 The Playwright suite (`npm run e2e`, `npm run screenshots`) uses the root dependencies installed
 by setup. Browser binaries remain a separate Playwright install.
@@ -252,8 +257,9 @@ dataMigration: [
 ```
 
 The kernel runs it at mount, before any store opens, under strict rules: `toCube` must be a
-mounted cube of the same package, every companion file (.sqlite, -wal, -shm) is preflighted
-before the first byte moves, and a failed move rolls the whole batch back. A manifest cannot
+mounted cube of the same package, every schema rename is preflighted before the first one runs
+(one Postgres transaction per rename, rows move as metadata), and a failed move rolls the whole
+batch back. A manifest cannot
 name a path, and a plugin cannot reach outside its own package.
 
 The kernel records ownership in `data/provenance.json`. Existing installations created before
@@ -312,7 +318,7 @@ runtime implementation or built-in agent plugin lives in this repository.
 
 | From | What | Where it shows |
 |---|---|---|
-| **Module isolation** | a module cannot reach another's data | `kernel/store.ts`: one SQLite file per cube, `ForeignTableError` |
+| **Module isolation** | a module cannot reach another's data | `kernel/store.ts`: one Postgres schema per cube, `ForeignTableError` |
 | **External relations** | links declared outside both modules | `kernel/space.ts` and `spaces/workspace/` |
 | **Declared privilege** | an escape hatch declared at install time | `manifest.managesCubes`, at most one, checked at mount |
 | **Runtime verification** | verify the real artefact, never a self-set flag | `kernel/mount.ts` reads `group.endpoints[].middlewares` |
@@ -395,5 +401,5 @@ web/               Next.js. `lib/session.ts` holds the session half of authentic
 probes/            smoke.mjs (27) · decoupling.mjs (22) · lib.mjs
 qwbe.spec.mjs      Playwright (5)
 screenshots.mjs    screenshots
-data/              one .sqlite per cube
+data/              files the admin restart and probes use; the store lives in Postgres
 ```

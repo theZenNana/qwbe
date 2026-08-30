@@ -47,9 +47,13 @@
     "e2e": "NEXT_PUBLIC_QWBE_API=http://127.0.0.1:4520 npm --prefix web run build && playwright test",
     "screenshots": "node screenshots.mjs",
     "probe:lifecycle": "node probes/lifecycle.mjs",
-    "probe:store": "node probes/store.mjs",
+    "probe:store": "node probes/store.mjs && node probes/store-isolation.mjs && node probes/store-migration.mjs",
+    "probe:store-isolation": "node probes/store-isolation.mjs",
     "probe:sizecaps-baseline": "node probes/sizecaps-baseline.mjs",
-    "probe:external-auth": "node probes/external-auth.mjs"
+    "probe:external-auth": "node probes/external-auth.mjs",
+    "db:up": "docker compose up -d postgres",
+    "db:down": "docker compose down",
+    "migrate:sqlite": "node core/src/migrate-sqlite-to-pg.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.6",
@@ -59,9 +63,11 @@
     "@secretlint/secretlint-rule-pattern": "^13.0.4",
     "@secretlint/secretlint-rule-preset-recommend": "^13.0.4",
     "@types/node": "^26.1.2",
+    "@types/pg": "^8.23.1",
     "eslint": "^10.8.0",
     "husky": "^9.1.7",
     "lint-staged": "^17.3.0",
+    "pg": "^8.23.0",
     "secretlint": "^13.0.4",
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.65.0"

@@ -19,6 +19,7 @@ import {
 } from "@effect/platform"
 import { NodeHttpServer, NodeRuntime } from "@effect/platform-node"
 import { Effect, Layer } from "effect"
+import { bootStorage } from "./boot-storage.ts"
 import { catalogueMetadata } from "./catalogue.ts"
 import { Authorization } from "./kernel/auth-contract.ts"
 import { loadDefinitions, mount } from "./kernel/discovery.ts"
@@ -61,11 +62,14 @@ const definitions = await loadDefinitions().catch((e: Error) => failAfterSnapsho
 const spaces = await loadSpaces().catch((e: Error) => failAfterSnapshot(e, 2))
 verifyLedgerUnchanged(ledgerRead)
 
+// --- 2. storage and declared data migrations (ADR-0001), split into boot-storage.ts ---
+await bootStorage(definitions, ledgerSnapshot, fail, failAfterSnapshot)
+
 // --- 2. mount: unique tables, single privilege, switches, per-cube tools ---
 
 let system: ReturnType<typeof mount>
 try {
-  system = mount(definitions, spaces, ledgerSnapshot)
+  system = mount(definitions, spaces)
 } catch (e) {
   failAfterSnapshot(e as Error, 2)
 }

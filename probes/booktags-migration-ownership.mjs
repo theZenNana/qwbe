@@ -8,12 +8,14 @@
 //   1. a core cube claiming its migration came from a plugin (provenance lie);
 //   2. a PLUGIN cube whose migration source is the LIVE `auth` cube of core (theft).
 
-import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs"
+import { mkdirSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { DatabaseSync } from "node:sqlite"
-import { coreDir, freePort, makeScore, startServer } from "./lib.mjs"
+import { coreDir, dropDatabase, freePort, makeScore, scratchDatabase, startServer } from "./lib.mjs"
+import { plantAuthSchema, schemaThere } from "./pg-scratch.mjs"
 
+// Since QWB-44 the legacy data a migration would move lives in a Postgres schema, not a
+// SQLite file -- so the planted victim is an "auth" schema in the probe's scratch database.
 const score = makeScore()
 
 const EVIL_CUBE = (migration) => `export const cube = {
@@ -37,14 +39,12 @@ writeFileSync(
 )
 const dataDir1 = join(tmpdir(), `qwbe-evil-${process.pid}`)
 mkdirSync(dataDir1, { recursive: true })
-const authdb1 = new DatabaseSync(join(dataDir1, "auth.sqlite"))
-authdb1.exec(
-  `CREATE TABLE "sessions" (id TEXT PRIMARY KEY, type TEXT NOT NULL, createdAt TEXT NOT NULL, deleted INTEGER NOT NULL DEFAULT 0, body TEXT NOT NULL)`,
-)
-authdb1.close()
+const dbUrl1 = await scratchDatabase("evil1")
+await plantAuthSchema(dbUrl1)
 writeFileSync(join(dataDir1, "provenance.json"), JSON.stringify({ auth: null }, null, 2))
 const evil = await startServer(await freePort(), {
   QWBE_DATA_DIR: dataDir1,
+  QWBE_DATABASE_URL: dbUrl1,
   QWBE_MOUNTED: "account,settings,cli,evil-migration",
 })
 score.check(
@@ -54,6 +54,7 @@ score.check(
 )
 evil.proc.kill()
 rmSync(evilDir, { recursive: true, force: true })
+await dropDatabase(dbUrl1)
 rmSync(dataDir1, { recursive: true, force: true })
 
 // Attack 2: no provenance claimed at all, with the LIVE auth cube mounted alongside. Two
@@ -69,7 +70,7 @@ const evil2 = await startServer(await freePort(), {
 })
 score.check(
   "a plugin migration naming a live core cube as source stops the boot",
-  !evil2.alive && evil2.output.includes("its file is live"),
+  !evil2.alive && evil2.output.includes("is live, not legacy"),
   evil2.output.split("\n").find((l) => l.includes("live") || l.includes("igration")) ?? "(no error line)",
 )
 evil2.proc.kill()
@@ -82,11 +83,8 @@ rmSync(dataDir2, { recursive: true, force: true })
 // moved. Boot sequence: first a clean boot with auth to write the ledger, then the attack.
 const dataDir3 = join(tmpdir(), `qwbe-evil3-${process.pid}`)
 mkdirSync(dataDir3, { recursive: true })
-const authdb = new DatabaseSync(join(dataDir3, "auth.sqlite"))
-authdb.exec(
-  `CREATE TABLE "sessions" (id TEXT PRIMARY KEY, type TEXT NOT NULL, createdAt TEXT NOT NULL, deleted INTEGER NOT NULL DEFAULT 0, body TEXT NOT NULL)`,
-)
-authdb.close()
+const dbUrl3 = await scratchDatabase("evil3")
+await plantAuthSchema(dbUrl3)
 // The ledger entry as a real past boot would have written it. Planted directly because the
 // data directory is the probe's fixture; what is under test is that the kernel READS it.
 writeFileSync(join(dataDir3, "provenance.json"), JSON.stringify({ auth: null }, null, 2))
@@ -98,6 +96,7 @@ writeFileSync(
 )
 const evil3 = await startServer(await freePort(), {
   QWBE_DATA_DIR: dataDir3,
+  QWBE_DATABASE_URL: dbUrl3,
   QWBE_MOUNTED: "account,settings,cli,evil-migration",
 })
 score.check(
@@ -106,11 +105,12 @@ score.check(
   evil3.output.split("\n").find((l) => l.includes("ledger") || l.includes("igration")) ?? "(no error line)",
 )
 score.check(
-  "auth.sqlite was NOT moved",
-  existsSync(join(dataDir3, "auth.sqlite")) && !existsSync(join(dataDir3, "evil-migration.sqlite")),
-  "file untouched",
+  "the auth schema was NOT renamed by the refused migration",
+  (await schemaThere(dbUrl3, "auth")) && !(await schemaThere(dbUrl3, "evil-migration")),
+  "schema untouched",
 )
 evil3.proc.kill()
+await dropDatabase(dbUrl3)
 rmSync(join(coreDir, "plugins", "evil-plugin"), { recursive: true, force: true })
 rmSync(dataDir3, { recursive: true, force: true })
 
