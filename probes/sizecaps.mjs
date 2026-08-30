@@ -57,7 +57,7 @@ const fileRows = roots
 
 const unitRows = unitDirs(root)
   .map(({ id, name, dir }) => {
-    const own = walk(dir).map(measure)
+    const own = walk(dir, { top: false }).map(measure)
     return {
       id,
       name,

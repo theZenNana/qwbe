@@ -19,10 +19,14 @@ const SKIP_DIR = new Set([
   "build",
   "store",
   "probes",
-  // A pack's own UI is outside the cube contract (QWB-40): it is judged by the browser build,
-  // not by the size gate, so a fat frontend/ beside the cubes never reddens this gate.
-  "frontend",
 ])
+
+// `frontend` is NOT in SKIP_DIR. A pack's own UI is outside the cube contract (QWB-40) only at
+// the TOP of the tree being judged -- it is skipped there, in the depth-0 pass. Applying the
+// skip at every depth would let `cubes/<x>/frontend/` escape both the per-file and the per-unit
+// cap: a one-directory bypass across the whole kernel. Nested `frontend/` counts like any
+// other source.
+const TOP_LEVEL_SKIP = new Set(["frontend"])
 
 /**
  * Unit tests do not count against a cube's size.
@@ -35,7 +39,7 @@ export const IS_TEST = /\.(test|spec)\.(ts|tsx|mjs|js|jsx)$/
 
 export const posix = (p) => p.split(sep).join("/")
 
-export const walk = (dir, { includeTests = false } = {}) => {
+export const walk = (dir, { includeTests = false, top = true } = {}) => {
   const found = []
   let entries
   try {
@@ -45,8 +49,9 @@ export const walk = (dir, { includeTests = false } = {}) => {
   }
   for (const e of entries) {
     if (e.name.startsWith(".") || SKIP_DIR.has(e.name)) continue
+    if (top && TOP_LEVEL_SKIP.has(e.name)) continue
     const full = join(dir, e.name)
-    if (e.isDirectory()) found.push(...walk(full, { includeTests }))
+    if (e.isDirectory()) found.push(...walk(full, { includeTests, top: false }))
     else if (SOURCE.test(e.name) && (includeTests || !IS_TEST.test(e.name))) found.push(full)
   }
   return found
