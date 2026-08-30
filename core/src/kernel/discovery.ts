@@ -305,9 +305,7 @@ export const mount = (
   // the re-enablement on the bus; any cube whose events matter to a sibling subscribes and
   // replays its CURRENT values. The kernel publishes the fact, never the payload -- it knows
   // nothing about what a setting contains.
-  switches._wireOnEnable((cube) => {
-    Effect.runSync(bus.for("qwbe").publish("qwbe/cube.enabled", { cube }))
-  })
+  switches._wireOnEnable((cube) => bus.for("qwbe").publish("qwbe/cube.enabled", { cube }))
 
   return {
     cubes,

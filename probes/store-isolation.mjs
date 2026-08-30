@@ -32,6 +32,7 @@ try {
   // can then do. Superuser would bypass every check below, so it proves nothing.
   const setup = new pg.Client({ connectionString: db.url })
   await setup.connect()
+  await setup.query(`DROP ROLE IF EXISTS qwbe_probe_app`)
   await setup.query(`CREATE ROLE qwbe_probe_app LOGIN PASSWORD 'pw'`)
   await setup.query(`GRANT "qwbe_cube_cube-a" TO qwbe_probe_app`)
   await setup.query(`GRANT "qwbe_cube_cube-b" TO qwbe_probe_app`)

@@ -31,8 +31,10 @@ import { closeAll, initStore } from "./pg/db.ts"
 import { ensureCubeSchema, ensureTable, q, schemaName } from "./pg/setup.ts"
 
 // The cube name is derived from a FILE NAME in the data directory; anything that does not
-// match the manifest name rule must be refused before it can reach SQL as an identifier.
+// match the manifest name rule must be refused before it can reach SQL as an identifier. The
+// manifest rule is per segment: a namespaced cube like `crm/contacts` has each part checked.
 const NAME_PATTERN = /^[a-z][a-z0-9-]*$/
+const cubeNameOk = (cube: string): boolean => cube.split("/").every((part) => NAME_PATTERN.test(part))
 
 const argDataDir = (): string => {
   const i = process.argv.indexOf("--data-dir")
@@ -93,7 +95,7 @@ export const migrateFile = async (
     .split("/")
     .pop()!
     .replace(/\.sqlite$/, "")
-  if (!NAME_PATTERN.test(base.replace(/--/g, "/"))) {
+  if (!cubeNameOk(base.replace(/--/g, "/"))) {
     throw new Error(
       `file name "${base}" does not spell a cube name under the manifest rule ${NAME_PATTERN} -- refusing to turn it into a schema identifier`,
     )

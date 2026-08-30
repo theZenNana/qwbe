@@ -85,8 +85,13 @@ export type Switches = {
     cube: string,
     enabled: boolean,
   ) => Effect.Effect<void, RequiredCubeError | UnknownCubeError | StateFileError>
-  /** Kernel-internal: mount wires the re-enable notification through this. */
-  readonly _wireOnEnable: (fn: (cube: string) => void) => void
+  /** Kernel-internal: mount wires the re-enable notification through this. The notification
+   * is an EFFECT, not a fire-and-forget callback: it publishes on the bus, and a subscriber's
+   * handler does async store work over Postgres. Run inside `set`, the re-enable request does
+   * not answer until every replay has finished -- the old `Effect.runSync` callback died at
+   * the first async boundary with AsyncFiberException and left the replay racing whichever
+   * request came next. */
+  readonly _wireOnEnable: (fn: (cube: string) => Effect.Effect<void>) => void
 }
 
 export const switchesFrom = (
@@ -96,7 +101,7 @@ export const switchesFrom = (
   const known = new Map(mounted.map((m) => [m.name, m]))
   // The kernel notifies AFTER a cube is re-enabled, so a cube whose events were missed while
   // it was off can replay them. Wired by mount(); the bus does not exist yet when this runs.
-  let onEnable: (cube: string) => void = () => undefined
+  let onEnable: (cube: string) => Effect.Effect<void> = () => Effect.void
 
   // A cube that was switched off and has since been removed from disk has no business staying
   // in the file — otherwise the disabled list grows ghosts forever.
@@ -129,10 +134,13 @@ export const switchesFrom = (
           catch: (e) => new StateFileError({ path: stateFile, message: (e as Error).message }),
         })
         disabled = next
-        if (enabled) onEnable(cube)
+        // The notification is awaited, not forked: a subscriber replaying missed events does
+        // async store work, and the re-enable request must not answer before it lands --
+        // otherwise the next request races the replay and sees the pre-enable world.
+        if (enabled) yield* onEnable(cube)
       }),
     /** Kernel-internal: mount wires the re-enable notification through this. */
-    _wireOnEnable: (fn: (cube: string) => void) => {
+    _wireOnEnable: (fn: (cube: string) => Effect.Effect<void>) => {
       onEnable = fn
     },
   }
