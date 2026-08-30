@@ -62,9 +62,11 @@
     "@secretlint/secretlint-rule-pattern": "^13.0.4",
     "@secretlint/secretlint-rule-preset-recommend": "^13.0.4",
     "@types/node": "^26.1.2",
+    "@types/pg": "^8.23.1",
     "eslint": "^10.8.0",
     "husky": "^9.1.7",
     "lint-staged": "^17.3.0",
+    "pg": "^8.23.0",
     "secretlint": "^13.0.4",
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.65.0"

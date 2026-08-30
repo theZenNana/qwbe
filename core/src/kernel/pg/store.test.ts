@@ -38,17 +38,17 @@ describe("CubeStore over Postgres", () => {
   it("inserts, reads, pages, counts and updates like the old store", async () => {
     const a = await Effect_run(store.insert("items", "item", "itm", { name: "a" }))
     const b = await Effect_run(store.insert("items", "item", "itm", { name: "b" }))
-    assert.match(a.id, /^itm-[0-9a-f]{8}$/)
+    assert.match(a.id as string, /^itm-[0-9a-f]{8}$/)
     assert.equal(a.type, "item")
     assert.equal(a.deleted, false)
-    assert.equal(await Effect_run(store.byId<{ name: string }>("items", a.id)).then((r) => r?.name), "a")
+    assert.equal(await Effect_run(store.byId<{ name: string }>("items", a.id as string)).then((r) => r?.name), "a")
     const page = await Effect_run(store.page<{ name: string }>("items", { offset: 0, limit: 1 }))
     assert.equal(page.total, 2)
     assert.equal(page.rows.length, 1)
     assert.equal(page.sortedBy, "createdAt")
     assert.equal(await Effect_run(store.count("items")), 2)
-    const updated = await Effect_run(store.update("items", b.id, { name: "b2" }))
-    assert.equal((updated as { name: string }).name, "b2")
+    const updated = await Effect_run(store.update("items", b.id as string, { name: "b2" }))
+    assert.equal((updated as { name: string } | undefined)?.name, "b2")
   })
 
   it("sorts by a declared sortable field and ignores an undeclared one", async () => {
@@ -64,8 +64,9 @@ describe("CubeStore over Postgres", () => {
   it("throws ForeignTableError for a table the cube does not own", async () => {
     // The check runs before any SQL is built, so the rejection is the typed error itself.
     await assert.rejects(
-      // @ts-expect-error -- the whole point: an undeclared table must not compile away the check
-      () => Effect.runPromise(store.all("other-cube-data")),
+      // The store is typed loosely enough that an undeclared table compiles; the RUNTIME
+      // check is the one that must fire -- the whole point of ForeignTableError.
+      () => Effect.runPromise((store.all as (t: string) => Effect.Effect<unknown, never, never>)("other-cube-data")),
       (e: unknown) => e instanceof Error && /does not own/.test(e.message),
     )
   })
@@ -101,7 +102,7 @@ describe("CubeStore over Postgres", () => {
     let last = await lastOutbox()
     assert.equal(last.op, "insert")
     assert.equal(last.version, 1)
-    await Effect_run(store.update("items", row.id, { name: "tracked2" }))
+    await Effect_run(store.update("items", row.id as string, { name: "tracked2" }))
     assert.equal(await outboxCount(), before + 2)
     last = await lastOutbox()
     assert.equal(last.op, "update")
@@ -116,7 +117,8 @@ describe("CubeStore over Postgres", () => {
 // run them and let a defect surface.
 import { Effect } from "effect"
 
-const Effect_run = <T>(effect: Effect.Effect<T, never, never>): Promise<T> => Effect.runPromise(effect)
+const Effect_run = async <T>(effect: Effect.Effect<T, never, never>): Promise<T> =>
+  (await Effect.runPromise(effect)) as T
 
 const outboxCount = async (): Promise<number> => {
   const r = await getPool().query(`SELECT COUNT(*)::int AS c FROM qwbe.outbox`)
