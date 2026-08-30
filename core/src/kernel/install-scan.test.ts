@@ -27,7 +27,7 @@ const plantCubePackage = (name: string, dir: string) => {
   }
   writeFileSync(
     join(dir, "qwbe-package.json"),
-    JSON.stringify({ name, kind: "cube", summary: "fixture" }, null, 2) + "\n",
+    `${JSON.stringify({ name, kind: "cube", summary: "fixture" }, null, 2)}\n`,
   )
   return dir
 }
@@ -66,7 +66,7 @@ describe("scanDirectory", () => {
     let found = await Effect.runPromise(installerFor().scanDirectory(root))
     assert.equal(found.find((p) => p.name === "beta")!.shelf, "identical")
     // Edited bytes -> different; install-from would refuse until the shelf is forgotten.
-    writeFileSync(join(dir, "index.ts"), readFileSync(join(dir, "index.ts"), "utf8") + "\n// edited\n")
+    writeFileSync(join(dir, "index.ts"), `${readFileSync(join(dir, "index.ts"), "utf8")}\n// edited\n`)
     found = await Effect.runPromise(installerFor().scanDirectory(root))
     assert.equal(found.find((p) => p.name === "beta")!.shelf, "different")
   })
@@ -101,7 +101,7 @@ describe("forgetShelf", () => {
     }
     writeFileSync(
       join(dir, "qwbe-package.json"),
-      JSON.stringify({ name: "auth", kind: "cube", summary: "fixture" }, null, 2) + "\n",
+      `${JSON.stringify({ name: "auth", kind: "cube", summary: "fixture" }, null, 2)}\n`,
     )
     await assert.rejects(() => Effect.runPromise(installerFor().forgetShelf("auth")), /is installed/)
   })

@@ -27,7 +27,6 @@ import {
   commands,
   installPackage,
   me,
-  type PackageInfo,
   packages,
   removeCube,
   restartApi,
@@ -35,6 +34,7 @@ import {
   toggleCube,
   uninstallPackage,
 } from "../../lib/api"
+import type { PackageInfo } from "../../lib/contracts"
 import { diskDrift } from "../../lib/drift"
 import { kb } from "../../lib/utils"
 import { Shell } from "../Shell"

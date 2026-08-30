@@ -1,4 +1,5 @@
-import type { CubeInfo, PackageInfo } from "./api"
+import type { CubeInfo } from "./api"
+import type { PackageInfo } from "./contracts"
 
 export const diskDrift = (cubes: Array<CubeInfo>, store: Array<PackageInfo>) => {
   const mounted = new Set(cubes.map((cube) => cube.name))

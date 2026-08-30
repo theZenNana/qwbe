@@ -17,7 +17,6 @@ import type {
   LinksFor,
   Me,
   Paged,
-  RemoveResult,
   RestartResult,
   Summary,
 } from "./contracts.ts"
@@ -29,7 +28,6 @@ import {
   CommandResultSchema,
   CommandSchema,
   CubeInfoSchema,
-  InstallResultSchema,
   LinksForSchema,
   MeSchema,
   OkSchema,
