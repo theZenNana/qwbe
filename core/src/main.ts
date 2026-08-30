@@ -26,6 +26,7 @@ import { readLedger, verifyLedgerUnchanged, writeLedger } from "./kernel/ledger.
 import { buildApi, buildHandlers, checkCubes, rejectDisabled } from "./kernel/mount.ts"
 import type { Registry, RegistryEntry } from "./kernel/registry.ts"
 import { loadSpaces } from "./kernel/space.ts"
+import { initStore } from "./kernel/store.ts"
 import { checkSchemaDrift } from "./metadata/schema-drift.ts"
 import { corsOriginMatcher, originsForStartup } from "./origins.ts"
 import { registryFrom } from "./registry-runtime.ts"
@@ -60,6 +61,13 @@ const failAfterSnapshot = (e: Error, code: number): never => {
 const definitions = await loadDefinitions().catch((e: Error) => failAfterSnapshot(e, 2))
 const spaces = await loadSpaces().catch((e: Error) => failAfterSnapshot(e, 2))
 verifyLedgerUnchanged(ledgerRead)
+
+// --- 2. storage: one Postgres, schema per cube (ADR-0001) ---
+//
+// Before anything mounts, the kernel schema and its migrations must exist. A missing or
+// unreachable database stops the boot here, with the variable named -- no fallback, no second
+// storage truth.
+await initStore().catch((e: Error) => fail(e, 2))
 
 // --- 2. mount: unique tables, single privilege, switches, per-cube tools ---
 
