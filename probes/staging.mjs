@@ -110,7 +110,6 @@ try {
     `keys=${Object.keys(byField.email ?? {}).join(",")}`,
   )
   score.check("non-sensitive field shows top values", Array.isArray(byField.city?.top) && byField.city.top.length > 0)
-
 } finally {
   await stopServer(server)
 }
