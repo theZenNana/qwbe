@@ -27,49 +27,21 @@ import { buildApi, buildHandlers, checkCubes, rejectDisabled } from "./kernel/mo
 import type { Registry, RegistryEntry } from "./kernel/registry.ts"
 import { loadSpaces } from "./kernel/space.ts"
 import { checkSchemaDrift } from "./metadata/schema-drift.ts"
+import { allowedOrigins } from "./origins.ts"
 import { registryFrom } from "./registry-runtime.ts"
 
 const PORT = Number(process.env.QWBE_PORT ?? 4500)
-
-/**
- * Browser origins allowed to call the API cross-origin (QWB-42), read from
- * QWBE_ALLOWED_ORIGINS as a comma-separated list (e.g. `http://localhost:3000,https://crm.example.com`).
- *
- * Default when the variable is unset: `["*"]` -- exactly the behaviour this server had before
- * QWB-42, so local development (the sibling web app on its own port, the probes, curl) keeps
- * working with zero configuration. Setting the variable to even one origin narrows the list
- * immediately: an origin not in it gets no `access-control-allow-origin` header and the browser
- * blocks the response.
- *
- * Malformed entries (empty items from stray commas, values without a scheme, embedded
- * whitespace) stop the startup with a clear message rather than being dropped silently -- a
- * dropped entry would look like "one origin allowed" while actually being "none", and the
- * mismatch would only surface as a browser CORS error far from its cause.
- */
-const allowedOrigins = (): ReadonlyArray<string> => {
-  const raw = process.env.QWBE_ALLOWED_ORIGINS
-  if (raw === undefined || raw.trim() === "") return ["*"]
-  const origins = raw.split(",").map((o) => o.trim())
-  for (const origin of origins) {
-    if (origin === "")
-      throw new Error(`QWBE_ALLOWED_ORIGINS: empty origin in "${raw}" -- check for stray or doubled commas`)
-    if (!/^https?:\/\/[^/]+$/.test(origin))
-      throw new Error(
-        `QWBE_ALLOWED_ORIGINS: "${origin}" is not a bare origin -- expected scheme://host[:port], no path, no trailing slash`,
-      )
-  }
-  return origins
-}
 
 const fail = (e: Error, code: number): never => {
   console.error(`\n${e.message}\n`)
   process.exit(code)
 }
 
-// Routed through `fail` so a malformed value prints one clear line, not a stack trace.
+// Browser origins for CORS (QWB-42), parsed in origins.ts. Routed through `fail` so a
+// malformed value prints one clear line, not a stack trace.
 const ALLOWED_ORIGINS: ReadonlyArray<string> = ((): ReadonlyArray<string> => {
   try {
-    return allowedOrigins()
+    return allowedOrigins(process.env.QWBE_ALLOWED_ORIGINS)
   } catch (e) {
     return fail(e as Error, 2)
   }
