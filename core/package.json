@@ -26,9 +26,11 @@
   "dependencies": {
     "@effect/platform": "^0.96.0",
     "@effect/platform-node": "^0.107.0",
-    "effect": "^3.21.0"
+    "effect": "^3.21.0",
+    "pg": "^8.23.0"
   },
   "devDependencies": {
+    "@types/pg": "^8.23.1",
     "dependency-cruiser": "^18.0.0",
     "typescript": "^5.7.0"
   }

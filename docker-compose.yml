@@ -1,0 +1,16 @@
+# One Postgres for all cubes, one schema per cube (ADR-0001, QWB-44).
+# Local dev only: the port and password come from the environment with
+# harmless defaults, so no real secret is ever written here.
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-qwbe}
+      POSTGRES_DB: qwbe
+    ports:
+      - "${QWBE_PG_PORT:-5433}:5432"
+    volumes:
+      - qwbe-pgdata:/var/lib/postgresql/data
+
+volumes:
+  qwbe-pgdata:
