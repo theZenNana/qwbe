@@ -16,7 +16,8 @@ import { InstallResult, RemoveResult, RestartResult } from "../../http-contracts
 import { Authorization, requirePermission } from "../../kernel/auth-contract.ts"
 import { BadRequest, Forbidden, NotFound } from "../../kernel/errors.ts"
 import { settingsCommands } from "./commands.ts"
-import { CubeState, InstallFromPayload, InstallFromResult, PackageState } from "./contract.ts"
+import { CubeState, InstallFromPayload, InstallFromResult, PackageState, ScanPayload, ScanResult } from "./contract.ts"
+import { packagesHandlers } from "./packages.ts"
 import { assignCurrentUserCubeAdmin } from "./permissions.ts"
 import { cubeState } from "./state-view.ts"
 
@@ -73,6 +74,20 @@ const group = HttpApiGroup.make("settings")
       .addError(BadRequest)
       .addError(Forbidden),
   )
+  .add(
+    HttpApiEndpoint.post("scanPackages")`/settings/packages/scan`
+      .setPayload(ScanPayload)
+      .addSuccess(ScanResult)
+      .addError(BadRequest)
+      .addError(Forbidden),
+  )
+  .add(
+    HttpApiEndpoint.del("forgetShelf")`/settings/packages/${HttpApiSchema.param("name", Schema.String)}/shelf`
+      .addSuccess(RemoveResult)
+      .addError(BadRequest)
+      .addError(NotFound)
+      .addError(Forbidden),
+  )
   // The banner says "ask for the API to be restarted". This is the button for it. Guarded by
   // settings:write like every other mutation here -- a reader cannot bounce the server.
   .add(
@@ -113,6 +128,8 @@ export const cube = defineCube(group, {
       commands: settingsCommands(catalogue, installer),
 
       handlers: {
+        ...packagesHandlers({ catalogue, installer, entityPermissions }),
+
         cubes: () =>
           Effect.gen(function* () {
             yield* requirePermission("settings:read")
@@ -147,41 +164,6 @@ export const cube = defineCube(group, {
             return state(path.name)!
           }),
 
-        packages: () =>
-          Effect.gen(function* () {
-            yield* requirePermission("settings:read")
-            return installer.available()
-          }),
-
-        install: ({ path }: { path: { name: string } }) =>
-          Effect.gen(function* () {
-            yield* requirePermission("settings:write")
-            // Every refusal from the installer already says what was refused and why --
-            // unknown package, bad name, destination taken. Rewriting them into a generic
-            // message would hide exactly the part the caller needs.
-            const pkg = yield* installer
-              .install(path.name)
-              .pipe(Effect.catchTag("InstallError", (e) => new BadRequest({ message: e.message })))
-            yield* assignCurrentUserCubeAdmin(entityPermissions, pkg.cubes).pipe(Effect.orDie)
-            // Not mounted yet: the kernel reads the disk at startup. Said in the response
-            // rather than hoped for.
-            return { package: pkg, requiresRestart: true }
-          }),
-
-        installFrom: ({ payload }: { payload: { path: string } }) =>
-          Effect.gen(function* () {
-            yield* requirePermission("settings:write")
-            // Same pass-through as install: the kernel's refusals name the problem -
-            // relative path, symlink in the tree, lying manifest, name clash. The CLI
-            // command below calls this same function, so both surfaces speak identically.
-            const result = yield* installer
-              .stageAndInstall(payload.path)
-              .pipe(Effect.catchTag("InstallError", (e) => new BadRequest({ message: e.message })))
-            yield* assignCurrentUserCubeAdmin(entityPermissions, result.cubes).pipe(Effect.orDie)
-            const { staged, ...pkg } = result
-            return { package: pkg, staged, requiresRestart: true }
-          }),
-
         uninstall: ({ path }: { path: { name: string } }) =>
           Effect.gen(function* () {
             yield* requirePermission("settings:write")
@@ -202,28 +184,6 @@ export const cube = defineCube(group, {
             }
             const result = yield* installer
               .remove(path.name, current.plugin)
-              .pipe(Effect.catchTag("InstallError", (e) => new BadRequest({ message: e.message })))
-            return { removed: result.removed, requiresRestart: true }
-          }),
-
-        uninstallPackage: ({ path }: { path: { name: string } }) =>
-          Effect.gen(function* () {
-            yield* requirePermission("settings:write")
-            // A package from the store cannot BE a required cube -- required ones ship with core
-            // and are not in the store. Checked anyway rather than reasoned about, because that
-            // sentence is true today and is exactly the kind that stops being true quietly.
-            const mounted = catalogue()
-              .filter((c) => c.required)
-              .map((c) => c.name)
-            const pkg = installer.available().find((p) => p.name === path.name)
-            const clash = (pkg?.cubes ?? []).filter((c) => mounted.includes(c))
-            if (clash.length > 0) {
-              return yield* Effect.fail(
-                new BadRequest({ message: `Refused: that package holds required cube(s): ${clash.join(", ")}.` }),
-              )
-            }
-            const result = yield* installer
-              .uninstallPackage(path.name)
               .pipe(Effect.catchTag("InstallError", (e) => new BadRequest({ message: e.message })))
             return { removed: result.removed, requiresRestart: true }
           }),

@@ -35,6 +35,9 @@ const EXEMPT = [
   // The install page speaks Romanian to its user - page.tsx carries the same prose and predates
   // the check. These strings are what the screen shows, not what a reader parses as code.
   "web/app/install/InstallFromCard.tsx",
+  // Same rule, same day: the scan picker split out of InstallFromCard speaks the same Romanian
+  // UI prose (checkbox labels, buttons), written the day the check already ran on the sibling.
+  "web/app/install/InstallScan.tsx",
   // The baseline comments in this config record decisions in Romanian, in the owner's words -
   // historical DATA about why each number sits where it sits, not prose a code reader parses.
   "qwbe.config.json",

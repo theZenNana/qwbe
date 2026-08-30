@@ -54,7 +54,8 @@ import {
   tried,
   under,
 } from "./install-parts.ts"
-import type { CubeInstaller, CubePackage } from "./manifest.ts"
+import { forgetShelfFor, type ScanInstaller, scanFor } from "./install-scan.ts"
+import type { CubePackage } from "./manifest.ts"
 
 export { InstallError }
 
@@ -210,8 +211,9 @@ const readPackageAt = (name: string, dir: string): CubePackage => {
 
 const readPackage = (name: string): CubePackage => readPackageAt(name, under(storeDir, join(storeDir, name)))
 
-export const installerFor = (): CubeInstaller => {
+export const installerFor = (): ScanInstaller => {
   const stageAndInstallSync = stageAndInstallFor({ storeDir, readPackageAt, installExisting })
+  const scanContext = { storeDir, readPackageAt }
 
   return {
     ...lifecycleInstaller(),
@@ -246,5 +248,9 @@ export const installerFor = (): CubeInstaller => {
     install: (name: string) => tried(() => installExisting(name)),
 
     stageAndInstall: (sourceDirectory: string) => tried(() => stageAndInstallSync(sourceDirectory)),
+
+    scanDirectory: (directory: string) => tried(() => scanFor(scanContext)(directory)),
+
+    forgetShelf: (name: string) => tried(() => forgetShelfFor(scanContext)(name)),
   }
 }
