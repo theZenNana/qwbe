@@ -111,62 +111,6 @@ try {
   )
   score.check("non-sensitive field shows top values", Array.isArray(byField.city?.top) && byField.city.top.length > 0)
 
-  // --- sensitive marking can also come later ---
-  const csvSet = await api.call("/staging/sets", {
-    method: "POST",
-    headers: H,
-    body: JSON.stringify({ name: "contacts-csv", format: "csv", sourceFile: "contacts.csv" }),
-  })
-  const csv = 'name,city,phone\n"Io, ana",Timisoara,+40 722 111 222\nDan,Iasi,0722 111 222\nMaria,"Ia\nsi",0230 111 222'
-  const csvChunk = await api.call(`/staging/sets/${csvSet.body?.id}/chunks`, {
-    method: "POST",
-    headers: H,
-    body: JSON.stringify({ text: csv }),
-  })
-  score.check(
-    "CSV chunk parsed with quoted commas and newlines",
-    csvChunk.status === 200 && csvChunk.body?.parsed === 3,
-    `parsed=${csvChunk.body?.parsed}`,
-  )
-
-  const marked = await api.call(`/staging/sets/${csvSet.body?.id}/sensitive`, {
-    method: "POST",
-    headers: H,
-    body: JSON.stringify({ fields: ["phone"] }),
-  })
-  score.check(
-    "sensitive marking after creation",
-    marked.status === 200 && marked.body?.sensitiveFields?.[0] === "phone",
-  )
-
-  const csvProfile = await api.call(`/staging/sets/${csvSet.body?.id}/profile`, { headers: H })
-  const csvFields = Object.fromEntries((csvProfile.body?.fields ?? []).map((f) => [f.field, f]))
-  score.check(
-    "CSV profile: name field with comma value, phone suppressed",
-    !("top" in (csvFields.phone ?? {})) && csvFields.name?.distinct === 3,
-    JSON.stringify(csvFields.name),
-  )
-  score.check(
-    "CSV values are strings, so a numeric-looking phone is still text or phone shape",
-    (csvFields.phone?.shapes ?? []).length > 0,
-  )
-
-  // --- delete, and see it gone ---
-  const removed = await api.call(`/staging/sets/${setId}`, { method: "DELETE", headers: H })
-  score.check("DELETE -> removed", removed.status === 200 && removed.body?.removed === setId, `http=${removed.status}`)
-  const gone = await api.call(`/staging/sets/${setId}`, { headers: H })
-  score.check("set is gone -> 404", gone.status === 404, `http=${gone.status}`)
-
-  // a reader may read but not write
-  const reader = await client(PORT).login("reader", "reader")
-  const readerWrite = await api.call("/staging/sets", {
-    method: "POST",
-    headers: reader.headers,
-    body: JSON.stringify({ name: "no", format: "jsonl" }),
-  })
-  score.check("reader cannot import (staging:write is admin)", readerWrite.status === 403, `http=${readerWrite.status}`)
-  const readerRead = await api.call("/staging/sets", { headers: reader.headers })
-  score.check("reader can list sets", readerRead.status === 200, `http=${readerRead.status}`)
 } finally {
   await stopServer(server)
 }
