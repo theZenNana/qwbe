@@ -19,6 +19,7 @@ import {
   type PageResponse,
   RemoveResult as RemoveResultContract,
   RestartResult as RestartResultContract,
+  ScanResult as ScanResultContract,
   SessionToken,
   Summary as SummaryContract,
 } from "qwbe-core/http"
@@ -64,6 +65,10 @@ export type InstallFromResult = typeof InstallFromResultContract.Type
 
 export const RemoveResultSchema = RemoveResultContract
 export type RemoveResult = typeof RemoveResultContract.Type
+
+export const ScanResultSchema = ScanResultContract
+export type ScanResult = typeof ScanResultContract.Type
+export type ScannedPackage = ScanResult["packages"][number]
 
 export const RestartResultSchema = RestartResultContract
 export type RestartResult = typeof RestartResultContract.Type

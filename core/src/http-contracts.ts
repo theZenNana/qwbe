@@ -57,6 +57,23 @@ export const PackageInfo = Schema.Struct({
 export const InstallFromPayload = Schema.Struct({ path: Schema.String }).annotations({
   identifier: "InstallFromPayload",
 })
+export const ScanPayload = Schema.Struct({ path: Schema.String }).annotations({
+  identifier: "ScanPayload",
+})
+export const ScannedPackageInfo = Schema.Struct({
+  name: Schema.String,
+  path: Schema.String,
+  kind: Schema.Literal("cube", "plugin"),
+  summary: Schema.String,
+  cubes: Schema.Array(Schema.String),
+  installed: Schema.Boolean,
+  bytes: Schema.Number,
+  conflicts: Schema.Array(Schema.String),
+  shelf: Schema.Literal("absent", "identical", "different"),
+}).annotations({ identifier: "ScannedPackageInfo" })
+export const ScanResult = Schema.Struct({ packages: Schema.Array(ScannedPackageInfo) }).annotations({
+  identifier: "ScanResult",
+})
 export const InstallResult = Schema.Struct({ package: PackageInfo, requiresRestart: Schema.Boolean }).annotations({
   identifier: "InstallResult",
 })

@@ -3,4 +3,6 @@ export {
   InstallFromPayload,
   InstallFromResult,
   PackageInfo as PackageState,
+  ScanPayload,
+  ScanResult,
 } from "../../http-contracts.ts"

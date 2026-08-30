@@ -5,9 +5,15 @@
 // button, one API call. The parent keeps the state (the value lives there because `busy`
 // disables it alongside every other control on the page) and hands down the `run` wrapper that
 // measures the before/after effect.
+//
+// The scan picker that reuses this input as a ROOT lives in `InstallScan.tsx` - split out the
+// day the multi-select arrived, for the same cap this file was split out for.
 
-import { installFromDirectory } from "../../lib/api"
+"use client"
+
+import { installFromDirectory } from "../../lib/packages-api"
 import { kb } from "../../lib/utils"
+import { InstallScan } from "./InstallScan"
 
 export const InstallFromCard = ({
   sourcePath,
@@ -26,16 +32,17 @@ export const InstallFromCard = ({
   <div className="inst-card">
     <div className="inst-nume">Instalează dintr-un director</div>
     <div className="inst-detaliu">
-      Cale ABSOLUTĂ pe server spre un director cu <span className="mono">qwbe-package.json</span>. Kernelul îl copiază
-      în magazin și instalează de acolo — nimic nu se execută din directorul sursă, iar după repornire codul copiat
-      RULEAZĂ în server.
+      Cale ABSOLUTĂ pe server. Un director cu <span className="mono">qwbe-package.json</span> se instalează direct; un
+      director-PĂRINTE se scanază — bifezi pachetele găsite și le instalezi pe toate odată. Kernelul copiază în magazin
+      și instalează de acolo — nimic nu se execută din directorul sursă, iar după repornire codul copiat RULEAZĂ în
+      server.
     </div>
     <div className="inst-actiuni">
       <input
         type="text"
         className="inst-input"
         data-cale-sursa
-        placeholder="/cale/absoluta/spre/plugin"
+        placeholder="/cale/absoluta/spre/plugin sau /cale/parinte"
         value={sourcePath}
         onChange={(e) => setSourcePath(e.target.value)}
         disabled={busy !== null}
@@ -68,5 +75,7 @@ export const InstallFromCard = ({
         instalează din director
       </button>
     </div>
+
+    <InstallScan sourcePath={sourcePath} busy={busy} run={run} />
   </div>
 )

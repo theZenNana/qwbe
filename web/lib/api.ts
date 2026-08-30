@@ -13,11 +13,9 @@ import type {
   AgentTrace,
   Command,
   CubeInfo,
-  InstallFromResult,
   InstallResult,
   LinksFor,
   Me,
-  PackageInfo,
   Paged,
   RemoveResult,
   RestartResult,
@@ -31,13 +29,11 @@ import {
   CommandResultSchema,
   CommandSchema,
   CubeInfoSchema,
-  InstallFromResultSchema,
   InstallResultSchema,
   LinksForSchema,
   MeSchema,
   OkSchema,
   OpenApiDocumentSchema,
-  PackageInfoSchema,
   PagedSchema,
   RemoveResultSchema,
   RestartResultSchema,
@@ -69,13 +65,10 @@ export type {
   AgentTrace,
   Command,
   CubeInfo,
-  InstallFromResult,
   InstallResult,
   LinksFor,
   Me,
-  PackageInfo,
   Paged,
-  RemoveResult,
   RestartResult,
   Summary,
 }
@@ -144,32 +137,19 @@ export const toggleCube = (name: string, enabled: boolean) =>
 // startup, so writing the directory does not mount it. It is carried through to the screen
 // rather than swallowed here -- a page that showed the new routes as live would be lying.
 
-export const packages = async () => [...(await request("/settings/packages", Schema.Array(PackageInfoSchema)))]
-
-export const installPackage = (name: string) =>
-  request(`/settings/packages/${name}/install`, InstallResultSchema, { method: "POST" })
-
-/**
- * Install from a directory the administrator points at. The path is absolute on the SERVER -
- * the kernel validates, stages and copies it; the browser never touches the bytes.
- */
-export const installFromDirectory = (path: string) =>
-  request(`/settings/packages/install-from`, InstallFromResultSchema, {
-    method: "POST",
-    body: JSON.stringify({ path }),
-  })
+// The package surface (list, install, install-from, scan, forget shelf, uninstall) lives in
+// its own file for the size cap; re-exported here so every importer keeps one facade.
+export {
+  forgetShelf,
+  installFromDirectory,
+  installPackage,
+  packages,
+  scanPackages,
+  uninstallPackage,
+} from "./packages-api.ts"
 
 export const removeCube = (name: string) =>
   request(`/settings/cubes/${encodeURIComponent(name)}`, RemoveResultSchema, { method: "DELETE" })
-
-/**
- * Undo an install by PACKAGE name -- the only way back before a restart.
- *
- * `removeCube` above takes a mounted cube, and installing does not mount. So between installing
- * something by accident and restarting, that route cannot reach it.
- */
-export const uninstallPackage = (name: string) =>
-  request(`/settings/packages/${name}`, RemoveResultSchema, { method: "DELETE" })
 
 export const restartApi = () => request(`/settings/restart`, RestartResultSchema, { method: "POST" })
 

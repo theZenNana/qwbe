@@ -660,3 +660,23 @@ input {
     padding: 20px 16px;
   }
 }
+
+/* One candidate row of the directory scan: native checkbox + name/summary/cubes text.
+   A label wrapping the input keeps the whole row clickable - no extra button to miss. */
+.inst-alege {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  margin-top: 8px;
+  padding: 7px 9px;
+  border: 1px solid var(--linie);
+  border-radius: 5px;
+  cursor: pointer;
+}
+.inst-alege input[type="checkbox"] {
+  margin-top: 2px;
+}
+.inst-alege:has(input:disabled) {
+  opacity: 0.55;
+  cursor: default;
+}
