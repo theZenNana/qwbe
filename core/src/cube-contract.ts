@@ -1,11 +1,19 @@
 import { HttpApiGroup } from "@effect/platform"
 import type { CubeGroup, CubeParts, CubeTools, Manifest } from "./kernel/manifest.ts"
+import type { MetadataDeclarations } from "./metadata/declarations.ts"
+
+/**
+ * A cube's manifest, plus the optional per-field declarations the metadata endpoint reads
+ * (`version`, `searchable`, `fields`, `relations`). Kept as an intersection so the kernel's
+ * `Manifest` stays untouched by this feature.
+ */
+export type CubeManifest = Manifest & MetadataDeclarations
 
 export type { CommandSpec, CubeTools } from "./kernel/manifest.ts"
 export type { IdentityDirectory } from "./permissions-contracts.ts"
 
 export type CubeDefinition<Group extends CubeGroup = CubeGroup, Provided = never> = {
-  readonly manifest: Manifest
+  readonly manifest: CubeManifest
   readonly create: (tools: CubeTools) => CubeParts<Group, Provided>
 }
 

@@ -9,6 +9,7 @@ export const EXPECTED_OPERATIONS = [
   "GET /account|query:descending,query:limit,query:offset,query:sortBy|-|200,400,401,403",
   "GET /auth/me|-|-|200,400,401",
   "GET /bookmarks/{id}|path:id!|-|200,400,401,403,404",
+  "GET /catalog/{cube}/metadata|path:cube!|-|200,400,401,403,404",
   "GET /bookmarks|query:descending,query:limit,query:offset,query:sortBy|-|200,400,401,403",
   "GET /booktags-settings|query:descending,query:limit,query:offset,query:sortBy|-|200,400,401,403",
   "GET /booktags|-|-|200,400,401,403",

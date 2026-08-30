@@ -93,9 +93,9 @@ try {
       `plugin=${(cubes.body ?? []).find((c) => c.name === PROBE_PLUGIN_CUBE)?.plugin}`,
     )
 
-    const spec = await api.call("/openapi.json")
+    const spec = await api.call("/openapi.json", { headers: H })
     score.check(
-      "both routes are in the emitted OpenAPI, so Swagger shows them",
+      "both routes are in the emitted OpenAPI",
       !!spec.body?.paths?.[`/${PROBE_CUBE}/hello`] && !!spec.body?.paths?.[`/${PROBE_PLUGIN_CUBE}/hello`],
       `${Object.keys(spec.body?.paths ?? {}).length} paths`,
     )
@@ -142,7 +142,8 @@ try {
   const s2 = await startServer(PORT, { QWBE_DATA_DIR: dataDir })
   score.check("server starts after both directories are deleted", s2.alive, s2.alive ? "" : s2.output.slice(0, 400))
   if (s2.alive) {
-    const spec = await api.call("/openapi.json")
+    const relogin = await api.login()
+    const spec = await api.call("/openapi.json", { headers: relogin.headers })
     score.check(
       "their routes are gone from OpenAPI",
       !spec.body?.paths?.[`/${PROBE_CUBE}/hello`] && !spec.body?.paths?.[`/${PROBE_PLUGIN_CUBE}/hello`],

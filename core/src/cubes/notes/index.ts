@@ -53,7 +53,7 @@ const summary = (n: NoteRow): SummaryRow => ({
   id: n.id,
   title: n.title,
   details: [
-    { key: "body", value: n.body.length > 60 ? `${n.body.slice(0, 60)}…` : n.body },
+    { key: "body", value: n.body.length > 60 ? `${n.body.slice(0, 60)}...` : n.body },
     { key: "created", value: n.createdAt.slice(0, 10) },
   ],
 })
@@ -61,10 +61,12 @@ const summary = (n: NoteRow): SummaryRow => ({
 export const cube = defineCube(group, {
   manifest: {
     name: "notes",
+    // Declares a version, which opts the cube into the drift gate (schema-drift.ts).
+    version: "1.0.0",
     tables: [TABLE],
     entity: ENTITY,
     // Sorting reads the stored row, so only these are offered. `body` is content, not an
-    // index, but it is already public — the point of the list is to keep hidden columns out.
+    // index, but it is already public -- the point of the list is to keep hidden columns out.
     sortable: ["title", "createdAt"],
     requiresAuth: true,
     permissions: [
@@ -77,7 +79,7 @@ export const cube = defineCube(group, {
 
   create: ({ store, bus, entityPermissions }: CubeTools) => {
     if (!entityPermissions) throw new Error("notes requires the entity permissions capability")
-    const actor = (user: typeof CurrentUser.Service) => ({ userId: user.id, roles: user.roles })
+    const actor = (user: CurrentUser["Type"]) => ({ userId: user.id, roles: user.roles })
     const reference = (note: NoteRow) => ({ cube: "notes", entityType: ENTITY, entityId: note.id })
     const ensureOwn = (note: NoteRow) =>
       Effect.gen(function* () {
@@ -131,7 +133,7 @@ export const cube = defineCube(group, {
           Effect.gen(function* () {
             const user = yield* CurrentUser
             const matching = (yield* store.all<NoteRow>(TABLE)).filter(
-              (note) => !note.deleted && String((note as unknown as Record<string, unknown>)[field] ?? "") === value,
+              (note) => !note.deleted && String((note as Record<string, unknown>)[field] ?? "") === value,
             )
             const rows = yield* Effect.filter(matching, (note) =>
               Effect.gen(function* () {
@@ -156,7 +158,7 @@ export const cube = defineCube(group, {
           Effect.gen(function* () {
             const n = yield* store.byId<NoteRow>(TABLE, id)
             if (!n || n.deleted) return null
-            const v = n ? (n as unknown as Record<string, unknown>)[field] : null
+            const v = (n as Record<string, unknown>)[field]
             return typeof v === "string" ? v : null
           }),
       },

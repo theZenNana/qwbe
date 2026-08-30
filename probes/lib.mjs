@@ -110,7 +110,9 @@ export const startServer = async (port, env = {}) => {
         },
       }
     try {
-      if ((await fetch(`http://127.0.0.1:${port}/openapi.json`)).ok) {
+      // The spec is behind authentication (QWB-41), so 401 counts as "listening" too.
+      const r = await fetch(`http://127.0.0.1:${port}/openapi.json`)
+      if (r.status === 200 || r.status === 401) {
         return {
           proc,
           alive: true,

@@ -9,14 +9,24 @@
 //   rm -rf src/cubes/notes && node src/main.ts         starts, with nothing edited anywhere
 
 import { createServer } from "node:http"
-import { HttpApiBuilder, HttpApiSwagger, HttpMiddleware, HttpServer } from "@effect/platform"
+import {
+  HttpApiBuilder,
+  HttpApiSecurity,
+  HttpMiddleware,
+  HttpServer,
+  HttpServerResponse,
+  OpenApi,
+} from "@effect/platform"
 import { NodeHttpServer, NodeRuntime } from "@effect/platform-node"
-import { Layer } from "effect"
+import { Effect, Layer } from "effect"
+import { catalogueMetadata } from "./catalogue.ts"
+import { Authorization } from "./kernel/auth-contract.ts"
 import { loadDefinitions, mount } from "./kernel/discovery.ts"
 import { readLedger, verifyLedgerUnchanged, writeLedger } from "./kernel/ledger.ts"
 import { buildApi, buildHandlers, checkCubes, rejectDisabled } from "./kernel/mount.ts"
 import type { Registry, RegistryEntry } from "./kernel/registry.ts"
 import { loadSpaces } from "./kernel/space.ts"
+import { checkSchemaDrift } from "./metadata/schema-drift.ts"
 import { registryFrom } from "./registry-runtime.ts"
 
 const PORT = Number(process.env.QWBE_PORT ?? 4500)
@@ -55,6 +65,12 @@ try {
   failAfterSnapshot(e as Error, 2)
 }
 
+// The metadata version gate: a cube that declared a `version` may not change its schema under
+// the same version -- clients cache metadata keyed by it. Runs AFTER the life rules: a boot
+// the life rules reject must not leave a version record behind for a system that never served.
+// The derivation goes through the catalogue's cache, so the catalogue later reads the same
+// values instead of walking every contract a second time. See `metadata/schema-drift.ts`.
+
 // --- 3. life rules. Any failure and the server does NOT start ---
 
 let dangling: ReadonlyArray<{ space: string; from: string; to: string; reason: string }> = []
@@ -73,6 +89,12 @@ if (dangling.length > 0) {
       dangling.map((d) => `    space "${d.space}": ${d.from} -> ${d.to} -- ${d.reason}`).join("\n") +
       `\n  Either a typo, or the cube holding that entity was removed. The system runs without them.\n`,
   )
+}
+
+try {
+  checkSchemaDrift(catalogueMetadata(system!.cubes, system!.liveLinks(), system!.isEnabled))
+} catch (e) {
+  failAfterSnapshot(e as Error, 1)
 }
 
 const api = buildApi(system!.cubes)
@@ -146,11 +168,31 @@ const ApiLive =
 
 // --- 5. the server ---
 
+const GatedOpenApi = HttpApiBuilder.Router.use((router) =>
+  Effect.gen(function* () {
+    // Resolved ONCE at layer build, exactly like the auth cube resolves its registry: the
+    // route handler runs outside the context the api layer captured, so the service is closed
+    // over here rather than yielded per request.
+    const authenticate = yield* Authorization
+    const spec = OpenApi.fromApi(api)
+    yield* router.get(
+      "/openapi.json",
+      Effect.gen(function* () {
+        // The same decode the middleware machinery runs: read the Bearer token from the
+        // request, hand it to the auth cube's implementation, and turn a failure into an
+        // empty 401 -- the spec itself is never in the response.
+        const attempt = Effect.flatMap(HttpApiBuilder.securityDecode(HttpApiSecurity.bearer), authenticate.bearer)
+        return yield* Effect.catchAll(Effect.zipRight(attempt, HttpServerResponse.json(spec).pipe(Effect.orDie)), () =>
+          Effect.succeed(HttpServerResponse.empty({ status: 401 })),
+        )
+      }),
+    )
+  }),
+)
+
 const ServerLive = HttpApiBuilder.serve((app) =>
   HttpMiddleware.logger(rejectDisabled(system!.cubes, system!.isEnabled)(app)),
 ).pipe(
-  Layer.provide(HttpApiSwagger.layer({ path: "/docs" })),
-  Layer.provide(HttpApiBuilder.middlewareOpenApi({ path: "/openapi.json" })),
   // The web app is a sibling process on another port; without CORS they do not speak.
   Layer.provide(
     HttpApiBuilder.middlewareCors({
@@ -158,6 +200,19 @@ const ServerLive = HttpApiBuilder.serve((app) =>
       allowedHeaders: ["Content-Type", "Authorization"],
       allowedMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     }),
+  ),
+  // The spec route needs the auth cube's Authorization service. Every system that can pass
+  // the life rules has it (with no cube layer providing Authorization, mount refuses to
+  // start), but TypeScript cannot know the merged cube layers provide it -- the same
+  // unknowable union contributeLayer widens above. One cast, same justification.
+  Layer.provide(
+    (firstCubeLayer === undefined
+      ? GatedOpenApi
+      : GatedOpenApi.pipe(Layer.provide(Layer.mergeAll(firstCubeLayer, ...restCubeLayers)))) as Layer.Layer<
+      never,
+      never,
+      never
+    >,
   ),
   Layer.provide(ApiLive),
   HttpServer.withLogAddress,

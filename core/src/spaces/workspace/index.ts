@@ -23,6 +23,11 @@ export const space = defineSpace({
     // A note points at the account that wrote it. On an account's page this shows up as a
     // "notes" group; on a note's page, as "author".
     link({ from: "notes", field: "authorId", to: "Account", label: "notes" }),
+    // A CRM contract points at the party it was signed with. The field lives on the contract;
+    // neither the contracts cube nor the contacts cube names the other -- this space says how
+    // they connect, and the per-cube field metadata endpoint reads the relation from HERE, not
+    // from either side. Nothing is copied into either pack.
+    link({ from: "crm/contracts", field: "partyId", to: "Contact", label: "party" }),
     // A tag points at the bookmark it labels. Both are children of `booktags` now -- and the
     // link STILL lives here, declared by neither side. The hierarchy changed who owns the
     // cubes; it did not change who declares how they connect.

@@ -1,0 +1,22 @@
+{
+  "account": {
+    "version": "1.0.0",
+    "hash": "06e8578569a90c72b77fd99041f8dc7d2d104ad61f73cadc7e0ca4bc33dbf9e1"
+  },
+  "booktags/bookmarks": {
+    "version": "1.0.0",
+    "hash": "f4777219d066a60baa45b8197ba74b9891cf44ba725e42e73c449785bc8acba2"
+  },
+  "crm/contacts": {
+    "version": "1.0.0",
+    "hash": "66f54e6dcb530ed1cdb67f5c8671d2850a65282e4ccde5b6faea1c08f7eea296"
+  },
+  "crm/contracts": {
+    "version": "1.0.0",
+    "hash": "20b220b7937fe9e832257e89ab59e19b1bfc617a730fe3194710bc3047f38fa1"
+  },
+  "notes": {
+    "version": "1.0.0",
+    "hash": "a78b7758c1b7933be29dc51817074dccb64bf5f00de9283b2d102e8a9cc001c9"
+  }
+}
