@@ -52,11 +52,7 @@ export const RowFieldsSchema = Schema.Struct({
 })
 export type RowFields = typeof RowFieldsSchema.Type
 
-export const customFieldDefs = (cube?: string) =>
-  request(
-    `/customfields?limit=200${cube ? `&cube=${encodeURIComponent(cube)}` : ""}`,
-    PagedSchema(CustomFieldDefSchema),
-  )
+export const customFieldDefs = () => request("/customfields?limit=200", PagedSchema(CustomFieldDefSchema))
 
 export const defineCustomField = (body: {
   targetCube: string

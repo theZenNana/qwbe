@@ -26,12 +26,23 @@ export function CustomFields({ cube, rowId }: { cube: string; rowId: string }) {
   const [busy, setBusy] = useState(false)
 
   useEffect(() => {
+    // `cancelled` guards against a late response for a previous row overwriting what the user
+    // is typing; `error`/`saved` are reset so stale banners do not carry into the new row.
+    let cancelled = false
+    setError(null)
+    setSaved(false)
     rowCustomFields(cube, rowId)
       .then((r) => {
+        if (cancelled) return
         setFields([...r.fields])
         setDraft(Object.fromEntries(r.fields.map((f) => [f.name, f.value])))
       })
-      .catch(() => setFields(null))
+      .catch(() => {
+        if (!cancelled) setFields(null)
+      })
+    return () => {
+      cancelled = true
+    }
   }, [cube, rowId])
 
   if (!fields || fields.length === 0) return null

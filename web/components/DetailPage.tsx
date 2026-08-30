@@ -135,8 +135,10 @@ export function DetailPage({ cube, id, routeName }: { cube: string; id: string; 
       )}
 
       {/* The customfields plugin's panel. Renders nothing itself when the cube is absent or
-          the request fails -- that is the component's contract, not this page's problem. */}
-      <CustomFields cube={identity} rowId={id} />
+          the request fails -- that is the component's contract, not this page's problem.
+          Gated on `row` like the Fields panel: without a row there is nothing to key the
+          values to, and saving would write them against an id that does not exist. */}
+      {row && <CustomFields cube={identity} rowId={id} />}
 
       {links && links.parents.filter((p) => p.summary).length > 0 && (
         <div className="panou">
