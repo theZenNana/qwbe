@@ -41,5 +41,3 @@ export const CubeMetadata = Schema.Struct({
 
 export type CubeMetadata = typeof CubeMetadata.Type
 export type FieldMetadata = typeof FieldMetadata.Type
-
-/** The meta columns every entity row carries (see `EntityMeta`). */
