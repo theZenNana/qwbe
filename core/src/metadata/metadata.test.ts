@@ -78,14 +78,33 @@ describe("deriveCubeMetadata", () => {
     assert.equal(byName.get("createdAt")!.editable, false)
   })
 
-  it("defaults sortable to the meta columns and searchable to text fields when the cube searches", () => {
+  it("defaults sortable to the meta columns, and nothing is searchable without a link", () => {
     const md = deriveCubeMetadata(mount() as never, [], [])
     assert.ok(md)
     const byName = new Map(md.fields.map((f) => [f.name, f]))
     assert.equal(byName.get("createdAt")!.sortable, true)
     assert.equal(byName.get("name")!.sortable, false)
-    // No relational search implemented -> nothing searchable by default.
-    assert.equal(byName.get("name")!.searchable, false)
+    // No space link reaches this cube -> nothing is searchable, even with search implemented.
+    const searching = mount({ search: { search: () => undefined as never } }) as never
+    const withSearch = deriveCubeMetadata(searching, [], [])
+    assert.ok(withSearch)
+    assert.equal(
+      withSearch.fields.every((f) => !f.searchable),
+      true,
+    )
+  })
+
+  it("defaults searchable to the cube's space-link fields when the cube searches", () => {
+    // The only search route is GET /links/{entity}/{id}/{cube}: rows of this cube whose LINK
+    // FIELD equals {id}. So the usable fields are the link fields -- here `name` -- and a text
+    // field no link reaches (`note`) must not advertise itself as searchable.
+    const searching = mount({ search: { search: () => undefined as never } }) as never
+    const md = deriveCubeMetadata(searching, [], [{ from: "things", field: "name", to: "Other" }])
+    assert.ok(md)
+    const byName = new Map(md.fields.map((f) => [f.name, f]))
+    assert.equal(byName.get("name")!.searchable, true)
+    assert.equal(byName.get("note")!.searchable, false)
+    assert.equal(byName.get("count")!.searchable, false)
   })
 
   it("honours manifest declarations: sortable, searchable, labels and version", () => {

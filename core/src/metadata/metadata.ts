@@ -13,8 +13,8 @@
 //
 // Everything else has a default derived from the schema, so existing cubes keep working
 // untouched: editable and required come from the create payload, sortable from the manifest's
-// `sortable` list, searchable from the presence of a relational search, enums from literal
-// unions, nullability from the AST itself.
+// `sortable` list, searchable from the space links that actually reach the cube's search,
+// enums from literal unions, nullability from the AST itself.
 
 import { createHash } from "node:crypto"
 import type { PropertySignature } from "effect/SchemaAST"
@@ -78,11 +78,14 @@ export const deriveCubeMetadata = (
     name: String(p.name),
     shape: classify(p.type),
   }))
+  // A field is searchable only if a caller can actually search by it. The only search route
+  // is GET /links/{entity}/{id}/{cube}, which looks up rows of THIS cube whose LINK FIELD
+  // equals {id} -- so the usable fields are exactly the cube's declared space-link fields,
+  // and only when the cube implements the exact-equality search those links resolve through.
+  // Marking every text field searchable advertised a capability no route served.
   const searchableSet = new Set(
     m.searchable ??
-      (cube.parts.relational?.search
-        ? firstPass.filter((f) => f.shape.type === "string" && !META_FIELDS.has(f.name)).map((f) => f.name)
-        : []),
+      (cube.parts.relational?.search ? links.filter((l) => l.from === cube.name).map((l) => l.field) : []),
   )
   const sortableSet = new Set(m.sortable ?? ["id", "type", "createdAt"])
 
