@@ -59,17 +59,22 @@ Everything between the browser and qwbe:
    `Authorization` header from the browser; add none from the client-side
    fetches either.
 
-4. **On 401.** qwbe answers
-   `{"message":"invalid or expired token","_tag":"Unauthorized"}`. The proxy
+4. **On 401.** On the cube routes qwbe answers
+   `{"message":"invalid or expired token","_tag":"Unauthorized"}`. (Exception: the
+   authenticated `/openapi.json` route answers 401 with an EMPTY body -- a proxy must not
+   rely on parsing the body there.) The proxy
    passes the 401 through; the client sees it and redirects to the login
    screen. Distinguish "wrong credentials" (login returned 401 -- show the
    error) from "session ended" (a proxied call returned 401 -- clear the cookie
    and re-authenticate).
 
 5. **Logout.** A route handler calls qwbe's `POST /auth/logout` (which deletes
-   all of that user's sessions server-side) and clears the cookie. Both, always:
-   clearing only the cookie leaves live sessions behind, calling only qwbe
-   leaves a cookie that will just 401 on the next request.
+   all of that user's sessions server-side) and clears the cookie. Do both
+   every time: clearing only the cookie leaves live sessions behind, calling
+   only qwbe leaves a cookie that will just 401 on the next request. Note that
+   `/auth/logout` itself is behind `Authorization`, so with an already-expired
+   token it answers 401 -- that is expected and non-fatal. Treat it as "session
+   already gone" and clear the cookie regardless.
 
 6. **Re-login.** When the token expires, the next proxied call 401s, the client
    clears the cookie and shows the login form again. There is no refresh token
@@ -93,4 +98,13 @@ With the server started as
 - a request whose `Origin` is `http://localhost:3000` gets
   `access-control-allow-origin: http://localhost:3000`;
 - the same request with `Origin: http://evil.example` gets no CORS header at
-  all, and the browser (only the browser) blocks reading the response.
+  all, and the browser (only the browser) blocks reading the response. This
+  holds for a list of any length, including exactly one origin -- the server
+  checks every request's Origin against the list, it never stamps a constant
+  header.
+
+Also note the defaults: with `QWBE_ALLOWED_ORIGINS` unset the server starts
+with CORS wide open (`access-control-allow-origin: *`) and prints a warning
+saying so; with `NODE_ENV=production` it refuses to start instead. A variable
+that is set but empty is a malformed value and also refuses to start -- it
+does NOT fall back to `*`.
