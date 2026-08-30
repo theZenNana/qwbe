@@ -140,17 +140,12 @@ try {
 }
 
 // --- part 2b: a SINGLE-entry allowlist must still check every request ---
-//
 // Effect's cors middleware only compares the Origin when the array has more than one entry;
-// a one-entry array stamps its constant value on every response, listed origin or not. The
-// server passes a predicate instead, so this case must behave like the multi-entry one.
+// the server passes a predicate instead, so one entry must behave like many.
 
 const PORT5 = await freePort()
 const dataDir5 = scratchDataDir("extauth-single")
-const server5 = await startServer(PORT5, {
-  QWBE_DATA_DIR: dataDir5,
-  QWBE_ALLOWED_ORIGINS: "http://localhost:3000",
-})
+const server5 = await startServer(PORT5, { QWBE_DATA_DIR: dataDir5, QWBE_ALLOWED_ORIGINS: "http://localhost:3000" })
 if (!server5.alive) {
   console.error(`server did not start:\n${server5.output}`)
   process.exit(1)
@@ -170,41 +165,26 @@ try {
 }
 
 // --- part 3: malformed QWBE_ALLOWED_ORIGINS stops the startup ---
+//
+// Spawn drops undefined env values, so `undefined` in part 1 really exercises the unset case;
+// these cases exercise the malformed ones. A SET-but-empty variable is malformed, not unset:
+// it must refuse to start rather than silently widen back to *.
 
-const PORT3 = await freePort()
-const dataDir3 = scratchDataDir("extauth-bad")
-const server3 = await startServer(PORT3, {
-  QWBE_DATA_DIR: dataDir3,
-  QWBE_ALLOWED_ORIGINS: "http://ok.test,,http://x.test",
-})
-score.check(
-  "empty item in QWBE_ALLOWED_ORIGINS -> server refuses to start",
-  !server3.alive && server3.output.includes("empty origin"),
-  `alive=${server3.alive}`,
-)
-await stopServer(server3)
-dropScratch(dataDir3)
-
-const PORT4 = await freePort()
-const dataDir4 = scratchDataDir("extauth-bad2")
-const server4 = await startServer(PORT4, { QWBE_DATA_DIR: dataDir4, QWBE_ALLOWED_ORIGINS: "localhost:3000" })
-score.check(
-  "origin without a scheme -> server refuses to start",
-  !server4.alive && server4.output.includes("not a bare origin"),
-  `alive=${server4.alive}`,
-)
-await stopServer(server4)
-dropScratch(dataDir4)
-
-// A SET-but-empty variable is malformed, not "unset": it must refuse to start rather than
-// silently widen back to *. (Spawn drops undefined env values, so `undefined` above really
-// exercises the unset case; `""` here really exercises the empty case.)
-
-const PORT6 = await freePort()
-const dataDir6 = scratchDataDir("extauth-empty")
-const server6 = await startServer(PORT6, { QWBE_DATA_DIR: dataDir6, QWBE_ALLOWED_ORIGINS: "" })
-score.check("empty QWBE_ALLOWED_ORIGINS -> server refuses to start", !server6.alive, `alive=${server6.alive}`)
-await stopServer(server6)
-dropScratch(dataDir6)
+for (const [value, message] of [
+  ["http://ok.test,,http://x.test", "empty origin"],
+  ["localhost:3000", "not a bare origin"],
+  ["", "refuses to start on an empty value"],
+]) {
+  const port = await freePort()
+  const dataDir = scratchDataDir(`extauth-bad-${message.slice(0, 8)}`)
+  const server = await startServer(port, { QWBE_DATA_DIR: dataDir, QWBE_ALLOWED_ORIGINS: value })
+  score.check(
+    `malformed QWBE_ALLOWED_ORIGINS (${JSON.stringify(value)}) -> refuses to start`,
+    !server.alive && (message === "refuses to start on an empty value" || server.output.includes(message)),
+    `alive=${server.alive}`,
+  )
+  await stopServer(server)
+  dropScratch(dataDir)
+}
 
 process.exit(score.report("external-auth (QWB-42)"))
