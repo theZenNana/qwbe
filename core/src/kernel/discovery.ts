@@ -26,15 +26,7 @@ export { BrokenCubeError, DoubleCapabilityError, DoublePrivilegeError, Duplicate
 
 import { BrokenCubeError, DoubleCapabilityError, DoublePrivilegeError } from "./errors-discovery.ts"
 import type { Ledger } from "./ledger.ts"
-import type {
-  Catalogue,
-  CommandInfo,
-  CommandRunner,
-  CommandSpec,
-  CubeParts,
-  Manifest,
-  Subscription,
-} from "./manifest.ts"
+import type { Catalogue, CommandInfo, CommandRunner, CommandSpec, CubeParts, Subscription } from "./manifest.ts"
 import {
   fullName,
   leafOf,
@@ -51,7 +43,7 @@ import { type Switches, switchesFrom } from "./state.ts"
 import { checkUniqueTables, storeFor } from "./store.ts"
 
 export type MountedCube = {
-  readonly manifest: Manifest
+  readonly manifest: import("../cube-contract.ts").CubeManifest
   /** Full identity: `<parent>/<name>` for a child, bare name otherwise. */
   readonly name: string
   readonly parts: CubeParts
@@ -252,13 +244,12 @@ export const mount = (
 
   const catalogue = (): Catalogue =>
     buildCatalogue(
-      definitions.map(({ name, plugin, definition }) => {
-        const group = cubes.find((cube) => cube.name === name)?.parts.group as
-          | { endpoints?: Record<string, { path?: string }> }
-          | undefined
-        const firstPath = Object.values(group?.endpoints ?? {})[0]?.path
-        return { name, plugin, manifest: definition.manifest, ...(firstPath ? { firstPath } : {}) }
-      }),
+      definitions.map(({ name, plugin, definition }) => ({
+        name,
+        plugin,
+        manifest: definition.manifest,
+        cube: cubes.find((cube) => cube.name === name),
+      })),
       isEnabled,
       pathPrefix,
       liveLinks(),

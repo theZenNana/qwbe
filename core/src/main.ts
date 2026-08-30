@@ -17,6 +17,8 @@ import { readLedger, verifyLedgerUnchanged, writeLedger } from "./kernel/ledger.
 import { buildApi, buildHandlers, checkCubes, rejectDisabled } from "./kernel/mount.ts"
 import type { Registry, RegistryEntry } from "./kernel/registry.ts"
 import { loadSpaces } from "./kernel/space.ts"
+import { deriveAllMetadata } from "./metadata/metadata.ts"
+import { checkSchemaDrift } from "./metadata/schema-drift.ts"
 import { registryFrom } from "./registry-runtime.ts"
 
 const PORT = Number(process.env.QWBE_PORT ?? 4500)
@@ -53,6 +55,14 @@ try {
   system = mount(definitions, spaces, ledgerSnapshot)
 } catch (e) {
   failAfterSnapshot(e as Error, 2)
+}
+
+// The metadata version gate: a cube that declared a `version` may not change its schema under
+// the same version -- clients cache metadata keyed by it. See `kernel/schema-drift.ts`.
+try {
+  checkSchemaDrift(deriveAllMetadata(system!.cubes, system!.liveLinks()))
+} catch (e) {
+  failAfterSnapshot(e as Error, 1)
 }
 
 // --- 3. life rules. Any failure and the server does NOT start ---
