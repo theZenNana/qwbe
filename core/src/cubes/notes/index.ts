@@ -61,6 +61,8 @@ const summary = (n: NoteRow): SummaryRow => ({
 export const cube = defineCube(group, {
   manifest: {
     name: "notes",
+    // Opts the cube into the metadata drift gate (see src/metadata/schema-drift.ts).
+    version: "1.0.0",
     tables: [TABLE],
     entity: ENTITY,
     // Sorting reads the stored row, so only these are offered. `body` is content, not an

@@ -39,6 +39,8 @@ const group = HttpApiGroup.make("account")
 export const cube = defineCube(group, {
   manifest: {
     name: "account",
+    // Opts the cube into the metadata drift gate (see src/metadata/schema-drift.ts).
+    version: "1.0.0",
     tables: [TABLE],
     entity: ENTITY,
     // Deliberately NOT `passwordHash`. Ordering by it returned 200 to an ordinary reader and

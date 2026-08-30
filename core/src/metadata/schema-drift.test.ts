@@ -3,7 +3,7 @@
 // version refuses; a bumped version passes and re-records.
 
 import assert from "node:assert/strict"
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs"
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { after, beforeEach, describe, it } from "node:test"
@@ -72,6 +72,29 @@ describe("checkSchemaDrift", () => {
     checkSchemaDrift([meta("a", "1.1.0", "xxx")])
     const stored = readStored()
     assert.deepEqual(stored.b, { version: "1.0.0", hash: "bbb" })
+  })
+
+  it("compares against the committed baseline on a fresh data directory", () => {
+    // A fresh checkout has no data/cube-versions.json; the shipped baseline must still catch
+    // a schema that changed under an unchanged version.
+    const baseline = mkdtempSync(join(tmpdir(), "qwb41-baseline-"))
+    writeFileSync(join(baseline, "cube-versions.json"), JSON.stringify({ thing: { version: "1.0.0", hash: "aaa" } }))
+    process.env.QWBE_CUBE_VERSIONS_BASELINE = join(baseline, "cube-versions.json")
+    assert.throws(() => checkSchemaDrift([meta("thing", "1.0.0", "bbb")]), SchemaDriftError)
+    // A bumped version passes and is recorded in the writable data file, not the baseline.
+    checkSchemaDrift([meta("thing", "1.1.0", "bbb")])
+    assert.deepEqual(readStored().thing, { version: "1.1.0", hash: "bbb" })
+    delete process.env.QWBE_CUBE_VERSIONS_BASELINE
+  })
+
+  it("the writable data file wins over the baseline", () => {
+    const baseline = mkdtempSync(join(tmpdir(), "qwb41-baseline-"))
+    writeFileSync(join(baseline, "cube-versions.json"), JSON.stringify({ thing: { version: "0.9.0", hash: "old" } }))
+    process.env.QWBE_CUBE_VERSIONS_BASELINE = join(baseline, "cube-versions.json")
+    checkSchemaDrift([meta("thing", "1.0.0", "aaa")])
+    // Re-mount: same version and hash, but the baseline names 0.9.0 -- the data record won.
+    checkSchemaDrift([meta("thing", "1.0.0", "aaa")])
+    delete process.env.QWBE_CUBE_VERSIONS_BASELINE
   })
 
   it("tolerates a corrupt record file", async () => {

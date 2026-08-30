@@ -70,6 +70,8 @@ const summary = (b: BookmarkRow): SummaryRow => ({
 export const cube = defineCube(group, {
   manifest: {
     name: "bookmarks",
+    // Opts the cube into the metadata drift gate (see src/metadata/schema-drift.ts).
+    version: "1.0.0",
     parent: "booktags",
     // `settings-cache` holds the sibling's published configuration -- written by this cube's
     // own subscription, never touched by the settings cube. Owned here like any other table.

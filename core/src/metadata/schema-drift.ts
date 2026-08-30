@@ -20,6 +20,12 @@ const here = dirname(fileURLToPath(import.meta.url))
 // this at a scratch directory and the value has to be honoured.
 const dataDir = () => process.env.QWBE_DATA_DIR ?? join(here, "..", "..", "..", "data")
 const versionsFile = () => join(dataDir(), "cube-versions.json")
+// The COMMITTED baseline: without it, a fresh checkout or CI has no records to compare
+// against and the first thing to catch a missing version bump would be a customer's server
+// refusing to boot after an upgrade. The baseline ships with the cubes it describes, so the
+// gates see the drift instead of the restart. The writable data file (per-machine records,
+// updated on every mount) wins over it.
+const baselineFile = () => process.env.QWBE_CUBE_VERSIONS_BASELINE ?? join(here, "cube-versions.baseline.json")
 
 export class SchemaDriftError extends Error {
   constructor(cube: string, version: string, expected: string, got: string) {
@@ -35,14 +41,16 @@ export class SchemaDriftError extends Error {
 
 type Records = Record<string, { readonly version: string; readonly hash: string }>
 
-const readRecords = (): Records => {
-  if (!existsSync(versionsFile())) return {}
+const readOne = (file: string): Records => {
+  if (!existsSync(file)) return {}
   try {
-    return JSON.parse(readFileSync(versionsFile(), "utf8")) as Records
+    return JSON.parse(readFileSync(file, "utf8")) as Records
   } catch {
     return {}
   }
 }
+
+const readRecords = (): Records => ({ ...readOne(baselineFile()), ...readOne(versionsFile()) })
 
 const writeRecords = (records: Records): void => {
   const dir = dataDir()
