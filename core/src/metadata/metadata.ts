@@ -40,9 +40,6 @@ export type MetadataCube = {
 
 type DeclaredManifest = MetadataCube["manifest"]
 
-// The meta columns every entity row carries, taken from EntityMeta itself -- a second
-// hand-written copy of that list is exactly the drift this module exists to prevent.
-const META_FIELDS = new Set(Object.keys(EntityMeta))
 // Sortable defaults to the meta columns a caller may order by; `deleted` is a filter, not an
 // ordering, so it stays out -- but it is still derived, not re-typed.
 const SORTABLE_DEFAULT = Object.keys(EntityMeta).filter((name) => name !== "deleted")
