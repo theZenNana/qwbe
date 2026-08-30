@@ -12,7 +12,7 @@ describe("guestbook fixture cube", () => {
     assert.equal(cube.manifest.name, "guestbook")
     assert.deepEqual(cube.manifest.tables, ["guestbook"])
     assert.deepEqual(
-      cube.manifest.permissions.map((p) => p.name),
+      (cube.manifest.permissions ?? []).map((p) => p.name),
       ["guestbook:read", "guestbook:write"],
     )
     assert.equal(cube.manifest.usesEntityPermissions, undefined)
