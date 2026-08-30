@@ -161,11 +161,10 @@ const HandlersLive = buildHandlers(api, system!.cubes).pipe(Layer.provide(Regist
 // visible: no cube layers, no extra `provide`.
 const withHandlers = HttpApiBuilder.api(api).pipe(Layer.provide(HandlersLive))
 const [firstCubeLayer, ...restCubeLayers] = CubeLayers
-const provideCubeLayers = <A extends Layer.Layer<unknown, unknown, unknown>>(layer: A): A =>
+const ApiLive =
   firstCubeLayer === undefined
-    ? layer
-    : (layer.pipe(Layer.provide(Layer.mergeAll(firstCubeLayer, ...restCubeLayers))) as A)
-const ApiLive = provideCubeLayers(withHandlers)
+    ? withHandlers
+    : withHandlers.pipe(Layer.provide(Layer.mergeAll(firstCubeLayer, ...restCubeLayers)))
 
 // --- 5. the server ---
 
@@ -191,8 +190,6 @@ const GatedOpenApi = HttpApiBuilder.Router.use((router) =>
   }),
 )
 
-const GatedOpenApiLive = provideCubeLayers(GatedOpenApi)
-
 const ServerLive = HttpApiBuilder.serve((app) =>
   HttpMiddleware.logger(rejectDisabled(system!.cubes, system!.isEnabled)(app)),
 ).pipe(
@@ -204,7 +201,19 @@ const ServerLive = HttpApiBuilder.serve((app) =>
       allowedMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     }),
   ),
-  Layer.provide(GatedOpenApiLive),
+  // The spec route needs the auth cube's Authorization service. Every system that can pass
+  // the life rules has it (with no cube layer providing Authorization, mount refuses to
+  // start), but TypeScript cannot know the merged cube layers provide it -- the same
+  // unknowable union contributeLayer widens above. One cast, same justification.
+  Layer.provide(
+    (firstCubeLayer === undefined
+      ? GatedOpenApi
+      : GatedOpenApi.pipe(Layer.provide(Layer.mergeAll(firstCubeLayer, ...restCubeLayers)))) as Layer.Layer<
+      never,
+      never,
+      never
+    >,
+  ),
   Layer.provide(ApiLive),
   HttpServer.withLogAddress,
   Layer.provide(NodeHttpServer.layer(() => createServer(), { port: PORT })),
