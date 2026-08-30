@@ -3,6 +3,7 @@
 
 import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema } from "@effect/platform"
 import { Schema } from "effect"
+import { Authorization } from "../../kernel/auth-contract.ts"
 import { BadRequest, Forbidden, NotFound } from "../../kernel/errors.ts"
 import {
   ChunkPayload,
@@ -60,3 +61,4 @@ export const stagingGroup = HttpApiGroup.make("staging")
       .addError(NotFound)
       .addError(Forbidden),
   )
+  .middleware(Authorization)

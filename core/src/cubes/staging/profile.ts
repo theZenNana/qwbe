@@ -19,7 +19,7 @@ import { ENUM_MAX_DISTINCT, SHAPE_PATTERNS } from "./shapes.ts"
 export const fieldNamesStatement = (setId: string): SqlStatement => ({
   text: `SELECT k, c::int FROM (
            SELECT jsonb_object_keys(body->'record') AS k, count(*)::int AS c
-           FROM "rows" WHERE deleted = false AND body->'setId' = $1
+           FROM "rows" WHERE deleted = false AND body->>'setId' = $1
            GROUP BY k
          ) f ORDER BY k ASC`,
   values: [setId],
@@ -27,7 +27,7 @@ export const fieldNamesStatement = (setId: string): SqlStatement => ({
 
 /** Total rows in the set (the denominator of every fill rate). */
 export const totalRowsStatement = (setId: string): SqlStatement => ({
-  text: `SELECT count(*)::int AS n FROM "rows" WHERE deleted = false AND body->'setId' = $1`,
+  text: `SELECT count(*)::int AS n FROM "rows" WHERE deleted = false AND body->>'setId' = $1`,
   values: [setId],
 })
 
@@ -39,14 +39,14 @@ export const fieldStats = (field: string, setId: string): SqlStatement => ({
            count(v) FILTER (WHERE v !~ $2 AND v !~ $3 AND v ~ $4)::int AS email_count,
            count(v) FILTER (WHERE v !~ $2 AND v !~ $3 AND v !~ $4 AND v ~ $5)::int AS phone_count
          FROM (SELECT body->'record'->>$1 AS v FROM "rows"
-               WHERE deleted = false AND body->'setId' = $6) s`,
+               WHERE deleted = false AND body->>'setId' = $6) s`,
   values: [field, SHAPE_PATTERNS.number, SHAPE_PATTERNS.date, SHAPE_PATTERNS.email, SHAPE_PATTERNS.phone, setId],
 })
 
 /** Example values, most frequent first, truncated -- and NEVER issued for a sensitive field. */
 export const fieldTop = (field: string, setId: string): SqlStatement => ({
   text: `SELECT v, count(*)::int AS c FROM (SELECT body->'record'->>$1 AS v FROM "rows"
-          WHERE deleted = false AND body->'setId' = $2) s
+          WHERE deleted = false AND body->>'setId' = $2) s
          WHERE v IS NOT NULL AND v <> ''
          GROUP BY v ORDER BY c DESC, v ASC LIMIT 5`,
   values: [field, setId],

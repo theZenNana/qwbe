@@ -20,7 +20,6 @@ export const cube = defineCube(stagingGroup, {
   manifest: {
     name: "staging",
     tables: [TABLES.sets, TABLES.rows],
-    entity: "StagingSet",
     requiresAuth: true,
     permissions: [
       { name: "staging:read", roles: ["admin", "reader"] },

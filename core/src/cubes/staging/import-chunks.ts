@@ -38,7 +38,10 @@ export const insertRowsStatement = (
     const slice = records.slice(start, batchSize + start)
     const values: unknown[] = []
     const rows = slice.map((record, i) => {
-      values.push(`row-${randomBytes(4).toString("hex")}`, "staging.row", new Date().toISOString(), false, 1, {
+      // 12 random bytes: a 100k-row import makes 4-byte ids collide (birthday bound) -- seen
+      // live as a duplicate-key failure at ~64k rows. Deterministic ids would be safer still,
+      // but a re-import of a deleted set would then collide with nothing left to distinguish.
+      values.push(`row-${randomBytes(12).toString("hex")}`, "staging.row", new Date().toISOString(), false, 1, {
         setId,
         rowNum: firstRowNum + start + i,
         record,

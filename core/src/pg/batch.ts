@@ -16,7 +16,7 @@
 
 import { Effect } from "effect"
 import type { CubeStore } from "../kernel/manifest.ts"
-import { ensureCubeSchema, withRole } from "./setup.ts"
+import { ensureCubeSchema, schemaName, withRole } from "./setup.ts"
 
 /** One SQL statement inside a batch: text plus bound values. Identifiers are never parameters
  *  and never arrive here -- the caller quotes them itself (see `q`), values are always bound. */
@@ -39,6 +39,10 @@ export const batchFor =
     Effect.promise(async () => {
       await ensureCubeSchema(cube)
       return withRole(cube, async (c) => {
+        // The cube's statements use its OWN table names unqualified -- the schema is the
+        // cube's context, like the SQLite file was. search_path is set per transaction, so an
+        // unqualified name can only ever resolve inside the cube's own schema.
+        await c.query(`SELECT set_config('search_path', $1, true)`, [schemaName(cube)])
         const results: Array<ReadonlyArray<Record<string, unknown>>> = []
         for (const s of statements) {
           const r = await c.query(s.text, [...(s.values ?? [])])

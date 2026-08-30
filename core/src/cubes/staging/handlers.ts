@@ -113,7 +113,7 @@ export const stagingHandlers = (tools: CubeTools, batched: BatchStore) => {
           // ONE transaction: a set half-deleted while its rows survive is the failure this
           // endpoint exists to make impossible.
           yield* batched.batch([
-            { text: `DELETE FROM "${TABLES.rows}" WHERE body->'setId' = $1`, values: [set.id] },
+            { text: `DELETE FROM "${TABLES.rows}" WHERE body->>'setId' = $1`, values: [set.id] },
             { text: `DELETE FROM "${TABLES.sets}" WHERE id = $1`, values: [set.id] },
           ])
           return { removed: set.id }
