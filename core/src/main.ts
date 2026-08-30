@@ -47,6 +47,17 @@ const ALLOWED_ORIGINS: ReadonlyArray<string> = ((): ReadonlyArray<string> => {
   }
 })()
 
+// The unset default (`["*"]`) exists so local development needs no configuration, but a
+// deployment that merely forgot the variable must not look identical to a configured one:
+// warn loudly, and refuse to start in production.
+if (ALLOWED_ORIGINS.length === 1 && ALLOWED_ORIGINS[0] === "*") {
+  if (process.env.NODE_ENV === "production")
+    fail(new Error("QWBE_ALLOWED_ORIGINS is not set -- refusing to start with CORS wide open in production"), 2)
+  console.warn(
+    "WARNING: QWBE_ALLOWED_ORIGINS is not set -- CORS allows every origin. Set it to your frontend origins before exposing this server.",
+  )
+}
+
 // --- 1. discovery: level 0 (cubes + plugins) and level 1 (spaces) ---
 //
 // The ledger snapshot is taken FIRST, before `loadDefinitions` imports a single plugin
@@ -209,9 +220,19 @@ const ServerLive = HttpApiBuilder.serve((app) =>
   // set, unlisted origins get no access-control-allow-origin header and the browser blocks
   // them. Note: this is CORS, a browser enforcement only -- it is NOT authentication, and
   // non-browser clients never send an Origin at all.
+  //
+  // The allowlist is passed as a PREDICATE, not an array: Effect's cors middleware only
+  // checks the request Origin when the array has more than one entry (a one-entry array
+  // stamps its constant value on every response, listed origin or not). The function branch
+  // is evaluated per request for any list length. The unset `["*"]` default stays an array:
+  // Effect stamps the literal `*` constant on every response, which is the pre-QWB-42
+  // behaviour.
   Layer.provide(
     HttpApiBuilder.middlewareCors({
-      allowedOrigins: [...ALLOWED_ORIGINS],
+      allowedOrigins:
+        ALLOWED_ORIGINS.length === 1 && ALLOWED_ORIGINS[0] === "*"
+          ? ["*"]
+          : (origin) => ALLOWED_ORIGINS.includes(origin),
       allowedHeaders: ["Content-Type", "Authorization"],
       allowedMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     }),
