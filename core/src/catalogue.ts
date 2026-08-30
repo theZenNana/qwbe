@@ -1,5 +1,5 @@
-import { deriveAllMetadata, type MetadataCube } from "./metadata/metadata.ts"
-import type { CubeMetadata } from "./metadata/schemas.ts"
+import { deriveAllMetadata, type MetadataCube, metadataHash } from "./metadata/metadata.ts"
+import type { CubeMetadata, FieldMetadata } from "./metadata/schemas.ts"
 
 export type Catalogue = ReadonlyArray<{
   readonly name: string
@@ -44,6 +44,78 @@ type CatalogueDefinition = Readonly<{
     | undefined
 }>
 
+// --- custom fields (QWB-46) ---
+//
+// Custom-field VALUES live in the target row's `custom` sub-object; DEFINITIONS live in the
+// cube that provides them. The kernel never knew about definitions before this ticket: they
+// are runtime data, so they cannot be derived from a contract. A cube whose manifest declares
+// `providesCustomFields` registers a provider here (through the `customFields` tool the kernel
+// hands it at mount), and everything the kernel publishes about fields -- this catalogue's
+// metadata -- appends the provider's active definitions, marked `custom: true`.
+
+/** One active custom-field definition, as the providing cube reports it. */
+export type CustomFieldDefinition = {
+  readonly name: string
+  readonly label: string
+  readonly fieldType: "text" | "number" | "date" | "bool" | "select"
+  readonly required: boolean
+  readonly options: ReadonlyArray<string>
+  readonly position: number
+}
+
+export type CustomFieldProvider = (cube: string) => ReadonlyArray<CustomFieldDefinition>
+
+const customFieldProviders: Array<CustomFieldProvider> = []
+
+/** Called by the kernel at mount, once per cube declaring `providesCustomFields`. */
+export const registerCustomFieldProvider = (provider: CustomFieldProvider): void => {
+  customFieldProviders.push(provider)
+}
+
+/** The active custom-field definitions registered for a target cube. Pure read. */
+export const activeCustomFields = (cube: string): ReadonlyArray<CustomFieldDefinition> =>
+  customFieldProviders.flatMap((provider) => provider(cube))
+
+/** A custom field's definition type, in the vocabulary the published metadata speaks. */
+const customFieldType: Record<CustomFieldDefinition["fieldType"], string> = {
+  text: "string",
+  number: "number",
+  date: "string",
+  bool: "boolean",
+  select: "string",
+}
+
+const customFieldMetadata = (d: CustomFieldDefinition): FieldMetadata => ({
+  name: d.name,
+  label: d.label,
+  type: customFieldType[d.fieldType],
+  required: d.required,
+  editable: true,
+  sortable: false,
+  searchable: false,
+  nullable: false,
+  enum: d.fieldType === "select" ? [...d.options] : null,
+  relation: null,
+  custom: true,
+})
+
+/**
+ * Append the target cube's active custom fields to its derived metadata, and re-fingerprint.
+ *
+ * Appended HERE, not inside the cached derivation: definitions are runtime data that change
+ * without a remount, and the cache is keyed by the cube's mounted parts. The fingerprint covers
+ * the enriched list -- a client caching by `schemaHash` re-fetches when an administrator defines
+ * or deletes a field. The drift gate (schema-drift.ts) deliberately compares the STATIC hash:
+ * runtime definitions are data, not a schema change under a declared version.
+ */
+const enrichWithCustomFields = (base: CubeMetadata | undefined, cube: string): CubeMetadata | undefined => {
+  if (!base) return undefined
+  const custom = activeCustomFields(cube)
+  if (custom.length === 0) return base
+  const fields = [...base.fields, ...custom.map(customFieldMetadata)]
+  return { ...base, fields, schemaHash: metadataHash(base.cube, base.entity, base.version, fields) }
+}
+
 // Derived metadata is pure, and a mounted cube's contract never changes within one mount --
 // so each cube is derived once and remembered by its parts object, not by name (two mounts
 // in one process must not share a cache entry). The ABSENT result is cached too: most cubes
@@ -85,7 +157,7 @@ export const buildCatalogue = (
   return definitions.map(({ name, plugin, manifest, cube }) => {
     const endpoints = (cube?.parts.group as { endpoints?: Record<string, { path?: string }> } | undefined)?.endpoints
     const firstPath = Object.values(endpoints ?? {})[0]?.path
-    const metadata = cube ? metadataByName.get(name) : undefined
+    const metadata = cube ? enrichWithCustomFields(metadataByName.get(name), name) : undefined
     return {
       name,
       parent: manifest.parent,

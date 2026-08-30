@@ -111,6 +111,9 @@ export const deriveCubeMetadata = (
       nullable: shape.nullable,
       enum: shape.enum ? [...shape.enum] : null,
       relation,
+      // Static fields are the schema's own; runtime custom fields are appended in
+      // `buildCatalogue` (catalogue.ts), because they change without a remount.
+      custom: false,
     }
   })
 
@@ -118,12 +121,22 @@ export const deriveCubeMetadata = (
     cube: cube.name,
     entity: m.entity ?? null,
     version: m.version ?? null,
-    schemaHash: createHash("sha256")
-      .update(JSON.stringify({ cube: cube.name, entity: m.entity ?? null, fields }))
-      .digest("hex"),
+    schemaHash: metadataHash(cube.name, m.entity ?? null, m.version ?? null, fields),
     fields,
   }
 }
+
+/** Fingerprint of a field list. Shared with `buildCatalogue`, which appends runtime custom
+ *  fields after this cached derivation and re-fingerprints the enriched list. */
+export const metadataHash = (
+  cube: string,
+  entity: string | null,
+  version: string | null,
+  fields: ReadonlyArray<FieldMetadata>,
+): string =>
+  createHash("sha256")
+    .update(JSON.stringify({ cube, entity, version, fields: [...fields] }))
+    .digest("hex")
 
 /**
  * Where a field points, and how a summary for the other side resolves.

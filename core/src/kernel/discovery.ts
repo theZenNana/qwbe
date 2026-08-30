@@ -16,10 +16,11 @@
 
 import { Effect } from "effect"
 import { capabilityRuntime } from "../capability-runtime.ts"
-import { buildCatalogue } from "../catalogue.ts"
+import { buildCatalogue, registerCustomFieldProvider } from "../catalogue.ts"
 import { type CubeDefinition, decodeCubeExport, validateCubeParts } from "../cube-contract.ts"
 import { busFrom } from "./bus.ts"
 import { installerFor } from "./install.ts"
+import type { CustomFieldTools } from "./manifest.ts"
 import { discover } from "./scan.ts"
 
 export { BrokenCubeError, DoubleCapabilityError, DoublePrivilegeError, DuplicateCubeError } from "./errors-discovery.ts"
@@ -251,6 +252,34 @@ export const mount = (
       liveLinks(),
     )
 
+  /**
+   * The QWB-46 tool for the one cube declaring `providesCustomFields`.
+   *
+   * `register` feeds the catalogue's provider registry; `rows` reads a target cube's rows
+   * through the target's OWN store (its schema, its role -- the same trusted construction the
+   * mount itself uses), so orphan reporting never needs a sidecar copy of the values.
+   */
+  const customFieldTools: CustomFieldTools = {
+    register: (provide) => registerCustomFieldProvider(provide),
+    rows: (cube) =>
+      Effect.gen(function* () {
+        const target = cubes.find((c) => c.name === cube)
+        if (!target) return []
+        const tables = target.manifest.tables ?? []
+        const out: Array<{ id: string; custom: Record<string, unknown> }> = []
+        for (const table of tables) {
+          const rows = yield* storeFor(cube, tables, target.manifest.sortable ?? []).all<Record<string, unknown>>(table)
+          for (const row of rows) {
+            const custom = row.custom
+            if (typeof custom === "object" && custom !== null && !Array.isArray(custom)) {
+              out.push({ id: String(row.id), custom: custom as Record<string, unknown> })
+            }
+          }
+        }
+        return out
+      }),
+  }
+
   const cubes: Array<MountedCube> = definitions.map(({ plugin, definition }) => {
     const m = definition.manifest
     const full = fullName(m)
@@ -268,6 +297,7 @@ export const mount = (
       identities: m.usesIdentityDirectory ? capabilities.identities : undefined,
       entityPermissions: m.usesEntityPermissions ? capabilities.permissions : undefined,
       runCommands: m.runsCommands ? runner : undefined,
+      customFields: m.providesCustomFields ? customFieldTools : undefined,
     })
     const parts = capabilities.mediate(full, m, created)
     validateCubeParts(full, parts)

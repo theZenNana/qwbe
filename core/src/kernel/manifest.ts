@@ -198,6 +198,16 @@ export type Manifest = {
    */
   readonly runsCommands?: boolean
   /**
+   * DECLARED CAPABILITY (QWB-46): this cube owns custom-field DEFINITIONS for other cubes.
+   *
+   * The values are deliberately NOT here: since the storage decision of 30 Aug 2026 they live
+   * in each target row's own body, under the reserved `custom` sub-object. The cube declaring
+   * this receives the `customFields` tool: it registers its active definitions (so the
+   * catalogue's metadata and the orphan report see them) and reads a target cube's rows to
+   * report values whose definition is gone. See `CustomFieldTools` below.
+   */
+  readonly providesCustomFields?: boolean
+  /**
    * Data-file migrations this package declares, run at mount before any store opens.
    *
    * Declared here -- in the declarative manifest, not in `create` -- because migration is a
@@ -221,6 +231,22 @@ export type CredentialVerifier = {
 }
 
 export type { RelationalPart, SearchResult } from "./entity.ts"
+
+/**
+ * The narrow tool the kernel lends a cube declaring `providesCustomFields` (QWB-46).
+ *
+ * `register` publishes the cube's ACTIVE definitions per target cube; the catalogue's metadata
+ * appends them marked `custom: true`, and a frontend can tell them apart from static fields.
+ * `rows` reads a target cube's rows so the provider can report ORPHANED values -- values still
+ * sitting in a row's `custom` sub-object whose definition was deleted. Values are never handed
+ * over for writing: they are written through the target cube's own API and store, nowhere else.
+ */
+export type CustomFieldTools = {
+  readonly register: (provide: (cube: string) => ReadonlyArray<import("../catalogue.ts").CustomFieldDefinition>) => void
+  readonly rows: (
+    cube: string,
+  ) => Effect.Effect<ReadonlyArray<{ readonly id: string; readonly custom: Record<string, unknown> }>, never, never>
+}
 
 /** A subscription to an event, by string name. See `bus.ts`. */
 export type Subscription = {
@@ -268,6 +294,8 @@ export type CubeTools = {
   /** Present only when the manifest declares `usesIdentityDirectory`. */
   readonly identities?: IdentityDirectory | undefined
   readonly entityPermissions?: PermissionService | undefined
+  /** Present ONLY when the manifest declares `providesCustomFields` (QWB-46). */
+  readonly customFields?: CustomFieldTools | undefined
 }
 
 export type { Catalogue } from "../catalogue.ts"
