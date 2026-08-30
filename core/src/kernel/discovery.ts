@@ -20,13 +20,14 @@ import { buildCatalogue } from "../catalogue.ts"
 import { type CubeDefinition, decodeCubeExport, validateCubeParts } from "../cube-contract.ts"
 import { busFrom } from "./bus.ts"
 import { installerFor } from "./install.ts"
+
 import { discover } from "./scan.ts"
 
 export { BrokenCubeError, DoubleCapabilityError, DoublePrivilegeError, DuplicateCubeError } from "./errors-discovery.ts"
 
+import type { Subscription } from "../catalogue.ts"
 import { BrokenCubeError, DoubleCapabilityError, DoublePrivilegeError } from "./errors-discovery.ts"
-
-import type { Catalogue, CommandInfo, CommandRunner, CommandSpec, CubeParts, Subscription } from "./manifest.ts"
+import type { Catalogue, CommandInfo, CommandRunner, CommandSpec, CubeParts } from "./manifest.ts"
 import {
   fullName,
   leafOf,
@@ -38,7 +39,7 @@ import {
 } from "./manifest-validation.ts"
 import { activeLinks, type SpaceDefinition } from "./space.ts"
 import { type Switches, switchesFrom } from "./state.ts"
-import { checkUniqueTables, storeFor } from "./store.ts"
+import { checkUniqueTables, customFieldToolsFor, storeFor } from "./store.ts"
 
 export type MountedCube = {
   readonly manifest: import("../cube-contract.ts").CubeManifest
@@ -161,6 +162,11 @@ export const mount = (
   // arrangement -- the same visibility rule as `managesCubes`.
   const runners = manifests.filter((m) => m.runsCommands).map((m) => fullName(m))
   if (runners.length > 1) throw new DoubleCapabilityError("runsCommands", runners)
+  // The same single-holder rule for `providesCustomFields`: the flag hands out an unrestricted
+  // reader over every other cube's rows under that cube's own DB role. Two holders would mean
+  // two plugins reading each other's data with no permission gate between them.
+  const fieldReaders = manifests.filter((m) => m.providesCustomFields).map((m) => fullName(m))
+  if (fieldReaders.length > 1) throw new DoublePrivilegeError(fieldReaders)
   // The provider fills this during its own `create`; the consumer receives a wrapper that reads
   // it at call time. Late binding on purpose -- otherwise the two cubes would have to be created
   // in a particular order, and mount order is just the order of directory names on disk.
@@ -270,6 +276,9 @@ export const mount = (
       identities: m.usesIdentityDirectory ? capabilities.identities : undefined,
       entityPermissions: m.usesEntityPermissions ? capabilities.permissions : undefined,
       runCommands: m.runsCommands ? runner : undefined,
+      customFields: m.providesCustomFields
+        ? customFieldToolsFor((name) => cubes.find((c) => c.name === name))
+        : undefined,
     })
     const parts = capabilities.mediate(full, m, created)
     validateCubeParts(full, parts)

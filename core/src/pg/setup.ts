@@ -55,6 +55,13 @@ export const ensureCubeSchema = async (cube: string): Promise<string> => {
     try {
       await client.query("BEGIN")
       await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [schema])
+      // A SECOND, global lock around the role DDL: `tuple concurrently updated` is what two
+      // transactions updating pg_roles at the same moment get, and the schema-keyed lock does
+      // not prevent that -- two DIFFERENT cubes booting concurrently both reach CREATE ROLE.
+      // QWB-46 hit it for real: the customfields snapshot load runs at boot, racing the other
+      // cubes' first touch. One lock key serializes every role creation; ordering (schema
+      // lock, then this one) is the same everywhere, so no deadlock.
+      await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, ["qwbe/role-ddl"])
       await client.query(`CREATE SCHEMA IF NOT EXISTS ${q(schema)}`)
       const roleExists = await client.query(`SELECT 1 FROM pg_roles WHERE rolname = $1`, [role])
       if ((roleExists.rowCount ?? 0) === 0) await client.query(`CREATE ROLE ${q(role)} NOLOGIN`)

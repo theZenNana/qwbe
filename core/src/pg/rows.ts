@@ -67,3 +67,34 @@ export const whereClause = (where?: {
 // parameters came before it. Renumbering happens in `page` -- the one place both clauses are
 // combined and the only place the numbering is known.
 export const renumber = (sql: string, offset: number) => sql.replace("$SORTBY", `$${offset + 1}`)
+
+/**
+ * QWB-46: `custom` is the reserved sub-object of a row body holding undeclared (custom-field)
+ * keys. A PATCH is partial, so its `custom` MERGES with the row's -- replacing it wholesale
+ * would silently drop every custom value the patch did not mention. Declared fields keep the
+ * plain shallow-merge semantics the caller applies before this runs.
+ */
+export const mergeCustom = (
+  currentRow: Record<string, unknown>,
+  merged: Record<string, unknown>,
+): Record<string, unknown> => {
+  const previousCustom = (currentRow as { body?: { custom?: unknown } }).body?.custom
+  const patchCustom = merged.custom
+  if (
+    typeof patchCustom === "object" &&
+    patchCustom !== null &&
+    !Array.isArray(patchCustom) &&
+    typeof previousCustom === "object" &&
+    previousCustom !== null &&
+    !Array.isArray(previousCustom)
+  ) {
+    return {
+      ...merged,
+      custom: {
+        ...(previousCustom as Record<string, unknown>),
+        ...(patchCustom as Record<string, unknown>),
+      },
+    }
+  }
+  return merged
+}

@@ -23,7 +23,7 @@ import type { CubeStore } from "../kernel/manifest.ts"
 import type { Page, PageRequest } from "../kernel/pagination.ts"
 import { type BatchStore, batchFor } from "./batch.ts"
 import { ForeignTableError } from "./errors.ts"
-import { decode, newId, orderClause, outboxInsert, renumber, whereClause } from "./rows.ts"
+import { decode, mergeCustom, newId, orderClause, outboxInsert, renumber, whereClause } from "./rows.ts"
 import { ensureCubeSchema, ensureTable, q, schemaName, withRole } from "./setup.ts"
 
 export { ForeignTableError } from "./errors.ts"
@@ -136,7 +136,9 @@ export const storeFor = (
           const current = await c.query(`SELECT * FROM ${q(schemaName(cube))}.${q(t)} WHERE id = $1`, [id])
           if (!current.rows[0]) return undefined
           const merged = { ...decode(current.rows[0] as Record<string, unknown>), ...patch }
-          const { id: _i, type, createdAt, deleted, ...body } = merged
+          // QWB-46: `custom` merges (rows.ts), so a partial PATCH cannot wipe sibling values.
+          const withCustom = mergeCustom(current.rows[0] as Record<string, unknown>, merged)
+          const { id: _i, type, createdAt, deleted, ...body } = withCustom
           const version = ((current.rows[0] as { version: number }).version ?? 1) + 1
           await c.query(
             `UPDATE ${q(schemaName(cube))}.${q(t)}
@@ -146,7 +148,9 @@ export const storeFor = (
           )
           // ADR-0001 section 5 lists delete as its own op: a soft delete is not an update.
           await c.query(outboxInsert(cube, t, id, deleted === true ? "delete" : "update", version))
-          return merged
+          // Review fix 6 (QWB-46): the row stores the MERGE, so the response must too -- a
+          // PATCH response reporting `custom` as only the patched keys would lie about the row.
+          return { ...withCustom, id }
         })
       }),
 

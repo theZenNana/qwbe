@@ -1,27 +1,41 @@
 // The CUSTOMFIELDS probe -- the plugin at plugins/customfields-pack, exercised over HTTP.
 //
-//   node probes/customfields.mjs
+//   node probes/customfields.mjs        (with `npm run db:up` first: Postgres on :5433)
 //
-// The pack lives in its own repository, a sibling of this one under the owner's Projects
-// directory, and reaches this machine through the same door an administrator uses: install-from.
-// The probe installs it from that directory, restarts so the cube mounts, and then walks the
-// surface the web UI sits on: define a field, list the definitions, write a value, read it
-// back, and refuse a value the definition says cannot exist. Every response body is checked
-// against the same fields the web schemas require, so a missing or retyped field turns the
-// probe red instead of silently rendering an empty panel in the UI.
+// QWB-46 acceptance, end to end: values live in the TARGET row's own body under the reserved
+// `custom` sub-object, not in a sidecar table. The walk itself lives in customfields-walk.mjs
+// (phase 1) and customfields-orphan.mjs (phase 2) -- split out because the file passed the size
+// cap. This driver owns the environment: it installs the fixture cube and the pack, restarts so
+// they mount, and leaves the tree exactly as it was found. The database is created and dropped
+// by this probe, so the restart proves persistence.
 //
-// Scratch directories, a free port, and the plugin copy uninstalled at the end -- the repo is
-// left exactly as it was found.
+// The TARGET is a fixture cube shipped under probes/fixtures/ (review fix 20): the walk used to
+// refuse unless an untracked crm-pack install existed, so the acceptance criterion could not
+// run on CI or a fresh checkout. Nothing about the fold is crm-specific.
 
 import { existsSync, rmSync } from "node:fs"
-import { homedir } from "node:os"
 import { join } from "node:path"
-import { client, dropScratch, freePort, makeScore, root, scratchDataDir, startServer, stopServer } from "./lib.mjs"
+import { walkPhase2 } from "./customfields-orphan.mjs"
+import { walkPhase1 } from "./customfields-walk.mjs"
+import {
+  client,
+  dropDatabase,
+  dropScratch,
+  freePort,
+  makeScore,
+  root,
+  scratchDatabase,
+  scratchDataDir,
+  startServer,
+  stopServer,
+} from "./lib.mjs"
 
 // Overridable with CUSTOMFIELDS_PACK; the default is the sibling checkout, never a literal
 // home path (the secretlint rule in .secretlintrc.json exists to keep those out).
-const SOURCE = process.env.CUSTOMFIELDS_PACK ?? join(homedir(), "Projects", "Qwbe", "plugins", "customfields-pack")
+const SOURCE = process.env.CUSTOMFIELDS_PACK ?? join(root, "..", "plugins", "customfields-pack")
 const PACK = "customfields-pack"
+const FIXTURE = join(root, "probes", "fixtures", "guestbook-pack")
+const FIXTURE_PACK = "guestbook-pack"
 const score = makeScore()
 
 if (!existsSync(SOURCE)) {
@@ -29,137 +43,99 @@ if (!existsSync(SOURCE)) {
   console.error("set CUSTOMFIELDS_PACK to the customfields-pack checkout and retry.")
   process.exit(1)
 }
-
-// The install copies the pack into core/plugins and the kernel reads that directory once, at
-// startup. A leftover copy from an earlier run would make the install below a silent no-op
-// (or a refusal), so the probe refuses to guess whose it is - the same rule install-from uses.
-const liveAt = join(root, "core", "plugins", PACK)
-if (existsSync(liveAt)) {
-  console.error(`refused: ${liveAt} already exists. Remove it first (it should not be committed).`)
+if (!existsSync(FIXTURE)) {
+  console.error(`refused: the fixture pack does not exist: ${FIXTURE}`)
   process.exit(1)
+}
+
+// A leftover copy from an earlier run would make the install below a silent no-op (or a
+// refusal), so the probe refuses to guess whose it is - the same rule install-from uses.
+for (const name of [PACK, FIXTURE_PACK]) {
+  const liveAt = join(root, "core", "plugins", name)
+  if (existsSync(liveAt)) {
+    console.error(`refused: ${liveAt} already exists. Remove it first (it should not be committed).`)
+    process.exit(1)
+  }
 }
 
 const port = await freePort()
 const dataDir = scratchDataDir("customfields")
-const storeDir = scratchDataDir("customfields-store")
+// The probe manages its own database so a restart KEEPS the data -- that is the persistence the
+// acceptance criteria ask for. Owned databases are dropped in the finally block.
+const dbUrl = await scratchDatabase("customfields")
 
-const boot = () => startServer(port, { QWBE_DATA_DIR: dataDir, QWBE_STORE_DIR: storeDir })
+const boot = () => startServer(port, { QWBE_DATA_DIR: dataDir, QWBE_DATABASE_URL: dbUrl })
 
 let server = await boot()
 if (!server.alive) {
   console.error(`server did not start:\n${server.output}`)
-  // The scratch directories exist by now -- clean them up on this path too, not only in the
-  // finally below, so a failed boot does not leave them behind.
   dropScratch(dataDir)
-  dropScratch(storeDir)
+  await dropDatabase(dbUrl)
   process.exit(1)
 }
 
-try {
-  const admin = await client(port).login()
-  const call = (path, options = {}) => client(port).call(path, { ...options, headers: admin.headers })
-
-  // ---- install from the pack's own repository, restart, and confirm the routes exist ----------
-  const install = await call("/settings/packages/install-from", {
-    method: "POST",
-    body: JSON.stringify({ path: SOURCE }),
-  })
-  score.check(
-    "the pack installs from its own repository",
-    install.status === 200 && install.body?.package?.name === PACK,
-    `http=${install.status}`,
-  )
-
-  // `requiresRestart: true` is the honest answer -- the kernel reads plugins once, at startup.
-  await call("/settings/restart", { method: "POST", body: "{}" })
+/** Stop, boot again, log in again, and return a FRESH session for the new server.
+ *
+ *  Sessions live in Postgres and DO survive a restart (measured: a pre-restart caller keeps
+ *  working). Each reboot still logs in again on purpose -- a probe must never silently depend
+ *  on session persistence -- and every caller below is the one created AFTER the restart it
+ *  addresses (review fix 18: the walk used to pass a caller from before the restart, which
+ *  only worked by the accident above). */
+const reboot = async () => {
   await stopServer(server)
   server = await boot()
   if (!server.alive) {
     console.error(`server did not restart:\n${server.output}`)
     process.exit(1)
   }
-  // Sessions do not survive a restart (the token store lives in the process), so log in again.
-  const api = client(port)
-  const fresh = await api.login()
-  const asAdmin = (path, options = {}) => api.call(path, { ...options, headers: fresh.headers })
+  const fresh = await client(port).login()
+  return (path, options = {}) => client(port).call(path, { ...options, headers: fresh.headers })
+}
 
-  const define = await asAdmin("/customfields", {
+const install = async (asAdmin, path, name) => {
+  const r = await asAdmin("/settings/packages/install-from", {
     method: "POST",
-    body: JSON.stringify({ targetCube: "notes", name: "priority", fieldType: "number" }),
+    body: JSON.stringify({ path }),
   })
   score.check(
-    "a number field is defined on notes",
-    define.status === 200 && define.body?.name === "priority" && define.body?.fieldType === "number",
-    `http=${define.status}`,
+    `${name} installs from its source directory`,
+    r.status === 200,
+    `http=${r.status} ${JSON.stringify(r.body).slice(0, 200)}`,
   )
+}
 
-  const list = await asAdmin("/customfields?limit=200")
-  // The fields the web's CustomFieldDefSchema requires: a missing or retyped one would make
-  // the panel render nothing while this check stayed green, so each is asserted explicitly.
-  const listed = list.body?.rows?.find((d) => d.name === "priority")
-  const defFieldsOk =
-    listed &&
-    typeof listed.id === "string" &&
-    listed.targetCube === "notes" &&
-    typeof listed.label === "string" &&
-    listed.fieldType === "number" &&
-    Array.isArray(listed.options) &&
-    typeof listed.required === "boolean" &&
-    typeof listed.position === "number"
-  score.check(
-    "the definition is in the list with every field the web schema requires",
-    list.status === 200 && Boolean(defFieldsOk) && typeof list.body?.total === "number",
-    `http=${list.status} total=${list.body?.total} fieldsOk=${Boolean(defFieldsOk)}`,
-  )
+try {
+  const first = await client(port).login()
+  const asAdmin = (path, options = {}) => client(port).call(path, { ...options, headers: first.headers })
 
-  const write = await asAdmin("/customfields/values", {
-    method: "PUT",
-    body: JSON.stringify({ cube: "notes", rowId: "cf-probe-1", values: { priority: "7" } }),
-  })
-  score.check(
-    "a value is written and comes back in the same call",
-    write.status === 200 && write.body?.fields?.find((f) => f.name === "priority")?.value === "7",
-    `http=${write.status}`,
-  )
+  // ---- install the fixture cube and the pack, restart, confirm both mount -------------------
+  await install(asAdmin, FIXTURE, "the fixture cube")
+  await install(asAdmin, SOURCE, "the pack")
 
-  const read = await asAdmin("/customfields/values?cube=notes&rowId=cf-probe-1")
-  // RowFieldsSchema requires cube, rowId and a fields array whose entries carry name, label,
-  // fieldType, options, required, position and value -- the shape the panel renders from.
-  const rf = read.body
-  const field = rf?.fields?.find((f) => f.name === "priority")
-  const rowFieldsOk =
-    rf?.cube === "notes" &&
-    rf?.rowId === "cf-probe-1" &&
-    field?.value === "7" &&
-    typeof field?.label === "string" &&
-    field?.fieldType === "number" &&
-    Array.isArray(field?.options) &&
-    typeof field?.required === "boolean" &&
-    typeof field?.position === "number"
-  score.check(
-    "the value reads back on a fresh lookup with every field the web schema requires",
-    read.status === 200 && Boolean(rowFieldsOk),
-    `http=${read.status} rowFieldsOk=${Boolean(rowFieldsOk)}`,
-  )
+  await asAdmin("/settings/restart", { method: "POST", body: "{}" })
+  await reboot()
 
-  const bad = await asAdmin("/customfields/values", {
-    method: "PUT",
-    body: JSON.stringify({ cube: "notes", rowId: "cf-probe-1", values: { priority: "seven" } }),
-  })
-  score.check(
-    "a value that is not a number is refused with 400 and a reason",
-    bad.status === 400 && String(bad.body?.message).includes("priority"),
-    `http=${bad.status} message=${bad.body?.message}`,
-  )
+  const phase1 = await walkPhase1({ score, asAdmin, reboot })
+  // The fresh caller walkPhase1 created AFTER its reboot is the live one (review fix 18): the
+  // outer caller from before that restart only worked by the accident that sessions live in
+  // Postgres and survive. Use what the phase that did the restart returned.
+  await walkPhase2({ score, asAdmin2: phase1.asAdmin2, entryId: phase1.entryId, cube: "guestbook" })
 
-  // Leave as found: the install copy goes, so the next run installs from scratch.
-  const undo = await asAdmin(`/settings/packages/${PACK}`, { method: "DELETE" })
-  score.check("the pack uninstalls cleanly at the end", undo.status === 200, `http=${undo.status}`)
+  // ---- leave as found: the installs go, so the next run installs from scratch ---------------
+  for (const name of [PACK, FIXTURE_PACK]) {
+    const undo = await phase1.asAdmin2(`/settings/packages/${name}`, { method: "DELETE" })
+    score.check(`${name} uninstalls cleanly at the end`, undo.status === 200, `http=${undo.status}`)
+  }
+} catch (e) {
+  console.error(e.message)
+  score.check("probe ran to completion", false, e.message)
 } finally {
-  await stopServer(server)
-  rmSync(liveAt, { recursive: true, force: true })
+  await stopServer(server).catch(() => {})
+  for (const name of [PACK, FIXTURE_PACK]) {
+    rmSync(join(root, "core", "plugins", name), { recursive: true, force: true })
+  }
   dropScratch(dataDir)
-  dropScratch(storeDir)
+  await dropDatabase(dbUrl)
 }
 
 process.exit(score.report("customfields"))

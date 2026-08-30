@@ -14,6 +14,11 @@
 // `closeAll`, `ForeignTableError`, `checkUniqueTables`, `DuplicateTableError` -- so the mount
 // code and every cube stay untouched. The implementation lives in `pg/`.
 
+import { Effect } from "effect"
+import type { CustomFieldTools } from "../catalogue.ts"
+import { registerCustomFieldProvider } from "../catalogue.ts"
+import { customRows } from "../pg/custom-rows.ts"
+
 export { closeAll, databaseUrl, initStore } from "../pg/db.ts"
 export { ForeignTableError } from "../pg/errors.ts"
 export { storeFor } from "../pg/store.ts"
@@ -54,3 +59,25 @@ export const checkUniqueTables = (
     if (list.length > 1) throw new DuplicateTableError(table, list)
   }
 }
+
+// --- QWB-46: the tool for the one cube declaring `providesCustomFields` ---
+//
+// `register` feeds the catalogue's provider registry (catalogue.ts); `rows` reads a target
+// cube's rows through the target's OWN store -- its schema, its role, the same trusted
+// construction the mount itself uses -- so orphan reporting never needs a sidecar copy of the
+// values. The finder is passed in lazily: at mount, the mounted-cubes list does not exist yet.
+export const customFieldToolsFor = (
+  find: (name: string) =>
+    | {
+        readonly manifest: { readonly tables?: readonly string[]; readonly sortable?: readonly string[] }
+      }
+    | undefined,
+): CustomFieldTools => ({
+  register: (provide) => registerCustomFieldProvider((cube) => (find(cube) ? provide(cube) : [])),
+  rows: (cube) =>
+    Effect.gen(function* () {
+      const target = find(cube)
+      if (!target) return []
+      return yield* customRows(cube, target.manifest.tables ?? [])
+    }),
+})

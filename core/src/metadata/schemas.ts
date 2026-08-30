@@ -27,6 +27,12 @@ export const FieldMetadata = Schema.Struct({
   /** Literal options when the schema is a literal union, otherwise null. */
   enum: Schema.NullOr(Schema.Array(Schema.String)),
   relation: Schema.NullOr(RelationMetadata),
+  /**
+   * QWB-46: true when the field is a runtime-defined custom field, appended to the cube's
+   * static schema by its custom-field provider. A frontend must be able to tell them apart:
+   * a custom field has no code behind it -- it lives in the row's `custom` sub-object.
+   */
+  custom: Schema.Boolean,
 }).annotations({ identifier: "FieldMetadata" })
 
 export const CubeMetadata = Schema.Struct({

@@ -15,7 +15,7 @@
 import type { HttpApiEndpoint, HttpApiGroup } from "@effect/platform"
 import type { Effect, Layer } from "effect"
 import { Schema } from "effect"
-import type { Catalogue } from "../catalogue.ts"
+import type { Catalogue, CustomFieldTools, Subscription } from "../catalogue.ts"
 import type { IdentityDirectory, PermissionService } from "../permissions-contracts.ts"
 import type { RelationalPart } from "./entity.ts"
 import type { Page, PageRequest } from "./pagination.ts"
@@ -198,6 +198,16 @@ export type Manifest = {
    */
   readonly runsCommands?: boolean
   /**
+   * DECLARED CAPABILITY (QWB-46): this cube owns custom-field DEFINITIONS for other cubes.
+   *
+   * The values are deliberately NOT here: since the storage decision of 30 Aug 2026 they live
+   * in each target row's own body, under the reserved `custom` sub-object. The cube declaring
+   * this receives the `customFields` tool: it registers its active definitions (so the
+   * catalogue's metadata and the orphan report see them) and reads a target cube's rows to
+   * report values whose definition is gone. See `CustomFieldTools` below.
+   */
+  readonly providesCustomFields?: boolean
+  /**
    * Data-file migrations this package declares, run at mount before any store opens.
    *
    * Declared here -- in the declarative manifest, not in `create` -- because migration is a
@@ -230,12 +240,6 @@ export type CredentialVerifier = {
 }
 
 export type { RelationalPart, SearchResult } from "./entity.ts"
-
-/** A subscription to an event, by string name. See `bus.ts`. */
-export type Subscription = {
-  readonly event: string
-  readonly handle: (payload: unknown) => Effect.Effect<void, never, never>
-}
 
 /**
  * What a cube's `index.ts` exports. A single export, named `cube`.
@@ -277,6 +281,8 @@ export type CubeTools = {
   /** Present only when the manifest declares `usesIdentityDirectory`. */
   readonly identities?: IdentityDirectory | undefined
   readonly entityPermissions?: PermissionService | undefined
+  /** Present ONLY when the manifest declares `providesCustomFields` (QWB-46). */
+  readonly customFields?: CustomFieldTools | undefined
 }
 
 export type { Catalogue } from "../catalogue.ts"
