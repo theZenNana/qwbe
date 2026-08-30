@@ -153,6 +153,10 @@ export const unitDirs = (root) => {
   for (const c of children(join(root, "core/src/cubes"))) add(`cube ${c.name}`, join(root, "core/src/cubes", c.name))
   for (const s of children(join(root, "core/src/spaces"))) add(`space ${s.name}`, join(root, "core/src/spaces", s.name))
   add("kernel", join(root, "core/src/kernel"))
+  // Born with QWB-41 (per-cube field metadata). The kernel was at its recorded unit ceiling,
+  // so the new subsystem became its own unit the day the directory was born -- measured from
+  // the first commit, never a blind spot.
+  add("metadata", join(root, "core/src/metadata"))
   // The machine-facing modules the kernel lends to a cube (`host/workstation.ts` and what it
   // uses). Added the day the directory was born, not after: the per-file cap already covered
   // those files, but the per-unit one did not, so moving code out of a cube and into here would
