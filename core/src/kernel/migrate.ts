@@ -1,33 +1,31 @@
-// Data migrations between store files, DECLARED by packages and executed by the kernel.
+// Data migrations between cube schemas, DECLARED by packages and executed by the kernel.
 //
 // Split out of discovery.ts on 2026-08-11 when the hierarchy work pushed that file past its
 // size cap. Rewritten the same day after review: no list of cube names lives here any more --
 // a migration is a `dataMigration` entry in a package's manifest, checked at mount against the
 // mounted set and the package's provenance.
 //
-// The rules that keep a plugin from reaching outside itself:
-//   - `toCube` must be a mounted cube of the declaring package;
-//   - `fromCube` is a bare name whose file sits in the data directory -- the kernel derives the
-//     path, a manifest can never name one;
-//   - preflight runs for EVERY migration and EVERY companion file (.sqlite, -wal, -shm) before
-//     a single byte moves;
-//   - a failed move rolls the whole batch back.
+// QWB-44 moved the store from one SQLite file per cube to one Postgres schema per cube, and
+// the migration moved with it. What was a file rename is now a schema rename -- and a schema
+// rename in Postgres is metadata, so the rows move byte for byte with no copying at all:
+//
+//   ALTER SCHEMA "old" RENAME TO "new"   (plus the matching role rename)
+//
+// inside ONE transaction. The rules that keep a plugin from reaching outside itself are
+// unchanged and live in `migrate-ownership.ts`; the preflight here is the same shape it was
+// with files: EVERY migration is checked before a single rename runs, and a failed move rolls
+// the whole batch back.
 
-import { existsSync, renameSync } from "node:fs"
-import { dirname, join } from "node:path"
-import { fileURLToPath } from "node:url"
 import type { DataMigration } from "./manifest.ts"
-import { storeFileName } from "./manifest-validation.ts"
+import { getPool } from "./pg/db.ts"
+import { q, roleName, schemaExists, schemaName } from "./pg/setup.ts"
 
 export { MigrationOwnershipError } from "./migrate-ownership.ts"
-
-const here = dirname(fileURLToPath(import.meta.url))
-const dataDir = process.env.QWBE_DATA_DIR ?? join(here, "..", "..", "..", "data")
 
 export class MigrationConflictError extends Error {
   constructor(from: string, to: string) {
     super(
-      `Data migration refused: both "${from}" and "${to}" exist in the data directory. ` +
+      `Data migration refused: the schemas for both "${from}" and "${to}" exist in the database. ` +
         `One of them must be removed by hand -- choosing one silently would be choosing which ` +
         `data to lose.`,
     )
@@ -40,7 +38,7 @@ export class MigrationFailedError extends Error {
     super(
       rollbackFailed
         ? `Data migration failed moving "${from}" to "${to}": ${cause}. ` +
-            `The rollback ALSO failed for at least one file (logged above) -- the data directory ` +
+            `The rollback ALSO failed for at least one schema (logged above) -- the database ` +
             `may hold a partial batch. Inspect it before restarting.`
         : `Data migration failed moving "${from}" to "${to}" and the batch was rolled back: ${cause}`,
     )
@@ -48,50 +46,39 @@ export class MigrationFailedError extends Error {
   }
 }
 
-type Move = { readonly fromPath: string; readonly toPath: string }
-
-/** The three files that travel together: the database and its WAL companions. */
-const companions = (base: string): ReadonlyArray<string> =>
-  [base, `${base}-wal`, `${base}-shm`].filter((p) => existsSync(p))
+type Move = { readonly fromSchema: string; readonly toSchema: string }
 
 /**
- * Plan, preflight, move, rollback.
+ * Plan, preflight, rename, rollback.
  *
- * Preflight is a SEPARATE pass over the entire batch: every source must exist and every
- * destination must not, for every companion of every migration. Only when the whole plan is
- * clean does the first rename run. A rename that still throws rolls back what has moved.
+ * Preflight is a SEPARATE pass over the entire batch: every source schema must exist and every
+ * destination must not. Only when the whole plan is clean does the first rename run. A rename
+ * that still throws rolls back what has moved.
  *
- * `rename` is a parameter, not an import: the production caller passes `renameSync`, a probe
- * passes a function that throws at a chosen move -- no environment variable smuggles test
- * behaviour into the production path.
+ * `rename` is a parameter, not an import: the production caller passes the Postgres
+ * implementation, a test passes a function that throws at a chosen move -- no environment
+ * variable smuggles test behaviour into the production path.
  */
-export const migrateDataFiles = (
+export const migrateDataSchemas = async (
   migrations: ReadonlyArray<DataMigration>,
-  rename: (from: string, to: string) => void = renameSync,
-): void => {
+  exists: (schema: string) => Promise<boolean> = schemaExists,
+  rename: (fromSchema: string, toSchema: string) => Promise<void> = renameSchema,
+): Promise<void> => {
   if (migrations.length === 0) return
 
   const plan: Array<Move> = []
   for (const m of migrations) {
-    const fromBase = join(dataDir, storeFileName(m.fromCube))
-    const toBase = join(dataDir, storeFileName(m.toCube))
-    if (!existsSync(fromBase)) continue // nothing to migrate -- the old file simply is not here
-    // EVERY destination companion is checked, not only the ones the source has: a stale
-    // `booktags--bookmarks.sqlite-wal` left from an aborted run would survive next to the
-    // migrated database and corrupt the first read.
-    for (const suffix of ["", "-wal", "-shm"]) {
-      if (existsSync(`${toBase}${suffix}`)) throw new MigrationConflictError(m.fromCube, `${m.toCube}${suffix}`)
-    }
-    for (const fromPath of companions(fromBase)) {
-      const toPath = `${toBase}${fromPath.slice(fromBase.length)}`
-      plan.push({ fromPath, toPath })
-    }
+    const from = schemaName(m.fromCube)
+    const to = schemaName(m.toCube)
+    if (!(await exists(from))) continue // nothing to migrate -- the old schema simply is not here
+    if (await exists(to)) throw new MigrationConflictError(m.fromCube, m.toCube)
+    plan.push({ fromSchema: from, toSchema: to })
   }
 
   const done: Array<Move> = []
   try {
     for (const mv of plan) {
-      rename(mv.fromPath, mv.toPath)
+      await rename(mv.fromSchema, mv.toSchema)
       done.push(mv)
     }
   } catch (e) {
@@ -99,14 +86,35 @@ export const migrateDataFiles = (
     let rollbackFailed = false
     for (const mv of done.reverse()) {
       try {
-        renameSync(mv.toPath, mv.fromPath)
+        await rename(mv.toSchema, mv.fromSchema)
       } catch {
         // A rollback that itself fails is reported in the error, not hidden: the operator
-        // must know the directory may be partial.
+        // must know the database may hold a partial batch.
         rollbackFailed = true
-        console.error(`migration rollback could not restore "${mv.toPath}" -> "${mv.fromPath}"`)
+        console.error(`migration rollback could not restore "${mv.toSchema}" -> "${mv.fromSchema}"`)
       }
     }
-    throw new MigrationFailedError(failed.fromPath, failed.toPath, (e as Error).message, rollbackFailed)
+    throw new MigrationFailedError(failed.fromSchema, failed.toSchema, (e as Error).message, rollbackFailed)
+  }
+}
+
+/**
+ * The production rename: schema and its role, in one transaction. A schema rename moves the
+ * tables and their rows as metadata; the role is renamed so the next boot's grants spell the
+ * new name and no stale `qwbe_cube_<old>` role lingers with its membership.
+ */
+export const renameSchema = async (fromSchema: string, toSchema: string): Promise<void> => {
+  const p = getPool()
+  const client = await p.connect()
+  try {
+    await client.query("BEGIN")
+    await client.query(`ALTER SCHEMA ${q(fromSchema)} RENAME TO ${q(toSchema)}`)
+    await client.query(`ALTER ROLE ${q(roleName(fromSchema))} RENAME TO ${q(roleName(toSchema))}`)
+    await client.query("COMMIT")
+  } catch (e) {
+    await client.query("ROLLBACK").catch(() => {})
+    throw e
+  } finally {
+    client.release()
   }
 }

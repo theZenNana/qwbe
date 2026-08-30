@@ -23,6 +23,8 @@ import { catalogueMetadata } from "./catalogue.ts"
 import { Authorization } from "./kernel/auth-contract.ts"
 import { loadDefinitions, mount } from "./kernel/discovery.ts"
 import { readLedger, verifyLedgerUnchanged, writeLedger } from "./kernel/ledger.ts"
+import { migrateDataSchemas } from "./kernel/migrate.ts"
+import { checkMigrationOwnership } from "./kernel/migrate-ownership.ts"
 import { buildApi, buildHandlers, checkCubes, rejectDisabled } from "./kernel/mount.ts"
 import type { Registry, RegistryEntry } from "./kernel/registry.ts"
 import { loadSpaces } from "./kernel/space.ts"
@@ -68,6 +70,16 @@ verifyLedgerUnchanged(ledgerRead)
 // unreachable database stops the boot here, with the variable named -- no fallback, no second
 // storage truth.
 await initStore().catch((e: Error) => fail(e, 2))
+
+// --- 2. data migrations: DECLARED by packages, executed by the kernel ---
+//
+// Validated against the mounted set AND the ledger snapshot taken BEFORE any plugin module
+// was imported (above) -- a plugin's top-level code can rewrite provenance.json, but it
+// cannot rewrite this snapshot. Since QWB-44 a migration is a schema rename in Postgres, so
+// the whole step is async and runs here, before the (synchronous) mount.
+await migrateDataSchemas(await checkMigrationOwnership(definitions, ledgerSnapshot)).catch((e: Error) =>
+  failAfterSnapshot(e, 2),
+)
 
 // --- 2. mount: unique tables, single privilege, switches, per-cube tools ---
 
