@@ -27,7 +27,8 @@ import { IS_TEST, posix, unitDirs, walk } from "./size-lib.mjs"
 
 const here = dirname(fileURLToPath(import.meta.url))
 const root = join(here, "..")
-const configPath = join(root, "qwbe.config.json")
+// Same file the size caps read: core/qwbe.config.json, the qwbe-core package root (QWB-54).
+const configPath = join(root, "core", "qwbe.config.json")
 
 const config = JSON.parse(readFileSync(configPath, "utf8"))
 const baseline = config.untestedBaseline ?? { _comment: "", units: [] }

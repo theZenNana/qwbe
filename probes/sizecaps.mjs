@@ -33,7 +33,10 @@ import { measure, posix, unitDirs, walk } from "./size-lib.mjs"
 
 const here = dirname(fileURLToPath(import.meta.url))
 const root = join(here, "..")
-const configPath = join(root, "qwbe.config.json")
+// The config lives in core/ (the qwbe-core package) since QWB-54 ticket 03: the same file the
+// installed kernel ships, so a pack checked with `qwbe check` is held to the caps this repo
+// holds ITSELF to -- one file, not two copies that can drift.
+const configPath = join(root, "core", "qwbe.config.json")
 
 const config = JSON.parse(readFileSync(configPath, "utf8"))
 const caps = config.caps

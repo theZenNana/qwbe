@@ -77,7 +77,10 @@ export const loadSpaces = async (): Promise<ReadonlyArray<SpaceDefinition>> => {
   for (const dir of spaceDirectories()) {
     let mod: Record<string, unknown>
     try {
-      mod = (await import(`../spaces/${dir}/index.ts`)) as Record<string, unknown>
+      // A checkout loads the space's TypeScript source; the compiled kernel (dist/) loads the
+      // index.js the build emitted. Same definition, whichever shape the package ships.
+      const entry = existsSync(join(spacesDir, dir, "index.ts")) ? "index.ts" : "index.js"
+      mod = (await import(`../spaces/${dir}/${entry}`)) as Record<string, unknown>
     } catch (e) {
       throw new BrokenSpaceError(dir, (e as Error).message)
     }

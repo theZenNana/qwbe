@@ -14,6 +14,8 @@
 // Severity is deliberate: a broken manifest stops startup rather than being skipped. Skipping
 // would mean starting with half the cubes and nobody noticing until production.
 
+import { dirname, resolve } from "node:path"
+import { fileURLToPath, pathToFileURL } from "node:url"
 import { Effect } from "effect"
 import { capabilityRuntime } from "../capability-runtime.ts"
 import { buildCatalogue } from "../catalogue.ts"
@@ -95,7 +97,15 @@ export const loadDefinitions = async (): Promise<
   for (const entry of mounting) {
     let mod: unknown
     try {
-      mod = await import(entry.specifier)
+      // The specifier is resolved HERE, against this module's own directory, and imported as a
+      // file URL. Two reasons, one per shape of the kernel. In a checkout nothing changes: the
+      // specifier is relative and lands on the same file the bare import reached. In the
+      // compiled kernel the TypeScript emit wraps relative dynamic imports in a helper that
+      // rewrites a trailing .ts to .js at runtime -- which would miss every pack cube, because
+      // a pack ships TypeScript sources and is never compiled. A file URL pins the exact file
+      // and is left untouched by that rewrite, so dist/index.js loads for core cubes and the
+      // pack's own index.ts loads (type-stripped, outside node_modules) for plugins.
+      mod = await import(pathToFileURL(resolve(dirname(fileURLToPath(import.meta.url)), entry.specifier)).href)
     } catch (e) {
       throw new BrokenCubeError(entry.name, e instanceof Error ? e.message : String(e))
     }
