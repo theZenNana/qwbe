@@ -7,10 +7,11 @@
 import assert from "node:assert/strict"
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { basename, join } from "node:path"
 import { after, describe, it } from "node:test"
 
-import { checkPackageSource } from "./package-contract.ts"
+import { pluginsDir } from "./kernel/scan.ts"
+import { assertPackageContracts, checkPackageSource } from "./package-contract.ts"
 
 const makePackage = (mutate?: (root: string) => void): string => {
   const root = mkdtempSync(join(tmpdir(), "qwbe-package-contract-"))
@@ -289,5 +290,30 @@ describe("package contract checker", () => {
     })
     const findings = await checkPackageSource(root, { hierarchy: true })
     assert.deepEqual(pairs(findings), [["hierarchy", "cubes/demo/index.ts"]])
+  })
+})
+
+// The boot gate (QWB-54). The checker resolves a package by NAME under core/plugins, so its
+// fixture has to live there rather than in a temp directory. The name starts with a dot, which
+// discovery skips: a boot running beside this test cannot mount the broken package.
+describe("the boot gate", () => {
+  it("refuses a package whose cube imports a built-in from a SUBDIRECTORY", async () => {
+    const dir = mkdtempSync(join(pluginsDir, ".contract-gate-"))
+    tmpRoots.push(dir)
+    mkdirSync(join(dir, "cubes", "bad", "lib"), { recursive: true })
+    writeFileSync(join(dir, "qwbe-package.json"), JSON.stringify({ name: "bad", kind: "plugin", cubes: ["bad"] }))
+    writeFileSync(join(dir, "cubes", "bad", "index.ts"), `export const cube = { manifest: { name: "bad" } }\n`)
+    writeFileSync(
+      join(dir, "cubes", "bad", "lib", "deep.ts"),
+      `import { readFileSync } from "node:fs"\nexport const peek = readFileSync\n`,
+    )
+    await assert.rejects(
+      () => assertPackageContracts([{ plugin: basename(dir) }]),
+      /cube-builtins: cubes\/bad\/lib\/deep\.ts -- node:fs imported by the cube/,
+    )
+  })
+
+  it("says nothing about the packages that keep the contract", async () => {
+    await assertPackageContracts([{ plugin: null }, { plugin: "example-plugin" }])
   })
 })

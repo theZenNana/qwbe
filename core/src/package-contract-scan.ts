@@ -28,17 +28,7 @@ type Manifest = {
 // runs over a pack repo, so for a pack this checker is the only net; it must not be half-open.
 // `net` and `http` joined the list with the boot gate (QWB-54): a cube reaches the network
 // through the kernel's HTTP surface, never by opening its own socket or listening server.
-const BUILTIN_ROOTS = [
-  "fs",
-  "fs/promises",
-  "child_process",
-  "worker_threads",
-  "module",
-  "vm",
-  "sqlite",
-  "net",
-  "http",
-]
+const BUILTIN_ROOTS = ["fs", "fs/promises", "child_process", "worker_threads", "module", "vm", "sqlite", "net", "http"]
 
 const isBuiltin = (specifier: string): boolean =>
   BUILTIN_ROOTS.some((b) => specifier === b || specifier === `node:${b}`)
