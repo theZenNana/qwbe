@@ -29,6 +29,15 @@ const EVIL_CUBE = (migration) => `export const cube = {
 }
 `
 
+// The kernel checks each package's contract before mounting it (QWB-54), so the fixture ships
+// the manifest a real package ships -- otherwise the boot stops on the manifest and never
+// reaches the ownership rule under test.
+const evilManifest = (dir) =>
+  writeFileSync(
+    join(dir, "qwbe-package.json"),
+    JSON.stringify({ name: "evil-plugin", kind: "plugin", cubes: ["evil-migration"] }),
+  )
+
 // Attack 1: the provenance claim contradicts the LEDGER. The victim is not mounted, its file
 // exists, and the ledger says auth belongs to core -- the cube claims example-plugin.
 const evilDir = join(coreDir, "src", "cubes", "evil-migration")
@@ -61,6 +70,7 @@ rmSync(dataDir1, { recursive: true, force: true })
 // walls catch it -- the mounted-source rule fires first; the required fromPlugin would have.
 const evilPluginDir = join(coreDir, "plugins", "evil-plugin", "cubes", "evil-migration")
 mkdirSync(evilPluginDir, { recursive: true })
+evilManifest(join(coreDir, "plugins", "evil-plugin"))
 writeFileSync(join(evilPluginDir, "index.ts"), EVIL_CUBE(`{ fromCube: "auth", toCube: "evil-migration" }`))
 const dataDir2 = join(tmpdir(), `qwbe-evil2-${process.pid}`)
 mkdirSync(dataDir2, { recursive: true })
@@ -90,6 +100,7 @@ await plantAuthSchema(dbUrl3)
 writeFileSync(join(dataDir3, "provenance.json"), JSON.stringify({ auth: null }, null, 2))
 const evilPlugin3 = join(coreDir, "plugins", "evil-plugin", "cubes", "evil-migration")
 mkdirSync(evilPlugin3, { recursive: true })
+evilManifest(join(coreDir, "plugins", "evil-plugin"))
 writeFileSync(
   join(evilPlugin3, "index.ts"),
   EVIL_CUBE(`{ fromCube: "auth", toCube: "evil-migration", fromPlugin: "evil-plugin" }`),

@@ -25,6 +25,15 @@ const EVIL_CUBE = (migration) => `export const cube = {
 }
 `
 
+// The kernel checks each package's contract before mounting it (QWB-54), so the fixture ships
+// the manifest a real package ships -- otherwise the boot stops on the manifest and never
+// reaches the ownership rule under test.
+const evilManifest = (dir) =>
+  writeFileSync(
+    join(dir, "qwbe-package.json"),
+    JSON.stringify({ name: "evil-plugin", kind: "plugin", cubes: ["evil-migration"] }),
+  )
+
 // Attack 4, the fail-open: the ledger is MISSING entirely (or corrupt) and the victim is not
 // mounted. Before the fix this walked through every check. Now: no ledger record means the
 // source is refused without the operator's explicit legacy authorization.
@@ -34,6 +43,7 @@ const dbUrl4 = await scratchDatabase("evil4")
 await plantAuthSchema(dbUrl4)
 const evilPlugin4 = join(coreDir, "plugins", "evil-plugin", "cubes", "evil-migration")
 mkdirSync(evilPlugin4, { recursive: true })
+evilManifest(join(coreDir, "plugins", "evil-plugin"))
 writeFileSync(
   join(evilPlugin4, "index.ts"),
   EVIL_CUBE(`{ fromCube: "auth", toCube: "evil-migration", fromPlugin: "evil-plugin" }`),
@@ -107,8 +117,14 @@ await plantAuthSchema(dbUrl5)
 writeFileSync(join(dataDir5, "provenance.json"), JSON.stringify({ auth: null }, null, 2))
 const evilPlugin5 = join(coreDir, "plugins", "evil-plugin", "cubes", "evil-migration")
 mkdirSync(evilPlugin5, { recursive: true })
+evilManifest(join(coreDir, "plugins", "evil-plugin"))
+// The poison sits in a package file OUTSIDE cubes/, and the cube imports it. Deliberate: the
+// package contract bans node:fs in a CUBE, so an attack written inside the cube would now be
+// refused by the boot gate (QWB-54) and this probe would stop proving what it is here to prove
+// -- that the ledger snapshot survives a plugin running code at import. The package-root file
+// is the shape a real attacker would use, and the one the contract still allows.
 writeFileSync(
-  join(evilPlugin5, "index.ts"),
+  join(coreDir, "plugins", "evil-plugin", "poison.ts"),
   `import { existsSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 // The attack poisons only boot 1. Boot 2 proves a rejected import cannot leave authority
@@ -118,6 +134,11 @@ if (!existsSync(marker)) {
   writeFileSync(join(process.env.QWBE_DATA_DIR, "provenance.json"), JSON.stringify({ auth: "evil-plugin" }))
   writeFileSync(marker, "yes")
 }
+`,
+)
+writeFileSync(
+  join(evilPlugin5, "index.ts"),
+  `import "../../poison.ts"
 export const cube = {
   manifest: {
     name: "evil-migration",

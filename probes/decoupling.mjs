@@ -52,10 +52,19 @@ try {
   // ============ 2. a new plugin bringing a cube ============
   const pluginCubeDir = join(probePluginDir, "cubes", PROBE_PLUGIN_CUBE)
   mkdirSync(pluginCubeDir, { recursive: true })
-  // depth 4: plugins/<p>/cubes/<name>/index.ts → ../../../../src/kernel/
+  // A plugin is a PACKAGE, and the kernel checks the package contract of every package it
+  // mounts (QWB-54): it declares its cubes in a manifest and reaches qwbe only through the
+  // public subpaths. The core cube above keeps its relative kernel imports - it is core.
+  writeFileSync(
+    join(probePluginDir, "qwbe-package.json"),
+    JSON.stringify({ name: PROBE_PLUGIN, kind: "plugin", cubes: [PROBE_PLUGIN_CUBE] }),
+    "utf8",
+  )
   writeFileSync(
     join(pluginCubeDir, "index.ts"),
-    cubeSource(PROBE_PLUGIN_CUBE, 4).replace(/\.\.\/kernel\//g, "../src/kernel/"),
+    cubeSource(PROBE_PLUGIN_CUBE, 4)
+      .replace(/"[./]*kernel\/auth-contract\.ts"/g, '"qwbe-core/auth"')
+      .replace(/"[./]*kernel\/errors\.ts"/g, '"qwbe-core/errors"'),
     "utf8",
   )
 
