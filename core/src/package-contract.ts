@@ -27,6 +27,10 @@ export type PackageContractOptions = {
   readonly readOnly?: boolean
   /** Enforce parent/child cube hierarchy: parent screen, child parent + dataMigration. Used by crm-pack. */
   readonly hierarchy?: boolean
+  /** Read the manifest from here instead of `root`, and cross-check it against `root`'s cubes.
+   *  Only the boot gate needs it: the installer keeps a package's manifest in the store and
+   *  copies the cubes alone (`isBookkeeping` in kernel/install.ts). */
+  readonly manifestRoot?: string | undefined
 }
 
 const hierarchyFindings = async (root: string, cubes: readonly string[]): Promise<PackageFinding[]> => {
@@ -118,12 +122,23 @@ export const checkPackageSource = async (
   root: string,
   options: PackageContractOptions = {},
 ): Promise<PackageFinding[]> => {
-  const { findings: manifest, cubes } = manifestFindings(root)
+  const { findings: manifest, cubes } = manifestFindings(options.manifestRoot ?? root, root)
   const files = existsSync(join(root, "cubes")) ? walkSources(root) : []
   const rest = [...importFindings(root, files)]
   if (options.readOnly) rest.push(...readOnlyFindings(root, files))
   if (options.hierarchy) rest.push(...(await hierarchyFindings(root, cubes)))
   return [...manifest, ...rest]
+}
+
+// An INSTALLED package has no `qwbe-package.json` beside its cubes: the installer treats the
+// manifest as store bookkeeping and strips it from the copy it lands in plugins/ (pinned by
+// probes/install-from.mjs). The record that says which cubes the package is allowed to bring
+// therefore lives in the store, and that is what the boot cross-check reads -- against the cubes
+// really on disk, so a directory added after the install is still caught. `QWBE_STORE_DIR` is
+// the same override kernel/install.ts honours, read per call because probes set it per server.
+const storeCopy = (plugin: string): string | undefined => {
+  const dir = join(process.env.QWBE_STORE_DIR ?? join(pluginsDir, "..", "store"), plugin)
+  return existsSync(join(dir, "qwbe-package.json")) ? dir : undefined
 }
 
 /**
@@ -143,7 +158,7 @@ export const assertPackageContracts = async (
   mounting: ReadonlyArray<{ readonly plugin: string | null }>,
 ): Promise<void> => {
   for (const plugin of new Set(mounting.map((c) => c.plugin).filter((p): p is string => p !== null))) {
-    const findings = await checkPackageSource(join(pluginsDir, plugin))
+    const findings = await checkPackageSource(join(pluginsDir, plugin), { manifestRoot: storeCopy(plugin) })
     if (findings.length > 0) {
       throw new Error(
         `Package "${plugin}" breaks the package contract, so the kernel does not start:\n` +

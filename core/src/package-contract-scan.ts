@@ -61,7 +61,16 @@ export const walkSources = (root: string, current: string = root): string[] => {
 
 const rel = (root: string, file: string): string => relative(root, file).split(sep).join("/")
 
-export const manifestFindings = (root: string): { findings: PackageFinding[]; cubes: string[] } => {
+/**
+ * Manifest vs disk, both directions. `cubesRoot` defaults to `root` and differs in exactly one
+ * case: an INSTALLED package, whose manifest the installer keeps in the store and deliberately
+ * does not copy next to the cubes (`isBookkeeping` in kernel/install.ts). Then the manifest is
+ * read from the store copy and judged against the cubes that are really on the raft.
+ */
+export const manifestFindings = (
+  root: string,
+  cubesRoot: string = root,
+): { findings: PackageFinding[]; cubes: string[] } => {
   const findings: PackageFinding[] = []
   const manifestPath = join(root, "qwbe-package.json")
   if (!existsSync(manifestPath)) {
@@ -91,7 +100,7 @@ export const manifestFindings = (root: string): { findings: PackageFinding[]; cu
       message: "manifest.kind must be a non-empty string when present",
     })
   }
-  const cubesDir = join(root, "cubes")
+  const cubesDir = join(cubesRoot, "cubes")
   if (!existsSync(cubesDir)) {
     findings.push({ rule: "manifest", file: "cubes/", message: "the cubes/ directory is missing" })
     return { findings, cubes: [] }
@@ -110,12 +119,12 @@ export const manifestFindings = (root: string): { findings: PackageFinding[]; cu
   const onDisk = readdirSync(cubesDir, { withFileTypes: true })
     .filter((e) => e.isDirectory())
     .flatMap((e) => {
-      const nested = readdirSync(join(root, "cubes", e.name), { withFileTypes: true })
+      const nested = readdirSync(join(cubesDir, e.name), { withFileTypes: true })
         .filter((n) => n.isDirectory())
         .map((n) => `${e.name}/${n.name}`)
       return [e.name, ...nested]
     })
-    .filter((name) => existsSync(join(root, "cubes", ...name.split("/"), "index.ts")))
+    .filter((name) => existsSync(join(cubesDir, ...name.split("/"), "index.ts")))
   const declared = cubes as string[]
   for (const name of declared) {
     if (!onDisk.includes(name)) {
