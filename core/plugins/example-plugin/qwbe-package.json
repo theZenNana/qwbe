@@ -1,0 +1,6 @@
+{
+  "name": "example-plugin",
+  "kind": "plugin",
+  "summary": "The in-tree demo pack: booktags with its bookmarks, settings and tags cubes.",
+  "cubes": ["booktags", "booktags/bookmarks", "booktags/settings", "booktags/tags"]
+}

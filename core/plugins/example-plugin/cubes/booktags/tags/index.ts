@@ -6,11 +6,12 @@
 
 import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema } from "@effect/platform"
 import { Effect, Schema } from "effect"
+import { Authorization, requirePermission } from "qwbe-core/auth"
 import { type CubeTools, defineCube } from "qwbe-core/cube"
-import { Authorization, requirePermission } from "../../../../../src/kernel/auth-contract.ts"
-import { EntityMeta, type SummaryRow } from "../../../../../src/kernel/entity.ts"
-import { Forbidden, NotFound } from "../../../../../src/kernel/errors.ts"
-import { PageOf, PageParams, pageRequest } from "../../../../../src/kernel/pagination.ts"
+import { EntityMeta, type SummaryRow } from "qwbe-core/entity"
+import { Forbidden, NotFound } from "qwbe-core/errors"
+import { PageOf } from "qwbe-core/http"
+import { PageParams, pageRequest } from "qwbe-core/pagination"
 
 const TABLE = "tags"
 const ENTITY = "Tag"

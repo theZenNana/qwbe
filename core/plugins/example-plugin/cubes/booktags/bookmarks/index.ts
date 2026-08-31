@@ -12,11 +12,12 @@
 
 import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema } from "@effect/platform"
 import { Effect, Schema } from "effect"
+import { Authorization, requirePermission } from "qwbe-core/auth"
 import { type CubeTools, defineCube } from "qwbe-core/cube"
-import { Authorization, requirePermission } from "../../../../../src/kernel/auth-contract.ts"
-import { EntityMeta, type SummaryRow } from "../../../../../src/kernel/entity.ts"
-import { BadRequest, Forbidden, NotFound } from "../../../../../src/kernel/errors.ts"
-import { PageOf, PageParams, pageRequest } from "../../../../../src/kernel/pagination.ts"
+import { EntityMeta, type SummaryRow } from "qwbe-core/entity"
+import { BadRequest, Forbidden, NotFound } from "qwbe-core/errors"
+import { PageOf } from "qwbe-core/http"
+import { PageParams, pageRequest } from "qwbe-core/pagination"
 import { decodeBooktagsSettingChanged } from "../events.ts"
 
 const TABLE = "bookmarks"
