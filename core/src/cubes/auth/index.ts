@@ -17,12 +17,13 @@
 // rest of the system only ever sees `CurrentUser`.
 
 import { createHash, randomBytes } from "node:crypto"
-import { HttpApiEndpoint, HttpApiGroup } from "@effect/platform"
-import { type Context, Effect, Layer, Redacted } from "effect"
+import { HttpApiEndpoint, HttpApiGroup, HttpServerRequest } from "@effect/platform"
+import { type Context, Effect, Layer, Option, Redacted } from "effect"
 import { type CubeTools, defineCube } from "qwbe-core/cube"
 import { Credentials, Me, Ok, SessionToken } from "../../http-contracts.ts"
 import { Authorization, CurrentUser } from "../../kernel/auth-contract.ts"
 import { Unauthorized } from "../../kernel/errors.ts"
+import { callerOf } from "../../kernel/refusal-log.ts"
 import { Registry } from "../../kernel/registry.ts"
 
 const SESSIONS = "sessions"
@@ -98,6 +99,11 @@ export const cube = defineCube(group, {
       return out.sort()
     }
 
+    /** Where the request came from, or "unknown" outside a request (a command, a test). */
+    const caller = Effect.map(Effect.serviceOption(HttpServerRequest.HttpServerRequest), (r) =>
+      Option.match(r, { onNone: () => "unknown", onSome: (req) => callerOf(req.headers, req.remoteAddress) }),
+    )
+
     /**
      * Validate takes the registry as a VALUE, not as a tag to yield.
      *
@@ -107,25 +113,36 @@ export const cube = defineCube(group, {
      * which does have the registry) keeps working. So the service is resolved ONCE while the
      * layer is being built, and closed over.
      */
-    const makeValidate = (registry: Context.Tag.Service<typeof Registry>) => (token: string) =>
-      Effect.gen(function* () {
-        const th = sha256(token)
-        // Filtered in SQL with a bound parameter and LIMIT 1, rather than reading every row
-        // and searching in JavaScript. The old version parsed the entire session history on
-        // every single request.
-        const page = yield* store.page<Session>(SESSIONS, { offset: 0, limit: 1 }, { field: "tokenHash", value: th })
-        const s = page.rows[0]
-        if (!s || new Date(s.expiresAt).getTime() <= Date.now()) return undefined
+    // Owner, 2026-08-31: a refusal that says only "invalid or expired token" is why an hour was
+    // lost to a session cookie two stacks were sharing. The four ways to fail are now four
+    // different words, and they reach the log through the refusal body (kernel/refusal-log.ts).
+    type Validated = { readonly user: CurrentUser["Type"] } | { readonly reason: string }
 
-        const summary = yield* registry.summary("Account", s.accountId)
-        if (!summary) return undefined
+    const makeValidate =
+      (registry: Context.Tag.Service<typeof Registry>) =>
+      (token: string): Effect.Effect<Validated, never, never> =>
+        Effect.gen(function* () {
+          if (token === "") return { reason: "no token" }
+          const th = sha256(token)
+          // Filtered in SQL with a bound parameter and LIMIT 1, rather than reading every row
+          // and searching in JavaScript. The old version parsed the entire session history on
+          // every single request.
+          const page = yield* store.page<Session>(SESSIONS, { offset: 0, limit: 1 }, { field: "tokenHash", value: th })
+          const s = page.rows[0]
+          // No row at all means this server never issued the token, or logout dropped it --
+          // exactly the case a shared cookie produces, and the one worth naming separately.
+          if (!s) return { reason: "unknown token" }
+          if (new Date(s.expiresAt).getTime() <= Date.now()) return { reason: "expired token" }
 
-        const roles = detail(summary, "roles")
-          .split(",")
-          .map((r) => r.trim())
-          .filter(Boolean)
-        return { id: summary.id, username: summary.title, roles, permissions: permissionsFor(roles) }
-      })
+          const summary = yield* registry.summary("Account", s.accountId)
+          if (!summary) return { reason: "unknown account" }
+
+          const roles = detail(summary, "roles")
+            .split(",")
+            .map((r) => r.trim())
+            .filter(Boolean)
+          return { user: { id: summary.id, username: summary.title, roles, permissions: permissionsFor(roles) } }
+        })
 
     // The implementation of the tag the kernel declares. The only place in the system that
     // decides who the current user is. With this cube absent, nobody satisfies the tag and the
@@ -140,9 +157,9 @@ export const cube = defineCube(group, {
           // cannot land in logs by accident. Unwrap explicitly.
           bearer: (token) =>
             Effect.gen(function* () {
-              const user = yield* validate(Redacted.value(token))
-              if (!user) return yield* Effect.fail(new Unauthorized({ message: "invalid or expired token" }))
-              return user
+              const result = yield* validate(Redacted.value(token))
+              if (!("user" in result)) return yield* Effect.fail(new Unauthorized({ message: result.reason }))
+              return result.user
             }),
         })
       }),
@@ -159,6 +176,9 @@ export const cube = defineCube(group, {
             const identity = credentials ? yield* credentials.verify(payload.username, payload.password) : undefined
 
             if (!identity) {
+              // The refusal middleware logs the 401 itself; this line adds the one thing the
+              // response does not carry -- WHICH username was tried. The password never appears.
+              yield* Effect.logWarning(`auth-login-failed username=${payload.username} from=${yield* caller}`)
               return yield* Effect.fail(new Unauthorized({ message: "wrong username or password" }))
             }
 
@@ -174,6 +194,12 @@ export const cube = defineCube(group, {
               expiresAt,
             })
             yield* bus.publish("auth.loggedIn", { accountId: identity.id, username: identity.username })
+            // A session's start, visible. `token=` is the first 12 hex of sha256(token) -- the
+            // SAME handle a later refusal prints, so "which session was thrown out" is one grep.
+            yield* Effect.logInfo(
+              `auth-login user=${identity.username} id=${identity.id} from=${yield* caller} ` +
+                `token=${sha256(token).slice(0, 12)} expires=${expiresAt}`,
+            )
             return { token, expiresAt }
           }),
 
@@ -190,10 +216,16 @@ export const cube = defineCube(group, {
             // behaviour anyway: logout means everywhere.
             const u = yield* CurrentUser
             const sessions = yield* store.all<Session>(SESSIONS)
-            for (const s of sessions.filter((x) => x.accountId === u.id)) {
+            const mine = sessions.filter((x) => x.accountId === u.id)
+            for (const s of mine) {
               yield* store.update(SESSIONS, s.id, { deleted: true })
             }
             yield* bus.publish("auth.loggedOut", { accountId: u.id })
+            // The other end of the session. `dropped` matters because logout means everywhere:
+            // a number above one says other sessions of the same user died with this call.
+            yield* Effect.logInfo(
+              `auth-logout user=${u.username} id=${u.id} dropped=${mine.length} from=${yield* caller}`,
+            )
             return { ok: true }
           }),
       },

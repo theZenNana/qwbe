@@ -25,6 +25,7 @@ import { Authorization } from "./kernel/auth-contract.ts"
 import { loadDefinitions, mount } from "./kernel/discovery.ts"
 import { readLedger, verifyLedgerUnchanged, writeLedger } from "./kernel/ledger.ts"
 import { buildApi, buildHandlers, checkCubes, rejectDisabled } from "./kernel/mount.ts"
+import { logRefusals } from "./kernel/refusal-log.ts"
 import type { Registry, RegistryEntry } from "./kernel/registry.ts"
 import { loadSpaces } from "./kernel/space.ts"
 import { checkSchemaDrift } from "./metadata/schema-drift.ts"
@@ -200,7 +201,9 @@ const GatedOpenApi = HttpApiBuilder.Router.use((router) =>
 )
 
 const ServerLive = HttpApiBuilder.serve((app) =>
-  HttpMiddleware.logger(rejectDisabled(system!.cubes, system!.isEnabled)(app)),
+  // Owner, 2026-08-31: no refusal leaves this server silently. `logRefusals` sits OUTSIDE
+  // the disabled-cube filter, so it sees the final status of every request, whoever produced it.
+  HttpMiddleware.logger(logRefusals(rejectDisabled(system!.cubes, system!.isEnabled)(app))),
 ).pipe(
   // QWB-42: browser origins come from QWBE_ALLOWED_ORIGINS. Unset means ["*"], the
   // pre-QWB-42 behaviour, so local development needs no configuration. With the variable
