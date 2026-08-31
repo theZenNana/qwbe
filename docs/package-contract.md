@@ -41,10 +41,14 @@ size gate (`probes/size-lib.mjs` skips `frontend/` too).
   `../../src/...` or `qwbe-core/src/...` pins the pack to one kernel checkout and breaks
   the moment the kernel moves (rule `imports-internal`).
 - A cube imports **no** `node:fs`, `node:fs/promises`, `node:child_process`,
-  `node:worker_threads`, `node:module`, `node:vm`, `node:sqlite` (rule `cube-builtins`).
+  `node:worker_threads`, `node:module`, `node:vm`, `node:sqlite`, `node:net`, `node:http`
+  -- with or without the `node:` prefix (rule `cube-builtins`).
   Only import lines are inspected, so a comment explaining the rule does not trip it. A
   cube reads through the platform services the kernel lends it; the filesystem is the
-  kernel's, not the cube's.
+  kernel's, not the cube's, and so is the network.
+- The scan is recursive: a helper two directories below `cubes/<name>/` is judged exactly
+  like `index.ts`. Skipped at any depth: dotted directories and `node_modules`; skipped at
+  the TOP level of the package only: `frontend/`, `probes/`, `store/`, `dist/`, `build/`.
 
 ## 3. Size caps
 
@@ -57,6 +61,20 @@ Existing violations are recorded in `qwbe.config.json` as a **baseline**: the ga
 for anything NEW or anything that GREW past its recorded number; the inherited debt is
 printed every run. The fix for an over-cap file is to split it, never to raise the number
 -- raising is a visible diff to `qwbe.config.json`, done after the split, on purpose.
+
+## 3b. The kernel runs this checker itself, at boot (QWB-54)
+
+`loadDefinitions` (`core/src/kernel/discovery.ts`) calls `assertPackageContracts` over every
+package it is about to mount -- in dev, in test, in production, before the first plugin module
+is imported. A finding stops the boot with the checker's message and exit code 2; nothing of
+the failing package ever runs. The pack's own `source-contract.test.mjs` stays useful (it fails
+in the pack's CI, where the author is), but it is no longer what makes the rule true.
+
+One wrinkle worth knowing: an INSTALLED package has no `qwbe-package.json` beside its cubes --
+the installer treats the manifest as store bookkeeping and strips it from the copy it lands in
+`plugins/` (`isBookkeeping`, `core/src/kernel/install.ts`). The boot gate then reads the manifest
+from the store copy under `core/store/<name>/` and cross-checks it against the cubes really on
+disk. A pack placed in `plugins/` by hand keeps its own manifest and is judged against that.
 
 ## 4. Tests and probes a pack must ship
 
@@ -103,5 +121,7 @@ caller-supplied directory. Execution is genuinely required: the manifests are ru
 exports, not text, and parsing them back out of source would be a second, drift-prone
 statement of what a manifest is. The compensating pin is in the boundary graph:
 dependency-cruiser rule `package-contract-is-the-pack-door` (`core/.dependency-cruiser.cjs`)
-allows no module in the kernel to import `package-contract` except its own test. If kernel
-code ever needs the checker, that rule is the visible place to argue it.
+allows no module in the kernel to import `package-contract` except its own test and the boot
+gate in `kernel/discovery.ts` -- which uses the checker WITHOUT `hierarchy`, so it runs no
+foreign code, which is the whole point of running before the imports. If another kernel module
+ever needs the checker, that rule is the visible place to argue it.
