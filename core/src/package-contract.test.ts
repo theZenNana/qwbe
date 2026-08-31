@@ -316,4 +316,34 @@ describe("the boot gate", () => {
   it("says nothing about the packages that keep the contract", async () => {
     await assertPackageContracts([{ plugin: null }, { plugin: "example-plugin" }])
   })
+
+  // An INSTALLED package keeps its manifest in the store, not next to its cubes. A probe that
+  // plants a store of its own (`QWBE_STORE_DIR`) must not make the real store invisible: the
+  // first time one did, the boot refused with "package manifest is missing" about a package
+  // that was fine, and every probe after it in the chain never ran.
+  it("finds an installed package's manifest in the real store even when the override is empty", async () => {
+    const dir = mkdtempSync(join(pluginsDir, ".contract-store-"))
+    tmpRoots.push(dir)
+    const plugin = basename(dir)
+    mkdirSync(join(dir, "cubes", "shelved"), { recursive: true })
+    writeFileSync(join(dir, "cubes", "shelved", "index.ts"), 'export const cube = { manifest: { name: "shelved" } }\n')
+    const store = join(pluginsDir, "..", "store", plugin)
+    mkdirSync(store, { recursive: true })
+    tmpRoots.push(store)
+    writeFileSync(
+      join(store, "qwbe-package.json"),
+      JSON.stringify({ name: plugin, kind: "plugin", cubes: ["shelved"] }),
+    )
+
+    const empty = mkdtempSync(join(tmpdir(), "qwbe-empty-store-"))
+    tmpRoots.push(empty)
+    const previous = process.env.QWBE_STORE_DIR
+    process.env.QWBE_STORE_DIR = empty
+    try {
+      await assertPackageContracts([{ plugin }])
+    } finally {
+      if (previous === undefined) delete process.env.QWBE_STORE_DIR
+      else process.env.QWBE_STORE_DIR = previous
+    }
+  })
 })

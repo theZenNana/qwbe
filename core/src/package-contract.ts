@@ -138,8 +138,18 @@ export const checkPackageSource = async (
 // the same override kernel/install.ts honours, read per call because probes set it per server.
 const manifestRootFor = (root: string, plugin: string): string | undefined => {
   if (existsSync(join(root, "qwbe-package.json"))) return undefined
-  const store = join(process.env.QWBE_STORE_DIR ?? join(pluginsDir, "..", "store"), plugin)
-  return existsSync(join(store, "qwbe-package.json")) ? store : undefined
+  // BOTH stores, override first. The override exists so a probe can plant a store of its own;
+  // it is not a statement that the real store stopped existing. Reading only the override
+  // stopped the whole kernel the first time a probe pointed `QWBE_STORE_DIR` at an empty temp
+  // directory while an ALREADY INSTALLED package kept its manifest in the real one --
+  // `probes/permissions.mjs`, on a machine with crm-pack installed. The boot refused with
+  // "package manifest is missing" about a package that was perfectly fine.
+  for (const store of [process.env.QWBE_STORE_DIR, join(pluginsDir, "..", "store")]) {
+    if (store === undefined) continue
+    const candidate = join(store, plugin)
+    if (existsSync(join(candidate, "qwbe-package.json"))) return candidate
+  }
+  return undefined
 }
 
 /**
