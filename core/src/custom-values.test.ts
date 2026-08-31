@@ -12,11 +12,33 @@ import assert from "node:assert/strict"
 import { describe, it } from "node:test"
 import { Schema } from "effect"
 import { CUSTOM, checkCustomValue, foldCustom, MAX_CUSTOM_KEYS } from "./custom-values.ts"
+import { PageOf } from "./http-contracts.ts"
 import { declaredKeys, isStructSchema, widenStruct } from "./runtime-composition.ts"
 
 const Contact = Schema.Struct({
   name: Schema.String,
   email: Schema.optionalWith(Schema.String, { default: () => "" }),
+})
+
+const Note = Schema.Struct({
+  id: Schema.String,
+  type: Schema.String,
+  createdAt: Schema.String,
+  deleted: Schema.Boolean,
+  title: Schema.String,
+})
+
+type ListEnvelope = { rows: ReadonlyArray<Record<string, unknown>>; total: number }
+
+const envelopeOf = <A, I, R>(row: Schema.Schema<A, I, R>) =>
+  widenStruct(PageOf(row), "success") as Schema.Schema<ListEnvelope>
+
+const page = (rows: ReadonlyArray<Record<string, unknown>>) => ({
+  rows,
+  total: rows.length,
+  offset: 0,
+  limit: 25,
+  sortedBy: "",
 })
 
 const textDef = { name: "cnp", fieldType: "text" as const, required: false, options: [] }
@@ -132,5 +154,61 @@ describe("custom-value transport", () => {
     const out = encode({ name: "T", email: "e@x.y", cnp: "9", [CUSTOM]: { cnp: "9" } })
     assert.equal(out.cnp, undefined)
     assert.deepEqual(out[CUSTOM], { cnp: "9" })
+  })
+
+  // QWB-54 ticket 16: a list success is the ENVELOPE {rows, ...}, so a widening that stops at
+  // the top level declares `custom` on the envelope while Effect strips it from every row.
+  describe("list envelopes (the widening reaches the rows)", () => {
+    it("a row inside {rows} keeps its custom values on encode", () => {
+      const encode = Schema.encodeUnknownSync(envelopeOf(Note))
+      const out = encode(
+        page([{ id: "1", type: "Note", createdAt: "t", deleted: false, title: "T", [CUSTOM]: { cnp: "123" } }]),
+      )
+      const row = out.rows[0] as Record<string, unknown>
+      assert.deepEqual(row[CUSTOM], { cnp: "123" })
+      assert.equal(row.title, "T")
+    })
+
+    it("a widened row still strips undeclared keys outside custom (the invariant holds per row)", () => {
+      const encode = Schema.encodeUnknownSync(envelopeOf(Note))
+      const out = encode(
+        page([
+          { id: "1", type: "Note", createdAt: "t", deleted: false, title: "T", ghost: "x", [CUSTOM]: { cnp: "123" } },
+        ]),
+      )
+      const row = out.rows[0] as Record<string, unknown>
+      assert.equal(row.ghost, undefined)
+      assert.deepEqual(row[CUSTOM], { cnp: "123" })
+    })
+
+    it("rows carrying optionalWith defaults keep their transformation and their custom values", () => {
+      const Row = Schema.Struct({
+        id: Schema.String,
+        body: Schema.optionalWith(Schema.String, { default: () => "" }),
+      })
+      const schema = envelopeOf(Row)
+      const encode = Schema.encodeUnknownSync(schema)
+      const out = encode(page([{ id: "1", body: "b", [CUSTOM]: { cnp: "9" } }]))
+      const row = out.rows[0] as Record<string, unknown>
+      assert.equal(row.body, "b")
+      assert.deepEqual(row[CUSTOM], { cnp: "9" })
+      // The default is a decode-side concern (the type side requires the field); it must survive
+      // the widening untouched.
+      const decoded = Schema.decodeUnknownSync(schema)(page([{ id: "2" }]))
+      assert.equal(decoded.rows[0]?.body, "")
+    })
+
+    it("a rows property that is not an array of structs passes through untouched", () => {
+      const Weird = Schema.Struct({ rows: Schema.Array(Schema.String), total: Schema.Number })
+      const widened = widenStruct(Weird, "success") as {
+        ast: { propertySignatures: ReadonlyArray<{ name: PropertyKey; type: unknown }> }
+      }
+      const before = (Weird.ast as { propertySignatures: ReadonlyArray<{ name: PropertyKey; type: unknown }> })
+        .propertySignatures
+      const after = widened.ast.propertySignatures
+      const rowsBefore = before.find((p) => p.name === "rows")
+      const rowsAfter = after.find((p) => p.name === "rows")
+      assert.deepEqual(rowsAfter?.type, rowsBefore?.type)
+    })
   })
 })
