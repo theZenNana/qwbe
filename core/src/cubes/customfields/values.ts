@@ -8,17 +8,21 @@
 
 import { Effect } from "effect"
 import { requirePermission } from "qwbe-core/auth"
+import { checkCustomValue } from "qwbe-core/custom-values"
 import { BadRequest } from "qwbe-core/errors"
 import { customFieldsTool, definitionsFor, type PackTools, type Snapshot } from "./context.ts"
-import { displayValue, orphanValues, reject } from "./schema.ts"
+import { displayValue, orphanValues } from "./schema.ts"
 
 /** Definitions plus the row's current values, which is what a form actually needs. */
 export const rowFields = (tools: PackTools, cube: string, rowId: string) =>
   Effect.gen(function* () {
     const customFields = customFieldsTool(tools)
     const defs = yield* definitionsFor(tools.store, cube)
-    const rows = yield* customFields.rows(cube)
-    const custom = rows.find((r) => r.id === rowId)?.custom ?? {}
+    // QWB-54 ticket 05 (defect 5): ONE row's values are read with `WHERE id = $1`. The full
+    // walk exists for the orphan report, which genuinely needs every row -- a form render
+    // asking about one row must not scan the table and pick a row in JavaScript.
+    const row = yield* customFields.row(cube, rowId)
+    const custom = row?.custom ?? {}
     return {
       cube,
       rowId,
@@ -62,6 +66,11 @@ export const valuesHandlers = (tools: PackTools, _snapshot: Snapshot) => ({
     Effect.gen(function* () {
       yield* requirePermission("customfields:read")
       const { cube, rowId, values } = payload
+      // QWB-54 ticket 05 (defect 6, Opus review): this endpoint RETURNS rowFields -- the
+      // target row's custom values -- so it rides on the SAME gate the lookup rides on. A
+      // reader with `customfields:read` but without the target cube's own read permission
+      // would otherwise read through here what `valuesFor` refuses it.
+      yield* requirePermission(`${cube}:read`)
       const defs = yield* definitionsFor(tools.store, cube)
       const byName = new Map(defs.map((d) => [d.name, d]))
 
@@ -72,7 +81,11 @@ export const valuesHandlers = (tools: PackTools, _snapshot: Snapshot) => ({
           problems.push(`"${name}" is not a field on ${cube}`)
           continue
         }
-        const why = reject(def, value)
+        // QWB-54 ticket 05 (defect 7, Opus review): ONE validator for the whole system -- the
+        // kernel's checkCustomValue, exported through qwbe-core/custom-values. The copy that
+        // lived here already diverged (it refused numeric strings on `number` and real
+        // booleans on `bool`).
+        const why = checkCustomValue(def, value)
         if (why) problems.push(why)
       }
       if (problems.length > 0) {
@@ -87,6 +100,10 @@ export const valuesHandlers = (tools: PackTools, _snapshot: Snapshot) => ({
     Effect.gen(function* () {
       yield* requirePermission("customfields:write")
       const cube = urlParams.cube
+      // QWB-54 ticket 05 (defect 3): the report reads ANOTHER cube's rows, so it needs the
+      // target cube's own read permission on top of the admin gate -- the same gate its
+      // sibling lookup in this file has always required.
+      yield* requirePermission(`${cube}:read`)
       const defs = yield* definitionsFor(tools.store, cube)
       const rows = yield* customFieldsTool(tools).rows(cube)
       return { cube, orphans: orphanValues(defs, rows) }

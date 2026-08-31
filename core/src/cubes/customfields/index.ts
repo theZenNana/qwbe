@@ -35,7 +35,7 @@ import { Authorization } from "qwbe-core/auth"
 import { type CubeTools, defineCube } from "qwbe-core/cube"
 import { BadRequest, Forbidden, NotFound } from "qwbe-core/errors"
 import { PageOf } from "qwbe-core/http"
-import { customFieldsTool, type PackTools, refreshSnapshot, type Snapshot } from "./context.ts"
+import { customFieldsTool, definitionsFor, type PackTools, refreshSnapshot, type Snapshot } from "./context.ts"
 import { definitionHandlers } from "./handlers.ts"
 import {
   byPosition,
@@ -154,6 +154,15 @@ export const cube = defineCube(group, {
         .filter((d) => d.targetCube === cube)
         .sort(byPosition)
         .map(toDefinition),
+    )
+
+    // QWB-54 ticket 05 (defect 4): the definitions the KERNEL VALIDATES AGAINST are read from
+    // this cube's own store, per request, through the tool's reader. The in-memory snapshot
+    // above stays only for the catalogue's synchronous metadata read; validation must see
+    // definitions defined through ANY instance of the API, and a failed read must fail the
+    // request rather than validate on empty.
+    customFieldsTool(tools).registerDefsReader((target) =>
+      Effect.map(definitionsFor(store, target), (rows) => rows.map(toDefinition)),
     )
 
     return {

@@ -67,25 +67,53 @@ describe("custom-value transport", () => {
   })
 
   it("with no active definitions the fold strips undeclared keys (the definition gate)", () => {
-    const folded = foldCustom({ name: "Test", cnp: "123" }, ["name", "email"], [])
+    const folded = foldCustom({ name: "Test", cnp: "123" }, ["name", "email"], [], "patch")
     assert.deepEqual(folded, { ok: true, payload: { name: "Test" } })
   })
 
   it("a key with no definition is rejected, never stored", () => {
-    const folded = foldCustom({ name: "T", ghost: "x" }, ["name"], [textDef])
+    const folded = foldCustom({ name: "T", ghost: "x" }, ["name"], [textDef], "patch")
     assert.equal(folded.ok, false)
     assert.match(folded.ok ? "" : folded.message, /ghost/)
   })
 
   it("foldCustom moves defined undeclared keys under the reserved sub-object", () => {
-    const folded = foldCustom({ name: "Test", cnp: "123", email: "e@x.y" }, ["name", "email"], [textDef])
+    const folded = foldCustom({ name: "Test", cnp: "123", email: "e@x.y" }, ["name", "email"], [textDef], "patch")
     assert.deepEqual(folded, { ok: true, payload: { name: "Test", email: "e@x.y", [CUSTOM]: { cnp: "123" } } })
   })
 
   it("a value that breaks its definition is rejected on the write path", () => {
-    const folded = foldCustom({ name: "T", age: { nested: 1 } }, ["name"], [numberDef])
+    const folded = foldCustom({ name: "T", age: { nested: 1 } }, ["name"], [numberDef], "patch")
     assert.equal(folded.ok, false)
     assert.match(folded.ok ? "" : folded.message, /age/)
+  })
+
+  // QWB-54 ticket 05 (defect 1): `required` is enforced against the DEFINITIONS at create --
+  // a request that never mentions a required field is a 400, not a row missing a column.
+  describe("required at create (the mode iterates the definitions)", () => {
+    const requiredText = { name: "cnp", fieldType: "text" as const, required: true, options: [] }
+    const optional = { name: "note", fieldType: "text" as const, required: false, options: [] }
+
+    it("a create without the required field is refused, even with no custom keys at all", () => {
+      const folded = foldCustom({ name: "T" }, ["name"], [requiredText], "create")
+      assert.equal(folded.ok, false)
+      assert.match(folded.ok ? "" : folded.message, /cnp.*required/)
+    })
+
+    it("an empty string counts as without", () => {
+      const folded = foldCustom({ name: "T", cnp: "" }, ["name"], [requiredText], "create")
+      assert.equal(folded.ok, false)
+    })
+
+    it("a create that carries the required field passes", () => {
+      const folded = foldCustom({ name: "T", cnp: "123" }, ["name"], [requiredText, optional], "create")
+      assert.equal(folded.ok, true)
+    })
+
+    it("the same request in patch mode stays legal: a partial patch demands nothing", () => {
+      const folded = foldCustom({ name: "T" }, ["name"], [requiredText], "patch")
+      assert.deepEqual(folded, { ok: true, payload: { name: "T" } })
+    })
   })
 
   it("checkCustomValue mirrors the definition types", () => {
@@ -110,6 +138,7 @@ describe("custom-value transport", () => {
           options: [],
         })),
       ],
+      "patch",
     )
     assert.equal(folded.ok, false)
     assert.match(folded.ok ? "" : folded.message, /cap/)
@@ -120,13 +149,13 @@ describe("custom-value transport", () => {
       options: [],
     }))
     const wide = { name: "T", ...Object.fromEntries(defs.map((d) => [d.name, "x".repeat(900)])) }
-    const tooBig = foldCustom(wide, ["name"], defs)
+    const tooBig = foldCustom(wide, ["name"], defs, "patch")
     assert.equal(tooBig.ok, false)
     assert.match(tooBig.ok ? "" : tooBig.message, /bytes/)
   })
 
   it("a field literally named custom stays a declared field, and the fold still strips others", () => {
-    const folded = foldCustom({ name: "T", [CUSTOM]: "mine", ghost: 1 }, ["name", CUSTOM], [textDef])
+    const folded = foldCustom({ name: "T", [CUSTOM]: "mine", ghost: 1 }, ["name", CUSTOM], [textDef], "patch")
     assert.deepEqual(folded, { ok: true, payload: { name: "T", [CUSTOM]: "mine" } })
   })
 
@@ -134,7 +163,7 @@ describe("custom-value transport", () => {
     // JSON.parse gives a REAL own `__proto__` property -- an object literal would set the
     // prototype instead, which is exactly why the own-property path must be guarded.
     const smuggled = JSON.parse('{"name":"T","__proto__":{"x":1}}') as Record<string, unknown>
-    const folded = foldCustom(smuggled, ["name"], [textDef])
+    const folded = foldCustom(smuggled, ["name"], [textDef], "patch")
     assert.equal(folded.ok, false)
   })
 

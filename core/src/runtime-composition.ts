@@ -27,15 +27,11 @@
 //     them (QWB-54 ticket 16).
 
 import { HttpApi, HttpApiBuilder, OpenApi } from "@effect/platform"
-import { Effect, Layer, Option, Schema } from "effect"
+import { Layer, Option, Schema } from "effect"
 import * as AST from "effect/SchemaAST"
-import { activeCustomFields } from "./catalogue.ts"
-import { CUSTOM, foldCustom } from "./custom-values.ts"
+import { withCustomFold as withCustomFoldPolicy } from "./custom-fold.ts"
+import { CUSTOM } from "./custom-values.ts"
 import type { MountedCube } from "./kernel/discovery.ts"
-import { BadRequest } from "./kernel/errors.ts"
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null && !Array.isArray(value)
 
 /**
  * Widen a struct schema. `payload` schemas get a string-keyed index signature over `unknown`,
@@ -183,11 +179,16 @@ export const buildHandlers = (api: unknown, cubes: ReadonlyArray<MountedCube>): 
  * time. A cube with no defined custom fields keeps exactly its old behavior: undeclared keys
  * are stripped and nothing is stored, so a plain `<cube>:write` permission buys nothing until
  * an administrator defines a field (which is gated on `customfields:write`).
+ *
+ * The policy itself lives in custom-fold.ts (QWB-54 ticket 05): per-request definitions from
+ * the provider's store (defect 4), create-vs-patch mode on the HTTP method (defect 1), and the
+ * merged-cap CustomCapError answered as a 400 (defect 2). This side only decides WHICH handlers
+ * are wrapped and with what.
  */
 const withCustomFold = (cube: MountedCube, name: string, implementation: unknown) => {
   const endpoints = (
     cube.parts.group as {
-      endpoints?: Record<string, { payloadSchema?: Option.Option<unknown> }>
+      endpoints?: Record<string, { payloadSchema?: Option.Option<unknown>; method?: string }>
     }
   ).endpoints
   const payloadSchema = endpoints?.[name]?.payloadSchema
@@ -197,13 +198,8 @@ const withCustomFold = (cube: MountedCube, name: string, implementation: unknown
     return implementation
   }
   const declared = declaredKeys(payloadSchema.value)
-  const impl = implementation as (request: unknown) => unknown
-  return (request: unknown) => {
-    if (isRecord(request) && "payload" in request) {
-      const folded = foldCustom(request.payload, declared, activeCustomFields(cube.name))
-      if (!folded.ok) return Effect.fail(new BadRequest({ message: folded.message })) as unknown
-      return impl({ ...request, payload: folded.payload })
-    }
-    return impl(request)
-  }
+  // The method is the one honest signal that a payload CREATES a row: only POST demands the
+  // required definitions outright. PATCH and PUT keep the present-and-empty semantics.
+  const mode = endpoints?.[name]?.method === "POST" ? ("create" as const) : ("patch" as const)
+  return withCustomFoldPolicy(cube.name, declared, mode, implementation)
 }

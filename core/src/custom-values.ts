@@ -29,6 +29,25 @@ export const MAX_CUSTOM_KEYS = 32
 /** The serialized `custom` object cap, in bytes of JSON. A row body is not a file store. */
 export const MAX_CUSTOM_BYTES = 8192
 
+/**
+ * One custom object against BOTH caps -- the key count and the serialized size.
+ *
+ * This is the one place the caps are written (QWB-54 ticket 05): the request fold uses it on
+ * what the request carried, and the store's `custom` merge uses it on the MERGED result, so a
+ * PATCH that adds a few keys at a time cannot walk a row past the cap one request at a time.
+ */
+export const checkCustomObject = (custom: unknown): string | undefined => {
+  if (typeof custom !== "object" || custom === null || Array.isArray(custom)) return undefined
+  if (Object.keys(custom).length > MAX_CUSTOM_KEYS) {
+    return `too many custom fields: the cap is ${MAX_CUSTOM_KEYS}`
+  }
+  const serialized = JSON.stringify(custom) ?? "{}"
+  if (serialized.length > MAX_CUSTOM_BYTES) {
+    return `custom values too large: the cap is ${MAX_CUSTOM_BYTES} bytes`
+  }
+  return undefined
+}
+
 export type FoldResult =
   | { readonly ok: true; readonly payload: unknown }
   | { readonly ok: false; readonly message: string }
@@ -81,11 +100,17 @@ export const checkCustomValue = (def: CustomFieldDef, value: unknown): string | 
  * means the fold is OFF (undeclared keys are stripped, the pre-QWB-46 behavior), and a key
  * with no definition is a 400, not a silent store. Declared keys -- including a field the
  * cube literally named `custom` -- are never touched.
+ *
+ * `mode` is the one function's two callers (QWB-54 ticket 05, defect 1): "create" iterates
+ * the DEFINITIONS, so a required field with no value in the request is a 400 before the row
+ * exists; "patch" keeps the old semantics, where only a key that is PRESENT and empty is
+ * refused -- a partial patch must never demand siblings it does not mention.
  */
 export const foldCustom = (
   payload: unknown,
   declared: ReadonlyArray<string>,
   defs: ReadonlyArray<CustomFieldDef>,
+  mode: "create" | "patch",
 ): FoldResult => {
   if (!isRecord(payload)) return { ok: true, payload }
   const known = new Set(declared)
@@ -142,16 +167,26 @@ export const foldCustom = (
     if (why) return { ok: false, message: why }
     custom[key] = value
   }
+  // The one defect-1 check with two modes, run BEFORE the early returns: at CREATE, every
+  // required definition must have a value in what this request folds into the row -- a request
+  // that names NO custom key at all is exactly the case that must be caught. Absent, null and
+  // "" are all "without". With no definitions the loop is empty and the fold stays off.
+  if (mode === "create") {
+    for (const def of defs) {
+      if (!def.required) continue
+      const value = custom[def.name]
+      if (value === undefined || value === null || value === "") {
+        return { ok: false, message: `"${def.name}" is required and cannot be emptied` }
+      }
+    }
+  }
+
   if (!moved && Object.keys(custom).length === 0) return { ok: true, payload }
   if (Object.keys(custom).length === 0) return { ok: true, payload: kept }
 
-  // The caps: one request cannot grow `custom` without bound (review fix 3).
-  if (Object.keys(custom).length > MAX_CUSTOM_KEYS) {
-    return { ok: false, message: `too many custom fields: the cap is ${MAX_CUSTOM_KEYS}` }
-  }
-  const serialized = JSON.stringify(custom) ?? "{}"
-  if (serialized.length > MAX_CUSTOM_BYTES) {
-    return { ok: false, message: `custom values too large: the cap is ${MAX_CUSTOM_BYTES} bytes` }
-  }
+  // The caps: one request cannot grow `custom` without bound (review fix 3). One check, shared
+  // with the store's merge result -- the two cannot drift apart again.
+  const why = checkCustomObject(custom)
+  if (why) return { ok: false, message: why }
   return { ok: true, payload: { ...kept, [CUSTOM]: { ...custom } } }
 }

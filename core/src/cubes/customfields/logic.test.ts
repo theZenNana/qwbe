@@ -1,10 +1,15 @@
 // Unit tests for the customfields pure logic: validation and orphan computation. These pin the
-// rules the pack owns (QWB-46): the definition validates strictly, and deleting a definition
+// rules the cube owns (QWB-46): the definition validates strictly, and deleting a definition
 // never deletes values -- it turns them into reportable orphans.
+//
+// Since QWB-54 ticket 05 (defect 7) the validator itself is the KERNEL's `checkCustomValue`,
+// reached through the public subpath `qwbe-core/custom-values` -- this file imports it exactly
+// the way a pack would, so the subpath's resolution is part of what these tests prove.
 
 import assert from "node:assert/strict"
 import { describe, it } from "node:test"
-import { type DefRow, displayValue, NAME, orphanValues, reject } from "./schema.ts"
+import { checkCustomValue } from "qwbe-core/custom-values"
+import { type DefRow, displayValue, NAME, orphanValues } from "./schema.ts"
 
 const def = (over: Partial<DefRow> = {}): DefRow =>
   ({
@@ -24,31 +29,31 @@ const def = (over: Partial<DefRow> = {}): DefRow =>
 
 describe("definition validation", () => {
   it("accepts a value the definition allows", () => {
-    assert.equal(reject(def(), "plain text"), undefined)
-    assert.equal(reject(def({ fieldType: "number" }), "7"), undefined)
-    assert.equal(reject(def({ fieldType: "bool" }), "true"), undefined)
+    assert.equal(checkCustomValue(def(), "plain text"), undefined)
+    assert.equal(checkCustomValue(def({ fieldType: "number" }), "7"), undefined)
+    assert.equal(checkCustomValue(def({ fieldType: "bool" }), "true"), undefined)
   })
 
   it("refuses a value that is not of the declared type, with a reason naming the field", () => {
-    assert.match(reject(def({ fieldType: "number" }), "seven") ?? "", /cnp/)
-    assert.match(reject(def({ fieldType: "date" }), "30/08/2026") ?? "", /YYYY-MM-DD/)
-    assert.match(reject(def({ fieldType: "bool" }), "yes") ?? "", /"true" or "false"/)
+    assert.match(checkCustomValue(def({ fieldType: "number" }), "seven") ?? "", /cnp/)
+    assert.match(checkCustomValue(def({ fieldType: "date" }), "30/08/2026") ?? "", /YYYY-MM-DD/)
+    assert.match(checkCustomValue(def({ fieldType: "bool" }), "yes") ?? "", /must be a boolean/)
   })
 
   it("a select value must be one of the options", () => {
     const d = def({ fieldType: "select", options: ["gold", "silver"] })
-    assert.equal(reject(d, "gold"), undefined)
-    assert.match(reject(d, "bronze") ?? "", /not one of the options/)
+    assert.equal(checkCustomValue(d, "gold"), undefined)
+    assert.match(checkCustomValue(d, "bronze") ?? "", /not one of the options/)
   })
 
   it("a required field cannot be blanked; an optional one can", () => {
-    assert.match(reject(def({ required: true }), "") ?? "", /is required/)
-    assert.equal(reject(def({ required: false }), ""), undefined)
+    assert.match(checkCustomValue(def({ required: true }), "") ?? "", /is required/)
+    assert.equal(checkCustomValue(def({ required: false }), ""), undefined)
   })
 
   it("a text value is capped at 1000 characters", () => {
-    assert.equal(reject(def(), "x".repeat(1000)), undefined)
-    assert.match(reject(def(), "x".repeat(1001)) ?? "", /1000 characters/)
+    assert.equal(checkCustomValue(def(), "x".repeat(1000)), undefined)
+    assert.match(checkCustomValue(def(), "x".repeat(1001)) ?? "", /1000 characters/)
   })
 
   it("a field name must survive being a JSON key and a form input name", () => {

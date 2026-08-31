@@ -131,29 +131,12 @@ export const ListParams = Schema.Struct({
 export type DefRow = typeof CustomField.Type
 
 /**
- * The whole of the validation, in one place, returning the reason rather than a boolean.
- *
- * A reason is what makes a 400 useful: "not one of the options" tells a person what to do,
- * "invalid" tells them to guess.
+ * Value validation lives in ONE place: the kernel's `checkCustomValue`
+ * (`qwbe-core/custom-values`), shared with the write-path fold (QWB-54 ticket 05, defect 7).
+ * The copy that used to live here (`reject`) was already out of step with it -- it refused
+ * numeric strings on `number` and real booleans on `bool` -- which is exactly why a second
+ * copy of a rule is a defect waiting to happen.
  */
-export const reject = (def: DefRow, value: string): string | undefined => {
-  if (value === "") return def.required ? `"${def.name}" is required and cannot be emptied` : undefined
-  const checks: Record<FieldTypeName, () => string | undefined> = {
-    text: () => (value.length > 1000 ? `"${def.name}" is longer than 1000 characters` : undefined),
-    number: () => (Number.isFinite(Number(value)) ? undefined : `"${def.name}" must be a number, got "${value}"`),
-    date: () =>
-      /^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(Date.parse(value))
-        ? undefined
-        : `"${def.name}" must be a date as YYYY-MM-DD, got "${value}"`,
-    bool: () =>
-      value === "true" || value === "false" ? undefined : `"${def.name}" must be "true" or "false", got "${value}"`,
-    select: () =>
-      def.options.includes(value)
-        ? undefined
-        : `"${value}" is not one of the options for "${def.name}": ${def.options.join(", ") || "(none defined)"}`,
-  }
-  return checks[def.fieldType]()
-}
 
 export const byPosition = (a: DefRow, b: DefRow) => a.position - b.position || a.name.localeCompare(b.name)
 

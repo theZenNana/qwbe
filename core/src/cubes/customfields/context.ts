@@ -11,7 +11,16 @@ export type PackTools = Pick<CubeTools, "store" | "bus" | "catalogue" | "customF
 
 type Store = CubeTools["store"]
 
-/** The live in-memory snapshot the kernel's provider reads; refreshed on load and on every write. */
+/** The live in-memory snapshot the kernel's provider reads; refreshed on load and on every write.
+ *
+ * QWB-54 ticket 05 (defect 4): this snapshot feeds ONLY the catalogue's metadata provider --
+ * a synchronous read that cannot reach the store. VALUE VALIDATION no longer rides on it: the
+ * fold reads the definitions from the store per request through the registered defs reader, so
+ * a second API instance on the same database sees new definitions immediately, and a failed
+ * read fails its request instead of silently validating on empty. A failed refresh here leaves
+ * the previous snapshot in place, which is a metadata publication delay, never a skipped
+ * validation.
+ */
 export type Snapshot = { current: ReadonlyArray<DefRow> }
 
 export const definitionsFor = (store: Store, cube: string) =>

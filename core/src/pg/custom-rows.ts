@@ -46,3 +46,43 @@ export const customRows = (cube: string, tables: ReadonlyArray<string>): Effect.
     }
     return out
   })
+
+/**
+ * ONE row's custom values, read with `WHERE id = $1` (QWB-54 ticket 05, defect 5).
+ *
+ * The full walk above exists for the ORPHAN report, which genuinely must see every row. A
+ * form render asking for one row's values used to ride that same walk -- a paged scan of the
+ * whole table per lookup -- and then picked one row in JavaScript. The primary key index
+ * answers in one tuple. A row id can sit in any of the cube's tables, so each is probed in
+ * order and the scan stops at the first hit.
+ */
+export const customRowById = (
+  cube: string,
+  tables: ReadonlyArray<string>,
+  id: string,
+): Effect.Effect<CustomRow | undefined> =>
+  Effect.promise(async () => {
+    for (const t of tables) {
+      await ensureCubeSchema(cube)
+      await ensureTable(schemaName(cube), t)
+      const row = await withRole(cube, async (c) => {
+        const r = await c.query(
+          `SELECT id, body->'custom' AS custom, deleted FROM ${q(schemaName(cube))}.${q(t)} WHERE id = $1`,
+          [id],
+        )
+        return r.rows[0] as Record<string, unknown> | undefined
+      })
+      if (row) {
+        const custom = row.custom
+        return {
+          id: String(row.id),
+          custom:
+            typeof custom === "object" && custom !== null && !Array.isArray(custom)
+              ? (custom as Record<string, unknown>)
+              : {},
+          deleted: row.deleted === true,
+        }
+      }
+    }
+    return undefined
+  })

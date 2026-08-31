@@ -2,7 +2,9 @@
 // when the file passed its cap. Pure functions: no pool, no transactions.
 
 import { randomBytes } from "node:crypto"
+import { checkCustomObject } from "../custom-values.ts"
 import type { ListWhere } from "../kernel/pagination.ts"
+import { CustomCapError } from "./errors.ts"
 import { q } from "./setup.ts"
 
 /** Ids are random, not sequential -- see the comment this replaces from the SQLite store. */
@@ -113,6 +115,11 @@ export const renumber = (sql: string, offset: number) => sql.replace("$SORTBY", 
  * keys. A PATCH is partial, so its `custom` MERGES with the row's -- replacing it wholesale
  * would silently drop every custom value the patch did not mention. Declared fields keep the
  * plain shallow-merge semantics the caller applies before this runs.
+ *
+ * QWB-54 ticket 05 (defect 2): the caps apply to the MERGED result, not only to what one
+ * request carried. A row with 30 keys could otherwise take two more per PATCH forever -- the
+ * merge is the last application-level door, and Postgres holds the same rule in a CHECK
+ * constraint (setup.ts), so the limit exists even without the application.
  */
 export const mergeCustom = (
   currentRow: Record<string, unknown>,
@@ -128,13 +135,13 @@ export const mergeCustom = (
     previousCustom !== null &&
     !Array.isArray(previousCustom)
   ) {
-    return {
-      ...merged,
-      custom: {
-        ...(previousCustom as Record<string, unknown>),
-        ...(patchCustom as Record<string, unknown>),
-      },
+    const combined = {
+      ...(previousCustom as Record<string, unknown>),
+      ...(patchCustom as Record<string, unknown>),
     }
+    const why = checkCustomObject(combined)
+    if (why) throw new CustomCapError(why)
+    return { ...merged, custom: combined }
   }
   return merged
 }

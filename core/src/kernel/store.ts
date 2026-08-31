@@ -17,7 +17,9 @@
 import { Effect } from "effect"
 import type { CustomFieldTools } from "../catalogue.ts"
 import { registerCustomFieldProvider } from "../catalogue.ts"
-import { customRows } from "../pg/custom-rows.ts"
+import type { CustomRowView } from "../custom-defs-reader.ts"
+import { registerCustomFieldDefsReader } from "../custom-defs-reader.ts"
+import { customRowById, customRows } from "../pg/custom-rows.ts"
 
 export { closeAll, databaseUrl, initStore } from "../pg/db.ts"
 export { ForeignTableError } from "../pg/errors.ts"
@@ -74,10 +76,19 @@ export const customFieldToolsFor = (
     | undefined,
 ): CustomFieldTools => ({
   register: (provide) => registerCustomFieldProvider((cube) => (find(cube) ? provide(cube) : [])),
+  // The reader is guarded by the same mounted-cube check as the metadata provider: a
+  // definition can only target a mounted cube, and anything else reads as no definitions.
+  registerDefsReader: (read) => registerCustomFieldDefsReader((cube) => (find(cube) ? read(cube) : Effect.succeed([]))),
   rows: (cube) =>
     Effect.gen(function* () {
       const target = find(cube)
       if (!target) return []
       return yield* customRows(cube, target.manifest.tables ?? [])
+    }),
+  row: (cube, rowId): Effect.Effect<CustomRowView | undefined, never, never> =>
+    Effect.gen(function* () {
+      const target = find(cube)
+      if (!target) return undefined
+      return yield* customRowById(cube, target.manifest.tables ?? [], rowId)
     }),
 })
