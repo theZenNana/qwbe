@@ -141,7 +141,17 @@ export const cube = defineCube(group, {
             .split(",")
             .map((r) => r.trim())
             .filter(Boolean)
-          return { user: { id: summary.id, username: summary.title, roles, permissions: permissionsFor(roles) } }
+          return {
+            user: {
+              id: summary.id,
+              username: summary.title,
+              roles,
+              permissions: permissionsFor(roles),
+              // The row's own id travels with the user: it is what makes per-session logout
+              // possible (QWB-54, ticket 21) instead of logout-everywhere.
+              sessionId: s.id,
+            },
+          }
         })
 
     // The implementation of the tag the kernel declares. The only place in the system that
@@ -211,20 +221,18 @@ export const cube = defineCube(group, {
 
         logout: () =>
           Effect.gen(function* () {
-            // The raw token never reaches the handler (middleware hands over the user), so
-            // every session of that user is dropped. For a prototype that is the better
-            // behaviour anyway: logout means everywhere.
+            // The middleware hands over the session id next to the user, so logout drops
+            // EXACTLY the session the request came with: one row, found by its id (the
+            // store's update is a bound-parameter lookup on id). A second device of the same
+            // account keeps its session -- logout here means "this device", not "everywhere".
             const u = yield* CurrentUser
-            const sessions = yield* store.all<Session>(SESSIONS)
-            const mine = sessions.filter((x) => x.accountId === u.id)
-            for (const s of mine) {
-              yield* store.update(SESSIONS, s.id, { deleted: true })
-            }
+            yield* store.update(SESSIONS, u.sessionId, { deleted: true })
             yield* bus.publish("auth.loggedOut", { accountId: u.id })
-            // The other end of the session. `dropped` matters because logout means everywhere:
-            // a number above one says other sessions of the same user died with this call.
+            // The other end of the session. `session=` is the session row id, so "which
+            // session was closed" joins this line with the row and the login line's token
+            // handle. Closing one session drops exactly one row, every time.
             yield* Effect.logInfo(
-              `auth-logout user=${u.username} id=${u.id} dropped=${mine.length} from=${yield* caller}`,
+              `auth-logout user=${u.username} id=${u.id} session=${u.sessionId} from=${yield* caller}`,
             )
             return { ok: true }
           }),

@@ -21,6 +21,12 @@ export class CurrentUser extends Context.Tag("cubes/CurrentUser")<
     readonly username: string
     readonly roles: ReadonlyArray<string>
     readonly permissions: ReadonlyArray<string>
+    /**
+     * Which session made this request. The middleware carries it next to the user (QWB-54,
+     * ticket 21) so `auth:logout` can drop exactly that session instead of every session of
+     * the account -- logging out on the phone must not log the laptop out.
+     */
+    readonly sessionId: string
   }
 >() {}
 
