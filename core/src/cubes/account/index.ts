@@ -37,6 +37,17 @@ const group = HttpApiGroup.make("account")
   .add(HttpApiEndpoint.post("create")`/account`.setPayload(AccountCreate).addSuccess(Account).addError(Forbidden))
   .middleware(Authorization)
 
+/**
+ * The permission each route requires, declared ONCE (QWB-54, ticket 10): the manifest
+ * publishes it through the kernel's metadata and the handlers below check through this same
+ * object, so renaming a permission moves enforcement and publication together.
+ */
+const ROUTES = {
+  list: "account:read",
+  get: "account:read",
+  create: "account:write",
+} as const
+
 // Named, because the generic list handler reads its `searchable` and `relations` to build the
 // query it serves (QWB-54): the manifest is the contract, so the handler must see it.
 const manifest = {
@@ -63,6 +74,7 @@ const manifest = {
     { name: "account:read", roles: ["admin", "reader"] },
     { name: "account:write", roles: ["admin"] },
   ],
+  routes: ROUTES,
   publishes: ["account.created"],
 } as const
 
@@ -152,7 +164,7 @@ export const cube = defineCube(group, {
 
         get: ({ path }: { path: { id: string } }) =>
           Effect.gen(function* () {
-            yield* requirePermission("account:read")
+            yield* requirePermission(ROUTES.get)
             const a = yield* store.byId<AccountRow>(TABLE, path.id)
             if (!a) return yield* Effect.fail(new NotFound({ message: `account ${path.id} does not exist` }))
             return publicShape(a)
@@ -160,7 +172,7 @@ export const cube = defineCube(group, {
 
         create: ({ payload }: { payload: typeof AccountCreate.Type }) =>
           Effect.gen(function* () {
-            yield* requirePermission("account:write")
+            yield* requirePermission(ROUTES.create)
             const { password, ...rest } = payload
             const a = (yield* store.insert(TABLE, ENTITY, "acc", {
               ...rest,

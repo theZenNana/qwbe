@@ -11,7 +11,7 @@ import { requirePermission } from "qwbe-core/auth"
 import { checkCustomValue } from "qwbe-core/custom-values"
 import { BadRequest } from "qwbe-core/errors"
 import { customFieldsTool, definitionsFor, type PackTools, type Snapshot } from "./context.ts"
-import { displayValue, orphanValues } from "./schema.ts"
+import { displayValue, orphanValues, ROUTES } from "./schema.ts"
 
 /** Definitions plus the row's current values, which is what a form actually needs. */
 export const rowFields = (tools: PackTools, cube: string, rowId: string) =>
@@ -98,7 +98,7 @@ export const valuesHandlers = (tools: PackTools, _snapshot: Snapshot) => ({
   // REPORTED, never deleted -- deleting a definition must not damage existing rows.
   orphans: ({ urlParams }: { urlParams: { readonly cube: string } }) =>
     Effect.gen(function* () {
-      yield* requirePermission("customfields:write")
+      yield* requirePermission(ROUTES.orphans)
       const cube = urlParams.cube
       // QWB-54 ticket 05 (defect 3): the report reads ANOTHER cube's rows, so it needs the
       // target cube's own read permission on top of the admin gate -- the same gate its

@@ -20,6 +20,19 @@ export type MetadataDeclarations = {
   readonly searchable?: readonly string[]
   readonly fields?: Readonly<Record<string, { readonly label?: string }>>
   readonly relations?: Readonly<Record<string, { readonly target: string }>>
+  /**
+   * The permission each of this cube's own routes requires, by ENDPOINT NAME (`list`,
+   * `create`, ...). Declared once, read twice: the cube's handlers check through the same
+   * object it puts here, and the metadata publishes it (QWB-54, ticket 10) -- so renaming a
+   * permission in the kernel moves enforcement and publication together, and the frontend
+   * follows by reading metadata instead of holding a mirrored literal.
+   *
+   * The mount gate (`validateRoutes`) refuses a name that is not an endpoint of this cube or
+   * a permission this cube does not declare. Routes whose requirement is decided per request
+   * (e.g. the target cube's own read permission) stay undeclared: the metadata publishes
+   * them as null rather than a fixed name that would be a lie.
+   */
+  readonly routes?: Readonly<Record<string, string>>
 }
 
 // --- QWB-54: the same two functions answer "what may a caller filter by" for BOTH the served

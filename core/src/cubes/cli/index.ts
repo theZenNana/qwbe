@@ -36,6 +36,16 @@ const group = HttpApiGroup.make("cli")
   )
   .middleware(Authorization)
 
+/**
+ * The permission each route requires, declared ONCE (QWB-54, ticket 10): the manifest
+ * publishes it through the kernel's metadata and the handlers below check through this same
+ * object, so renaming a permission moves enforcement and publication together.
+ */
+const ROUTES = {
+  commands: "cli:read",
+  exec: "cli:exec",
+} as const
+
 export const cube = defineCube(group, {
   manifest: {
     name: "cli",
@@ -49,6 +59,7 @@ export const cube = defineCube(group, {
       { name: "cli:read", roles: ["admin", "reader"] },
       { name: "cli:exec", roles: ["admin", "reader"] },
     ],
+    routes: ROUTES,
   },
 
   // TS2322 care stătea aici a fost REZOLVATĂ pe 9 aug 2026, nu stinsă. Ce era și cum s-a închis,
@@ -98,7 +109,7 @@ export const cube = defineCube(group, {
       handlers: {
         commands: () =>
           Effect.gen(function* () {
-            yield* requirePermission("cli:read")
+            yield* requirePermission(ROUTES.commands)
             const user = yield* CurrentUser
             return commands()
               .map((c) => ({
@@ -112,7 +123,7 @@ export const cube = defineCube(group, {
 
         exec: ({ payload }: { payload: { line: string } }) =>
           Effect.gen(function* () {
-            yield* requirePermission("cli:exec")
+            yield* requirePermission(ROUTES.exec)
             const user = yield* CurrentUser
 
             const parts = payload.line.trim().split(/\s+/).filter(Boolean)

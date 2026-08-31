@@ -10,7 +10,7 @@ import { requirePermission } from "qwbe-core/auth"
 import { BadRequest, NotFound } from "qwbe-core/errors"
 import { pageRequest } from "qwbe-core/pagination"
 import { definitionsFor, type PackTools, refreshSnapshot, type Snapshot } from "./context.ts"
-import { type CustomFieldCreate, DEFS, type DefRow, ENTITY, NAME } from "./schema.ts"
+import { type CustomFieldCreate, DEFS, type DefRow, ENTITY, NAME, ROUTES } from "./schema.ts"
 
 export const definitionHandlers = (tools: PackTools, snapshot: Snapshot) => {
   const { store, bus, catalogue } = tools
@@ -28,7 +28,7 @@ export const definitionHandlers = (tools: PackTools, snapshot: Snapshot) => {
       }
     }) =>
       Effect.gen(function* () {
-        yield* requirePermission("customfields:read")
+        yield* requirePermission(ROUTES.list)
         const page = pageRequest(urlParams)
         return yield* urlParams.cube
           ? store.page<DefRow>(DEFS, page, { field: "targetCube", value: urlParams.cube })
@@ -37,7 +37,7 @@ export const definitionHandlers = (tools: PackTools, snapshot: Snapshot) => {
 
     define: ({ payload }: { payload: typeof CustomFieldCreate.Type }) =>
       Effect.gen(function* () {
-        yield* requirePermission("customfields:write")
+        yield* requirePermission(ROUTES.define)
         const p = payload
 
         if (!NAME.test(p.name)) {
@@ -95,7 +95,7 @@ export const definitionHandlers = (tools: PackTools, snapshot: Snapshot) => {
 
     update: ({ path, payload }: { path: { readonly id: string }; payload: Record<string, unknown> }) =>
       Effect.gen(function* () {
-        yield* requirePermission("customfields:write")
+        yield* requirePermission(ROUTES.update)
         if (Object.keys(payload).length === 0) {
           return yield* Effect.fail(new BadRequest({ message: "patch is empty -- nothing to change" }))
         }
@@ -116,7 +116,7 @@ export const definitionHandlers = (tools: PackTools, snapshot: Snapshot) => {
 
     remove: ({ path }: { path: { readonly id: string } }) =>
       Effect.gen(function* () {
-        yield* requirePermission("customfields:write")
+        yield* requirePermission(ROUTES.remove)
         const current = yield* store.byId<DefRow>(DEFS, path.id)
         if (!current) {
           return yield* Effect.fail(new NotFound({ message: `no custom field ${path.id}` }))

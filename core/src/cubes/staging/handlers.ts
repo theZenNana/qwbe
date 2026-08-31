@@ -7,7 +7,7 @@ import type { CubeTools } from "qwbe-core/cube"
 import { requirePermission } from "../../kernel/auth-contract.ts"
 import { BadRequest, NotFound } from "../../kernel/errors.ts"
 import type { BatchStore } from "./batch.ts"
-import { MAX_CHUNK_CHARS, type SetCreate, type StagingSet as StagingSetRow, TABLES } from "./contract.ts"
+import { MAX_CHUNK_CHARS, ROUTES, type SetCreate, type StagingSet as StagingSetRow, TABLES } from "./contract.ts"
 import { applyChunk } from "./import-chunks.ts"
 import { profileHandler } from "./profile-run.ts"
 
@@ -39,7 +39,7 @@ export const stagingHandlers = (tools: CubeTools, batched: BatchStore) => {
     handlers: {
       createSet: ({ payload }: { payload: typeof SetCreate.Type }) =>
         Effect.gen(function* () {
-          yield* requirePermission("staging:write")
+          yield* requirePermission(ROUTES.createSet)
           const row = (yield* store.insert(TABLES.sets, "staging.set", "set", {
             name: payload.name,
             format: payload.format,
@@ -56,7 +56,7 @@ export const stagingHandlers = (tools: CubeTools, batched: BatchStore) => {
 
       listSets: () =>
         Effect.gen(function* () {
-          yield* requirePermission("staging:read")
+          yield* requirePermission(ROUTES.listSets)
           // store.all already filters deleted = false; no second filter here.
           const rows = (yield* store.all(TABLES.sets)) as ReadonlyArray<StagingSetRow>
           return rows.map(toState)
@@ -64,14 +64,14 @@ export const stagingHandlers = (tools: CubeTools, batched: BatchStore) => {
 
       getSet: ({ path }: { path: { id: string } }) =>
         Effect.gen(function* () {
-          yield* requirePermission("staging:read")
+          yield* requirePermission(ROUTES.getSet)
           const row = yield* loadSet(store, path.id)
           return toState(row)
         }),
 
       chunk: ({ path, payload }: { path: { id: string }; payload: { text: string; startLine: number } }) =>
         Effect.gen(function* () {
-          yield* requirePermission("staging:write")
+          yield* requirePermission(ROUTES.chunk)
           const set = yield* loadSet(store, path.id)
           if (set.state !== "importing") {
             return yield* Effect.fail(new BadRequest({ message: `set ${set.id} is ${set.state}, not importing` }))
@@ -97,7 +97,7 @@ export const stagingHandlers = (tools: CubeTools, batched: BatchStore) => {
 
       finish: ({ path }: { path: { id: string } }) =>
         Effect.gen(function* () {
-          yield* requirePermission("staging:write")
+          yield* requirePermission(ROUTES.finish)
           const set = yield* loadSet(store, path.id)
           // Only an importing set can be finished: `done` on a failed (or already done) set
           // would stamp completion over a half-import (QWB-45 review, blocker 4).
@@ -110,7 +110,7 @@ export const stagingHandlers = (tools: CubeTools, batched: BatchStore) => {
 
       sensitive: ({ path, payload }: { path: { id: string }; payload: { fields: ReadonlyArray<string> } }) =>
         Effect.gen(function* () {
-          yield* requirePermission("staging:write")
+          yield* requirePermission(ROUTES.sensitive)
           const set = yield* loadSet(store, path.id)
           yield* store.update(TABLES.sets, set.id, { sensitiveFields: payload.fields })
           return { id: set.id, sensitiveFields: payload.fields }
@@ -118,7 +118,7 @@ export const stagingHandlers = (tools: CubeTools, batched: BatchStore) => {
 
       profile: ({ path }: { path: { id: string } }) =>
         Effect.gen(function* () {
-          yield* requirePermission("staging:read")
+          yield* requirePermission(ROUTES.profile)
           const set = yield* loadSet(store, path.id)
           // The rows table is created lazily; profile's batch does not create it, so touch it
           // first or a set with no chunk ever posted 500s with "relation rows does not exist"
@@ -129,7 +129,7 @@ export const stagingHandlers = (tools: CubeTools, batched: BatchStore) => {
 
       deleteSet: ({ path }: { path: { id: string } }) =>
         Effect.gen(function* () {
-          yield* requirePermission("staging:write")
+          yield* requirePermission(ROUTES.deleteSet)
           const set = yield* loadSet(store, path.id)
           // First touch creates BOTH tables -- the batch below only deletes from them, and on
           // a process where no chunk was ever posted the rows table would not exist (item 11).

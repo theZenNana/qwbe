@@ -39,6 +39,7 @@ import {
   validateAgentSurface,
   validateCommands,
   validateManifest,
+  validateRoutes,
 } from "./manifest-validation.ts"
 import { activeLinks, type SpaceDefinition } from "./space.ts"
 import { type Switches, switchesFrom } from "./state.ts"
@@ -319,6 +320,10 @@ export const mount = (
     const own = parts.commands ?? []
     validateCommands(m, own)
     allCommands.push(...own)
+    // Route permissions, like commands: the declaration may not name a route that does not
+    // exist nor a permission the cube does not declare. Run here so the gate covers every
+    // mounted cube -- a pack's included, since this is the pass a pack is mounted through.
+    validateRoutes(m, parts.group)
 
     return { manifest: m, name: full, parts, plugin, commands: own }
   })

@@ -6,6 +6,7 @@ import assert from "node:assert/strict"
 import { describe, it } from "node:test"
 import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema } from "@effect/platform"
 import { Schema } from "effect"
+import { Authorization } from "../kernel/auth-contract.ts"
 import { deriveCubeMetadata } from "./metadata.ts"
 
 const EntityMeta = { id: Schema.String, type: Schema.String, createdAt: Schema.String, deleted: Schema.Boolean }
@@ -31,6 +32,30 @@ const group = HttpApiGroup.make("things")
 
 const mount = (manifestOverrides: Record<string, unknown> = {}) => {
   const parts = { group, handlers: {}, relational: manifestOverrides.search as never }
+  return {
+    manifest: {
+      name: "things",
+      tables: ["things"],
+      requiresAuth: true,
+      ...manifestOverrides,
+    },
+    name: "things",
+    parts,
+    plugin: null,
+    commands: [],
+  }
+}
+
+// The same cube behind the Authorization middleware, the way every real cube ships it: the
+// middleware is what the published `auth` flag must be read from, never re-typed.
+const authedGroup = HttpApiGroup.make("things")
+  .add(HttpApiEndpoint.get("list")`/things`.addSuccess(Schema.Struct({ rows: Schema.Array(Thing), total: Schema.Int })))
+  .add(HttpApiEndpoint.get("get")`/things/${HttpApiSchema.param("id", Schema.String)}`.addSuccess(Thing))
+  .add(HttpApiEndpoint.post("create")`/things`.setPayload(ThingCreate).addSuccess(Thing))
+  .middleware(Authorization)
+
+const mountAuthed = (manifestOverrides: Record<string, unknown> = {}) => {
+  const parts = { group: authedGroup, handlers: {} }
   return {
     manifest: {
       name: "things",
@@ -201,5 +226,50 @@ describe("deriveCubeMetadata", () => {
       commands: [],
     }
     assert.equal(deriveCubeMetadata(bare as never, [], []), undefined)
+  })
+})
+
+describe("deriveCubeMetadata - the routes a frontend may call (QWB-54, ticket 10)", () => {
+  it("reads auth from the middleware the contract carries and permission from the manifest's one declaration", () => {
+    const md = deriveCubeMetadata(
+      mountAuthed({ routes: { list: "things:read", get: "things:read", create: "things:write" } }) as never,
+      [],
+      [],
+    )
+    assert.ok(md)
+    assert.deepEqual(md.routes, {
+      list: { auth: true, permission: "things:read" },
+      get: { auth: true, permission: "things:read" },
+      create: { auth: true, permission: "things:write" },
+    })
+  })
+
+  it("publishes no auth and no permission where none is declared -- and the list falls back to the kernel's read convention, the one the generic list handler enforces", () => {
+    const md = deriveCubeMetadata(mount() as never, [], [])
+    assert.ok(md)
+    assert.deepEqual(md.routes, {
+      list: { auth: false, permission: "things:read" },
+      get: { auth: false, permission: null },
+      create: { auth: false, permission: null },
+    })
+  })
+
+  it("a renamed permission reaches the metadata: the FIXTURE renames, the derivation holds no literal", () => {
+    // The full rename as it happens in a kernel cube: the `permissions` list and the `routes`
+    // map move together (the mount gate refuses one without the other). Nothing in the
+    // derivation below changes, and the published name follows.
+    const grants = (name: string) => [{ name, roles: ["admin"] }]
+    const before = deriveCubeMetadata(
+      mountAuthed({ permissions: grants("things:read"), routes: { list: "things:read" } }) as never,
+      [],
+      [],
+    )
+    assert.equal(before!.routes.list!.permission, "things:read")
+    const after = deriveCubeMetadata(
+      mountAuthed({ permissions: grants("things:view"), routes: { list: "things:view" } }) as never,
+      [],
+      [],
+    )
+    assert.equal(after!.routes.list!.permission, "things:view")
   })
 })

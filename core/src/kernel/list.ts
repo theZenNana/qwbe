@@ -25,7 +25,7 @@ import { HttpServerRequest } from "@effect/platform"
 import { Effect, Option, Schema } from "effect"
 import type { MetadataDeclarations } from "../metadata/declarations.ts"
 import { filterFields, searchFields } from "../metadata/declarations.ts"
-import { requirePermission } from "./auth-contract.ts"
+import { readPermissionOf, requirePermission } from "./auth-contract.ts"
 import type { CubeStore } from "./manifest.ts"
 import { DEFAULT_LIMIT, type ListWhere, MAX_LIMIT, type PageRequest, pageRequest, SortField } from "./pagination.ts"
 
@@ -120,7 +120,8 @@ export const listWhere = (
 }
 
 export type GenericList<A, B> = {
-  /** The cube's FULL name. `<name>:read` is the permission the list requires. */
+  /** The cube's FULL name. The list requires the manifest's declared `routes.list`, falling
+   *  back to `<name>:read` -- the convention every cube follows (see `readPermissionOf`). */
   readonly cube: string
   readonly table: string
   /** The cube's own manifest. `name` is in the type only to keep TypeScript's weak-type check
@@ -139,7 +140,7 @@ export const genericList =
   <A, B = A>(config: GenericList<A, B>) =>
   ({ urlParams }: { urlParams: ListParamsType }) =>
     Effect.gen(function* () {
-      yield* requirePermission(`${config.cube}:read`)
+      yield* requirePermission(config.manifest.routes?.list ?? readPermissionOf(config.cube))
       if (config.before) yield* config.before
       const raw = yield* rawQuery
       const page = yield* config.store.page<A>(

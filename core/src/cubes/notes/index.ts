@@ -23,6 +23,18 @@ import { migrateLegacyNotes, visibleNotesPage } from "./permissions.ts"
 const TABLE = "notes"
 const ENTITY = "Note"
 
+/**
+ * The permission each route requires, declared ONCE: the manifest publishes it through the
+ * kernel's metadata and the handlers below check through this same object (QWB-54, ticket
+ * 10). Renaming a permission is editing this object and the `permissions` list -- nothing
+ * else in the system holds the name, so nothing can be left behind.
+ */
+const ROUTES = {
+  list: "notes:read",
+  get: "notes:read",
+  create: "notes:write",
+} as const
+
 const Note = Schema.Struct({
   ...EntityMeta,
   title: Schema.String,
@@ -73,6 +85,7 @@ export const cube = defineCube(group, {
       { name: "notes:read", roles: ["admin", "reader"] },
       { name: "notes:write", roles: ["admin"] },
     ],
+    routes: ROUTES,
     publishes: ["notes.created"],
     usesEntityPermissions: true,
   },
@@ -95,14 +108,14 @@ export const cube = defineCube(group, {
       handlers: {
         list: ({ urlParams }: { urlParams: typeof PageParams.Type }) =>
           Effect.gen(function* () {
-            yield* requirePermission("notes:read")
+            yield* requirePermission(ROUTES.list)
             const user = yield* CurrentUser
             return yield* visibleNotesPage<NoteRow>(store, entityPermissions, user, pageRequest(urlParams))
           }),
 
         get: ({ path }: { path: { id: string } }) =>
           Effect.gen(function* () {
-            yield* requirePermission("notes:read")
+            yield* requirePermission(ROUTES.get)
             const user = yield* CurrentUser
             const n = yield* store.byId<NoteRow>(TABLE, path.id)
             if (!n) return yield* Effect.fail(new NotFound({ message: `note ${path.id} does not exist` }))
@@ -117,7 +130,7 @@ export const cube = defineCube(group, {
 
         create: ({ payload }: { payload: typeof NoteCreate.Type }) =>
           Effect.gen(function* () {
-            yield* requirePermission("notes:write")
+            yield* requirePermission(ROUTES.create)
             // The author is whoever is logged in. `CurrentUser` comes from the kernel contract,
             // so this cube gets an author id without knowing which cube issues identities.
             const user = yield* CurrentUser

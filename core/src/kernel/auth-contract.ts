@@ -52,3 +52,11 @@ export const requirePermission = (permission: string) =>
     }
     return user
   })
+
+/**
+ * The read permission of a cube is its full name plus `:read` -- the convention every cube
+ * follows. The kernel uses it as the list route's permission when a cube's manifest declares
+ * none (`list.ts`, `metadata.ts`), so the enforced and the published name are the same
+ * derivation, not two literals kept in step by hand.
+ */
+export const readPermissionOf = (cube: string): string => `${cube}:read`

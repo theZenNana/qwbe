@@ -3,6 +3,23 @@
 
 import { Schema } from "effect"
 
+/**
+ * The permission each route requires, declared ONCE (QWB-54, ticket 10): the manifest
+ * publishes this object through the kernel's metadata and the handlers in handlers.ts check
+ * through the same names, so renaming a permission moves enforcement and publication
+ * together.
+ */
+export const ROUTES = {
+  createSet: "staging:write",
+  listSets: "staging:read",
+  getSet: "staging:read",
+  chunk: "staging:write",
+  finish: "staging:write",
+  sensitive: "staging:write",
+  profile: "staging:read",
+  deleteSet: "staging:write",
+} as const
+
 /** The two import formats. A set is ONE file's worth of rows, so the format is per set. */
 export const StagingFormat = Schema.Literal("jsonl", "csv").annotations({ identifier: "StagingFormat" })
 

@@ -49,6 +49,7 @@ import {
   OrphansLookup,
   OrphansReport,
   orphanValues,
+  ROUTES,
   RowFields,
   summary,
   toDefinition,
@@ -130,6 +131,7 @@ export const cube = defineCube(group, {
       { name: "customfields:write", roles: ["admin"] },
     ],
     publishes: ["customfields.defined", "customfields.removed"],
+    routes: ROUTES,
   },
 
   create: ({ store, bus, catalogue, customFields }: CubeTools) => {

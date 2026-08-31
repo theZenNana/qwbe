@@ -21,6 +21,7 @@ const meta = (cube: string, version: string | null, hash: string): CubeMetadata 
   list: null,
   version,
   schemaHash: hash,
+  routes: {},
   fields: [],
 })
 

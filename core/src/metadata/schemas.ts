@@ -71,11 +71,33 @@ export const ListContract = Schema.Struct({
   sort: Schema.Array(Schema.String),
 }).annotations({ identifier: "ListContract" })
 
+export const RouteContract = Schema.Struct({
+  /** A valid token is required: the Authorization middleware is declared on the route or its
+   *  group. Read from the contract, never re-typed here. */
+  auth: Schema.Boolean,
+  /**
+   * The permission a caller's token must carry, as the cube's manifest declares it. Null when
+   * the cube declares none for the route -- which includes routes whose requirement is decided
+   * per request (e.g. the target cube's own read permission): a fixed name there would be a
+   * lie, so none is published.
+   */
+  permission: Schema.NullOr(Schema.String),
+}).annotations({ identifier: "RouteContract" })
+
+export type RouteContract = typeof RouteContract.Type
+
 export const CubeMetadata = Schema.Struct({
   cube: Schema.String,
   entity: Schema.NullOr(Schema.String),
   /** What the cube's list route honours. Null when the cube publishes no list route. */
   list: Schema.NullOr(ListContract),
+  /**
+   * What each route of the cube demands (QWB-54, ticket 10): the auth requirement read from
+   * the Authorization middleware the contract carries, the permission from the manifest's one
+   * declaration. A frontend compares these with the session's own permissions instead of
+   * holding a mirrored literal that nothing ties to the kernel.
+   */
+  routes: Schema.Record({ key: Schema.String, value: RouteContract }),
   /** Declared by the cube (`Manifest.version`); clients cache metadata keyed by it. */
   version: Schema.NullOr(Schema.String),
   /** Fingerprint of the derived fields. Changes whenever the schema or declarations change. */

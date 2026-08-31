@@ -19,6 +19,24 @@ export const DEFS = "customfield_defs"
 export const ENTITY = "CustomField"
 
 /**
+ * The permission each STATIC route requires, declared ONCE (QWB-54, ticket 10): the manifest
+ * publishes this object through the kernel's metadata and the handlers in handlers.ts check
+ * through the same names, so renaming a permission moves enforcement and publication
+ * together.
+ *
+ * `valuesFor` and `setValues` are deliberately NOT here: their requirement is decided per
+ * request -- the TARGET cube's own read permission (`${cube}:read`) -- so no fixed name could
+ * be true. The metadata publishes them with `permission: null` rather than a guess.
+ */
+export const ROUTES = {
+  list: "customfields:read",
+  define: "customfields:write",
+  update: "customfields:write",
+  remove: "customfields:write",
+  orphans: "customfields:write",
+} as const
+
+/**
  * A field name has to survive being a JSON key, a form input name and a column header, so it is
  * kept to the shape every one of those accepts without quoting.
  */
