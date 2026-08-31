@@ -18,6 +18,7 @@ import { checkSchemaDrift, SchemaDriftError } from "./schema-drift.ts"
 const meta = (cube: string, version: string | null, hash: string): CubeMetadata => ({
   cube,
   entity: cube,
+  list: null,
   version,
   schemaHash: hash,
   fields: [],

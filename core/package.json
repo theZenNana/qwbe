@@ -12,6 +12,7 @@
     "./entity": "./src/entity-contracts.ts",
     "./errors": "./src/error-contracts.ts",
     "./pagination": "./src/pagination-contracts.ts",
+    "./list": "./src/list-contracts.ts",
     "./permissions": "./src/permissions-contracts.ts",
     "./package": "./src/package-contract.ts"
   },

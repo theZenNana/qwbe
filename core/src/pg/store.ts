@@ -20,7 +20,7 @@
 
 import { Effect } from "effect"
 import type { CubeStore } from "../kernel/manifest.ts"
-import type { Page, PageRequest } from "../kernel/pagination.ts"
+import type { ListWhere, Page, PageRequest } from "../kernel/pagination.ts"
 import { type BatchStore, batchFor } from "./batch.ts"
 import { ForeignTableError } from "./errors.ts"
 import { decode, mergeCustom, newId, orderClause, outboxInsert, renumber, whereClause } from "./rows.ts"
@@ -58,7 +58,11 @@ export const storeFor = (
         })
       }),
 
-    page: <A>(table: string, page: PageRequest, where?: { field: string; value: string }) =>
+    page: <A>(
+      table: string,
+      page: PageRequest,
+      where?: { readonly field: string; readonly value: string } | ListWhere,
+    ) =>
       Effect.promise(async (): Promise<Page<A>> => {
         const t = check(table)
         await ensureCubeSchema(cube)

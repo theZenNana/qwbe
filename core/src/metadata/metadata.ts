@@ -19,8 +19,9 @@
 import { createHash } from "node:crypto"
 import type { PropertySignature } from "effect/SchemaAST"
 import { EntityMeta } from "../kernel/entity.ts"
+import { DEFAULT_LIMIT, MAX_LIMIT } from "../kernel/pagination.ts"
 import { classify, encodedLiteralOf, entityStructOf, groupEndpoints } from "./ast.ts"
-import type { MetadataDeclarations } from "./declarations.ts"
+import { filterFields, type MetadataDeclarations, searchFields } from "./declarations.ts"
 import type { CubeMetadata, FieldMetadata } from "./schemas.ts"
 
 export type { MetadataDeclarations } from "./declarations.ts"
@@ -120,6 +121,22 @@ export const deriveCubeMetadata = (
   return {
     cube: cube.name,
     entity: m.entity ?? null,
+    // QWB-54. Derived, never declared: a cube that publishes a `list` endpoint gets the whole
+    // contract the kernel's generic handler serves, out of the same manifest declarations.
+    // `schemaHash` deliberately does NOT cover it -- the hash is about the row's SHAPE, which is
+    // what a cached form would be wrong about, and the query contract changes nothing there.
+    list: groupEndpoints(cube.parts.group).list
+      ? {
+          params: ["page", "pageSize", "sort", "q", "ids"],
+          paging: "offset",
+          totalIsExact: true,
+          maxPageSize: MAX_LIMIT,
+          defaultPageSize: DEFAULT_LIMIT,
+          search: searchFields(m),
+          filters: filterFields(m),
+          sort: [...sortableSet],
+        }
+      : null,
     version: m.version ?? null,
     schemaHash: metadataHash(cube.name, m.entity ?? null, m.version ?? null, fields),
     fields,

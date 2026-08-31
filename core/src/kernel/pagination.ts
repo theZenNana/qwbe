@@ -29,6 +29,22 @@ export type PageRequest = {
   readonly descending?: boolean | undefined
 }
 
+/**
+ * What a list query filters by, all of it turned into SQL by the store (QWB-54).
+ *
+ * The store's `page` used to take a single `{field, value}` pair, which is why every cube that
+ * wanted more wrote its own handler and no two agreed. This is the whole vocabulary of the one
+ * generic list handler (`kernel/list.ts`): exact matches, a batch of ids, and a prefix search
+ * over the fields the cube declares searchable.
+ */
+export type ListWhere = {
+  readonly equals?: ReadonlyArray<{ readonly field: string; readonly value: string }>
+  /** `ids=a,b,c` -- exactly these rows, in one query. */
+  readonly ids?: ReadonlyArray<string>
+  /** `q=` -- prefix match, ORed across `fields`. */
+  readonly q?: { readonly text: string; readonly fields: ReadonlyArray<string> }
+}
+
 export type Page<A> = {
   readonly rows: ReadonlyArray<A>
   readonly total: number
@@ -61,7 +77,7 @@ export type Page<A> = {
  * contract and visible in the emitted OpenAPI — rather than being dropped silently, which is
  * the failure mode criticised elsewhere in this prototype.
  */
-const SortField = Schema.String.pipe(
+export const SortField = Schema.String.pipe(
   Schema.pattern(/^[A-Za-z_][A-Za-z0-9_]*$/, {
     message: () => "sortBy must be a field name: a letter or underscore, then letters, digits or underscores",
   }),

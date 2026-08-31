@@ -7,11 +7,11 @@ import {
   type Handler,
   isRecord,
   itemId,
-  safeInt,
   schemaFields,
 } from "./entity-contract.ts"
 import { CurrentUser } from "./kernel/auth-contract.ts"
 import { Forbidden } from "./kernel/errors.ts"
+import { listPageRequest } from "./kernel/list.ts"
 import { MAX_LIMIT } from "./kernel/pagination.ts"
 import type { AccessDecision, EntityRef, PermissionActor } from "./permissions-contracts.ts"
 
@@ -91,15 +91,29 @@ export const enforceEntityHandlers = <Handlers extends Readonly<Record<string, u
           const user = yield* CurrentUser
           if (!isRecord(request) || !isRecord(request.urlParams))
             return yield* Effect.die("entity list needs paging params")
-          const requestedOffset = safeInt(request.urlParams.offset, 0)
-          const requestedLimit = Math.min(MAX_LIMIT, Math.max(1, safeInt(request.urlParams.limit, 50)))
+          // The SAME reading of the query the generic list handler does (QWB-54), so `page` and
+          // `pageSize` mean here what they mean everywhere else. Read once, at the top: the
+          // inner calls below are driven with an offset of this wrapper's own choosing.
+          const asked = listPageRequest(request.urlParams)
+          const requestedOffset = asked.offset
+          const requestedLimit = Math.min(MAX_LIMIT, Math.max(1, asked.limit))
           const visible: Array<unknown> = []
           let sourceOffset = 0
           let template: Record<string, unknown> | undefined
           while (true) {
             const result = yield* runHandler(handler, {
               ...request,
-              urlParams: { ...request.urlParams, offset: sourceOffset, limit: MAX_LIMIT },
+              // `page` and `pageSize` are dropped, not overridden: leaving them in would make the
+              // inner handler recompute an offset from the page number and walk this loop in
+              // circles. `ids` and the field filters stay -- they are part of WHAT to read, and
+              // narrowing them in SQL is exactly what makes this loop affordable.
+              urlParams: {
+                ...request.urlParams,
+                page: undefined,
+                pageSize: undefined,
+                offset: sourceOffset,
+                limit: MAX_LIMIT,
+              },
             })
             if (!isRecord(result) || !Array.isArray(result.rows) || typeof result.total !== "number") {
               return yield* Effect.die("entity list violated its PageOf contract")

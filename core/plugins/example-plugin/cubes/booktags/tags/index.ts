@@ -11,7 +11,7 @@ import { type CubeTools, defineCube } from "qwbe-core/cube"
 import { EntityMeta, type SummaryRow } from "qwbe-core/entity"
 import { Forbidden, NotFound } from "qwbe-core/errors"
 import { PageOf } from "qwbe-core/http"
-import { PageParams, pageRequest } from "qwbe-core/pagination"
+import { genericList, ListParams } from "qwbe-core/list"
 
 const TABLE = "tags"
 const ENTITY = "Tag"
@@ -31,7 +31,7 @@ const TagCreate = Schema.Struct({
 type TagRow = typeof Tag.Type
 
 const group = HttpApiGroup.make("tags")
-  .add(HttpApiEndpoint.get("list")`/tags`.setUrlParams(PageParams).addSuccess(PageOf(Tag)).addError(Forbidden))
+  .add(HttpApiEndpoint.get("list")`/tags`.setUrlParams(ListParams).addSuccess(PageOf(Tag)).addError(Forbidden))
   .add(
     HttpApiEndpoint.get("get")`/tags/${HttpApiSchema.param("id", Schema.String)}`
       .addSuccess(Tag)
@@ -47,28 +47,30 @@ const summary = (t: TagRow): SummaryRow => ({
   details: [{ key: "bookmarkId", value: t.bookmarkId }],
 })
 
+const manifest = {
+  name: "tags",
+  parent: "booktags",
+  tables: [TABLE],
+  entity: ENTITY,
+  sortable: ["label"],
+  // QWB-54: what `?q=` scans and what `?label=` / `?bookmarkId=` match on. `bookmarkId`
+  // is the space-link field, so filtering the tags of one bookmark is now a list query.
+  searchable: ["label", "bookmarkId"],
+  requiresAuth: true,
+  permissions: [
+    { name: "booktags/tags:read", roles: ["admin", "reader"] },
+    { name: "booktags/tags:write", roles: ["admin"] },
+  ],
+  publishes: ["booktags/tags.created"],
+} as const
+
 export const cube = defineCube(group, {
-  manifest: {
-    name: "tags",
-    parent: "booktags",
-    tables: [TABLE],
-    entity: ENTITY,
-    sortable: ["label"],
-    requiresAuth: true,
-    permissions: [
-      { name: "booktags/tags:read", roles: ["admin", "reader"] },
-      { name: "booktags/tags:write", roles: ["admin"] },
-    ],
-    publishes: ["booktags/tags.created"],
-  },
+  manifest,
 
   create: ({ store, bus }: CubeTools) => ({
     handlers: {
-      list: ({ urlParams }: { urlParams: typeof PageParams.Type }) =>
-        Effect.gen(function* () {
-          yield* requirePermission("booktags/tags:read")
-          return yield* store.page<TagRow>(TABLE, pageRequest(urlParams))
-        }),
+      // The kernel's list, generated from the manifest above (QWB-54).
+      list: genericList<TagRow>({ cube: "booktags/tags", table: TABLE, manifest, store }),
 
       get: ({ path }: { path: { id: string } }) =>
         Effect.gen(function* () {
