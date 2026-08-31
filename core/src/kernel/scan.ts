@@ -12,7 +12,9 @@ import { BrokenCubeError, DuplicateCubeError } from "./errors-discovery.ts"
 
 const here = dirname(fileURLToPath(import.meta.url))
 const cubesDir = join(here, "..", "cubes")
-const pluginsDir = join(here, "..", "..", "plugins")
+/** Where installed packages live. Exported so the boot-time package contract judges the same
+ *  directory discovery mounts from -- two spellings of this path would drift. */
+export const pluginsDir = join(here, "..", "..", "plugins")
 
 export const subdirectories = (dir: string): ReadonlyArray<string> => {
   if (!existsSync(dir)) return []

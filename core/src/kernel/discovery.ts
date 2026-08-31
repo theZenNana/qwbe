@@ -18,6 +18,7 @@ import { Effect } from "effect"
 import { capabilityRuntime } from "../capability-runtime.ts"
 import { buildCatalogue } from "../catalogue.ts"
 import { type CubeDefinition, decodeCubeExport, validateCubeParts } from "../cube-contract.ts"
+import { assertPackageContracts } from "../package-contract.ts"
 import { busFrom } from "./bus.ts"
 import { installerFor } from "./install.ts"
 
@@ -85,10 +86,13 @@ export const loadDefinitions = async (): Promise<
     const p = parentOf(name)
     if (p && !expanded.has(p)) expanded.add(p)
   }
-  const finalRequested = [...expanded]
+  const mounting = onDisk.filter((c) => expanded.has(c.name))
+  // The package contract, enforced by the kernel rather than by the pack (QWB-54). Runs before
+  // the first plugin import below, so a package that breaks it never executes.
+  await assertPackageContracts(mounting)
 
   const out: Array<{ name: string; plugin: string | null; definition: CubeDefinition }> = []
-  for (const entry of onDisk.filter((c) => finalRequested.includes(c.name))) {
+  for (const entry of mounting) {
     let mod: unknown
     try {
       mod = await import(entry.specifier)

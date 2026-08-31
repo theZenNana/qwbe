@@ -16,6 +16,7 @@ import { existsSync } from "node:fs"
 import { join } from "node:path"
 import { pathToFileURL } from "node:url"
 
+import { pluginsDir } from "./kernel/scan.ts"
 import type { PackageFinding } from "./package-contract-scan.ts"
 import { importFindings, manifestFindings, readOnlyFindings, walkSources } from "./package-contract-scan.ts"
 
@@ -123,4 +124,32 @@ export const checkPackageSource = async (
   if (options.readOnly) rest.push(...readOnlyFindings(root, files))
   if (options.hierarchy) rest.push(...(await hierarchyFindings(root, cubes)))
   return [...manifest, ...rest]
+}
+
+/**
+ * The boot gate (QWB-54). Until now the contract was a test a pack CHOSE to run from its own
+ * repository -- and a pack that chose not to simply wrote weaker rules of its own, which is
+ * exactly what happened. The kernel now runs the same checker itself, over every package a
+ * mount is about to load, in every mode: a pack cannot skip a check it does not execute.
+ *
+ * Called from `loadDefinitions` BEFORE the first `import()` of a plugin module, so a package
+ * that breaks the contract never gets to run its top-level code. A finding stops the boot.
+ *
+ * `hierarchy` is deliberately NOT enabled here: it imports the pack's cube modules to read
+ * their manifests, which is the very execution this gate runs ahead of -- and the kernel
+ * checks the manifest against the directory anyway, in `loadDefinitions`.
+ */
+export const assertPackageContracts = async (
+  mounting: ReadonlyArray<{ readonly plugin: string | null }>,
+): Promise<void> => {
+  for (const plugin of new Set(mounting.map((c) => c.plugin).filter((p): p is string => p !== null))) {
+    const findings = await checkPackageSource(join(pluginsDir, plugin))
+    if (findings.length > 0) {
+      throw new Error(
+        `Package "${plugin}" breaks the package contract, so the kernel does not start:\n` +
+          findings.map((f) => `    ${f.rule}: ${f.file} -- ${f.message}`).join("\n") +
+          `\n  Fix the package, or remove it from plugins/. See docs/package-contract.md.`,
+      )
+    }
+  }
 }
