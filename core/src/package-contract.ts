@@ -130,15 +130,16 @@ export const checkPackageSource = async (
   return [...manifest, ...rest]
 }
 
-// An INSTALLED package has no `qwbe-package.json` beside its cubes: the installer treats the
-// manifest as store bookkeeping and strips it from the copy it lands in plugins/ (pinned by
-// probes/install-from.mjs). The record that says which cubes the package is allowed to bring
-// therefore lives in the store, and that is what the boot cross-check reads -- against the cubes
-// really on disk, so a directory added after the install is still caught. `QWBE_STORE_DIR` is
+// Where to read a mounted package's manifest. Normally it sits next to the cubes -- but an
+// INSTALLED package has none there: the installer treats `qwbe-package.json` as store
+// bookkeeping and strips it from the copy it lands in plugins/ (pinned by
+// probes/install-from.mjs). So the fallback is the store copy, cross-checked against the cubes
+// really on disk, which still catches a directory added after the install. `QWBE_STORE_DIR` is
 // the same override kernel/install.ts honours, read per call because probes set it per server.
-const storeCopy = (plugin: string): string | undefined => {
-  const dir = join(process.env.QWBE_STORE_DIR ?? join(pluginsDir, "..", "store"), plugin)
-  return existsSync(join(dir, "qwbe-package.json")) ? dir : undefined
+const manifestRootFor = (root: string, plugin: string): string | undefined => {
+  if (existsSync(join(root, "qwbe-package.json"))) return undefined
+  const store = join(process.env.QWBE_STORE_DIR ?? join(pluginsDir, "..", "store"), plugin)
+  return existsSync(join(store, "qwbe-package.json")) ? store : undefined
 }
 
 /**
@@ -158,7 +159,8 @@ export const assertPackageContracts = async (
   mounting: ReadonlyArray<{ readonly plugin: string | null }>,
 ): Promise<void> => {
   for (const plugin of new Set(mounting.map((c) => c.plugin).filter((p): p is string => p !== null))) {
-    const findings = await checkPackageSource(join(pluginsDir, plugin), { manifestRoot: storeCopy(plugin) })
+    const root = join(pluginsDir, plugin)
+    const findings = await checkPackageSource(root, { manifestRoot: manifestRootFor(root, plugin) })
     if (findings.length > 0) {
       throw new Error(
         `Package "${plugin}" breaks the package contract, so the kernel does not start:\n` +
