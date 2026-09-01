@@ -37,13 +37,14 @@ import {
 import { createRequire } from "node:module"
 import { createServer } from "node:net"
 import { tmpdir } from "node:os"
-import { basename, dirname, join, sep } from "node:path"
+import { dirname, join, sep } from "node:path"
 import { fileURLToPath } from "node:url"
 import pg from "pg"
 import { runGenericStage } from "./check-probes.ts"
 import { checkPackageSource } from "./package-contract.ts"
 import type { PackageFinding } from "./package-contract-scan.ts"
 import { capsFromConfig, type RawConfig, type SizeCaps, sizeCapsFindings } from "./package-size.ts"
+import { includePackageSourcePath, isBookkeeping } from "./package-source.ts"
 
 export type { PackageFinding }
 export type CheckStage = "source" | "caps" | "runtime" | "invocation"
@@ -189,10 +190,13 @@ export const probesFindings = (dir: string): { findings: PackageFinding[]; probe
  * The sandbox the runtime stage boots the kernel in: one temp workspace INSIDE the qwbe-core
  * package, so the mounted package's `import "qwbe-core/..."` resolves by the same
  * self-reference rule that makes every installed pack work. The package goes to
- * `plugins/<name>` without its bookkeeping (manifest, npm manifest, node_modules), and its
+ * `plugins/<name>` under the one content rule -- what staging ships
+ * (includePackageSourcePath) minus the bookkeeping files (isBookkeeping) -- and its
  * `qwbe-package.json` goes to `store/<name>/` -- the exact shape an install leaves behind.
+ * Exported for install-filters.test.ts, which pins the sandbox copy to the same content
+ * rule the install copy uses.
  */
-const stageSandbox = (
+export const stageSandbox = (
   dir: string,
   name: string,
   installed: boolean,
@@ -215,17 +219,10 @@ const stageSandbox = (
   // shape discovery scans -- and the manifest lands in the store under the same name.
   cpSync(dir, join(plugins, name), {
     recursive: true,
-    filter: (src) => {
-      const base = basename(src)
-      return (
-        base !== "node_modules" &&
-        base !== ".git" &&
-        base !== "qwbe-package.json" &&
-        base !== "qwbe-source.json" &&
-        base !== "package.json" &&
-        base !== "package-lock.json"
-      )
-    },
+    // The one content rule: what staging would ship (top-level tooling state out) minus the
+    // bookkeeping files. The install copy in kernel/install.ts uses the same two predicates --
+    // install-filters.test.ts fails the day the two copies diverge again.
+    filter: (src) => includePackageSourcePath(dir, src) && !isBookkeeping(src),
   })
   copyFileSync(join(dir, "qwbe-package.json"), join(store, name, "qwbe-package.json"))
   if (installed) symlinkSync(dirname(kernelRoot()), join(root, "node_modules"))
@@ -345,8 +342,7 @@ export const runtimeStage = async (dir: string): Promise<CheckReport> => {
           {
             rule: "boot",
             file: installed ? "qwbe-core/dist/main.js" : "qwbe-core/src/main.ts",
-            message:
-              `the kernel did not start with the package mounted (exit ${proc.exitCode}):\n` + output.slice(-4000),
+            message: `the kernel did not start with the package mounted (exit ${proc.exitCode}):\n${output.slice(-4000)}`,
           },
         ],
         runtime: evidence,
@@ -485,7 +481,7 @@ export const invocationFindings = (dir: string, resolve: ResolveQwbeCore = resol
   }
   const real = realpathSync(resolved)
   const realPack = realpathSync(dir)
-  const under = join(realPack, "node_modules") + "/"
+  const under = `${join(realPack, "node_modules")}/`
   if (!real.startsWith(under)) {
     findings.push({
       rule: "invocation-install",

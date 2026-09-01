@@ -38,6 +38,13 @@ export const includePackageSourcePath = (root: string, path: string): boolean =>
 /** The provenance file every staged shelf carries: where it came from and when (QWB-54 ticket 22). */
 export const PROVENANCE = "qwbe-source.json"
 
+/** The package manifest: what makes a directory a package (and what stays bookkeeping). */
+export const MANIFEST = "qwbe-package.json"
+
+/** Store bookkeeping files that are not part of the cube and never reach the destination:
+ * one definition, shared by the install copy and the `qwbe check` sandbox copy. */
+export const isBookkeeping = (src: string): boolean => src.endsWith(sep + MANIFEST) || src.endsWith(sep + PROVENANCE)
+
 /** What a shelf's provenance records: the source directory, the content fingerprint at staging,
  * and the moment. Written by the staging flow, re-checked by store-drift against both sides. */
 export type Provenance = Readonly<{
