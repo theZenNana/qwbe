@@ -116,11 +116,21 @@ const finiteInt = (value: number | undefined, fallback: number): number =>
     ? Math.min(Number.MAX_SAFE_INTEGER, Math.max(-Number.MAX_SAFE_INTEGER, Math.trunc(value as number)))
     : fallback
 
-export const pageRequest = (p: Partial<PageRequest> = {}): PageRequest => ({
-  offset: Math.max(0, finiteInt(p.offset, 0)),
-  limit: Math.min(MAX_LIMIT, Math.max(1, finiteInt(p.limit, DEFAULT_LIMIT))),
-  // Belt and braces: the schema already rejects a malformed field, but this function is also
-  // called from cube code, where nothing forces the value through the schema first.
-  sortBy: p.sortBy && SAFE_FIELD.test(p.sortBy) ? p.sortBy : undefined,
-  descending: p.descending ?? false,
-})
+type PageRequestParams = { [K in keyof PageRequest]?: PageRequest[K] | undefined }
+
+export const pageRequest = (p: PageRequestParams & { page?: number | undefined } = {}): PageRequest => {
+  const limit = Math.min(MAX_LIMIT, Math.max(1, finiteInt(p.limit, DEFAULT_LIMIT)))
+  // `page` is derived from the CAPPED limit, here and nowhere else: if the caller derived the
+  // offset from the asked limit, ?page=2&pageSize=1000 would start at row 1000 while serving
+  // 200 -- rows 200..999 unreachable through `page`, silently (list.test.ts pins this).
+  const offset =
+    p.page !== undefined ? (Math.max(1, finiteInt(p.page, 1)) - 1) * limit : Math.max(0, finiteInt(p.offset, 0))
+  return {
+    offset,
+    limit,
+    // Belt and braces: the schema already rejects a malformed field, but this function is also
+    // called from cube code, where nothing forces the value through the schema first.
+    sortBy: p.sortBy && SAFE_FIELD.test(p.sortBy) ? p.sortBy : undefined,
+    descending: p.descending ?? false,
+  }
+}

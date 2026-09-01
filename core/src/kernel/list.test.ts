@@ -35,6 +35,13 @@ describe("the list query contract", () => {
     assert.equal(listPageRequest(params({ pageSize: 5000 })).limit, MAX_LIMIT)
   })
 
+  it("a page beyond the cap starts where the served page size says, not where the asked one would", () => {
+    // ?page=2&pageSize=1000 serves rows 200..399, not 1000..1199: the offset is derived from
+    // the capped limit, inside pageRequest, or rows 200..999 are unreachable through `page`.
+    const p = listPageRequest(params({ page: 2, pageSize: 1000 }))
+    assert.deepEqual([p.offset, p.limit], [200, MAX_LIMIT]) // before the fix: [1000, 200]
+  })
+
   it("still honours the older offset and limit spelling", () => {
     const p = listPageRequest(params({ offset: 40, limit: 20, sortBy: "name", descending: true }))
     assert.deepEqual(p, { offset: 40, limit: 20, sortBy: "name", descending: true })

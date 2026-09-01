@@ -91,11 +91,13 @@ export const listPageRequest = (p: ListParamsType): PageRequest => {
     : ids.length > 0
       ? Math.min(MAX_LIMIT, ids.length)
       : DEFAULT_LIMIT
-  const offset = p.page !== undefined ? (Math.max(1, Math.trunc(p.page)) - 1) * limit : (p.offset ?? 0)
   const [field, direction] = (p.sort ?? "").split(":")
   const sortBy = field !== undefined && field !== "" ? field : p.sortBy
+  // `page` goes through uninterpreted: pageRequest derives the offset from the CAPPED limit,
+  // the only place that knows the cap -- deriving it here would resurrect the lost rows.
   return pageRequest({
-    offset,
+    page: p.page,
+    offset: p.offset,
     limit,
     ...(sortBy === undefined ? {} : { sortBy }),
     descending: p.sort !== undefined ? direction === "desc" : (p.descending ?? false),
