@@ -41,7 +41,9 @@ const render = (report) => {
     lines.push(`  [2/4] caps: ok`)
     const r = report.runtime
     lines.push(
-      `  [3/4] runtime: kernel booted at ${r.url}; probes: ` +
+      `  [3/4] runtime: kernel booted at ${r.url}; ` +
+        (r.generic ? `generic probes: ${r.generic.checks} checks, ${r.generic.findings} findings; ` : ``) +
+        `probes: ` +
         r.probes.map((p) => `${p.probe} exit ${p.exit}`).join(", "),
     )
     lines.push(`  [4/4] invocation: ok`)

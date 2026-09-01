@@ -238,9 +238,9 @@ describe("deriveCubeMetadata - the routes a frontend may call (QWB-54, ticket 10
     )
     assert.ok(md)
     assert.deepEqual(md.routes, {
-      list: { auth: true, permission: "things:read" },
-      get: { auth: true, permission: "things:read" },
-      create: { auth: true, permission: "things:write" },
+      list: { auth: true, permission: "things:read", method: "GET", path: "/things" },
+      get: { auth: true, permission: "things:read", method: "GET", path: "/things/:id" },
+      create: { auth: true, permission: "things:write", method: "POST", path: "/things" },
     })
   })
 
@@ -248,9 +248,9 @@ describe("deriveCubeMetadata - the routes a frontend may call (QWB-54, ticket 10
     const md = deriveCubeMetadata(mount() as never, [], [])
     assert.ok(md)
     assert.deepEqual(md.routes, {
-      list: { auth: false, permission: "things:read" },
-      get: { auth: false, permission: null },
-      create: { auth: false, permission: null },
+      list: { auth: false, permission: "things:read", method: "GET", path: "/things" },
+      get: { auth: false, permission: null, method: "GET", path: "/things/:id" },
+      create: { auth: false, permission: null, method: "POST", path: "/things" },
     })
   })
 

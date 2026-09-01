@@ -248,7 +248,7 @@ describe("package contract checker", () => {
     assert.deepEqual(pairs(findings), [["readonly-write", "source.ts"]])
   })
 
-  it("hierarchy: a child without parent or dataMigration fails", async () => {
+  it("hierarchy: a child without a parent fails -- and an absent dataMigration is honest (ticket 08)", async () => {
     const root = build((r) => {
       writeFileSync(
         join(r, "cubes", "demo", "kid", "index.ts"),
@@ -256,10 +256,10 @@ describe("package contract checker", () => {
       )
     })
     const findings = await checkPackageSource(root, { hierarchy: true })
-    assert.deepEqual(pairs(findings), [
-      ["hierarchy", "cubes/demo/kid/index.ts"],
-      ["hierarchy", "cubes/demo/kid/index.ts"],
-    ])
+    // One finding only: the missing parent. A child with NO dataMigration declares honestly
+    // that it has no predecessor -- the old "must declare dataMigration" rule is what forced
+    // the invented migration ticket 08 killed (QWB-54).
+    assert.deepEqual(pairs(findings), [["hierarchy", "cubes/demo/kid/index.ts"]])
   })
 
   it("hierarchy: a parent without screen fails", async () => {

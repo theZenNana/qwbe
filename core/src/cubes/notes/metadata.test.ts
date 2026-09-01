@@ -27,9 +27,9 @@ describe("notes metadata -- the permission of each route, published (QWB-54, tic
   it("publishes each route's permission from the declaration the handlers check through", () => {
     assert.ok(md)
     assert.deepEqual(md.routes, {
-      list: { auth: true, permission: "notes:read" },
-      get: { auth: true, permission: "notes:read" },
-      create: { auth: true, permission: "notes:write" },
+      list: { auth: true, permission: "notes:read", method: "GET", path: "/notes" },
+      get: { auth: true, permission: "notes:read", method: "GET", path: "/notes/:id" },
+      create: { auth: true, permission: "notes:write", method: "POST", path: "/notes" },
     })
   })
 

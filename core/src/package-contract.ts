@@ -25,7 +25,7 @@ export type { PackageFinding }
 export type PackageContractOptions = {
   /** Refuse write-shaped surface: mutating endpoints and file writes. Used by agents-tools. */
   readonly readOnly?: boolean
-  /** Enforce parent/child cube hierarchy: parent screen, child parent + dataMigration. Used by crm-pack. */
+  /** Enforce parent/child cube hierarchy: parent screen, child parent. Used by crm-pack. */
   readonly hierarchy?: boolean
   /** Read the manifest from here instead of `root`, and cross-check it against `root`'s cubes.
    *  Only the boot gate needs it: the installer keeps a package's manifest in the store and
@@ -35,10 +35,7 @@ export type PackageContractOptions = {
 
 const hierarchyFindings = async (root: string, cubes: readonly string[]): Promise<PackageFinding[]> => {
   const findings: PackageFinding[] = []
-  const manifests = new Map<
-    string,
-    { readonly name?: unknown; readonly parent?: unknown; readonly screen?: unknown; readonly dataMigration?: unknown }
-  >()
+  const manifests = new Map<string, { readonly name?: unknown; readonly parent?: unknown; readonly screen?: unknown }>()
   for (const name of cubes) {
     const entry = join(root, "cubes", ...name.split("/"), "index.ts")
     if (!existsSync(entry)) continue
@@ -90,13 +87,11 @@ const hierarchyFindings = async (root: string, cubes: readonly string[]): Promis
         message: `child cube must declare parent: "${parentName}"`,
       })
     }
-    if (!Array.isArray(manifest.dataMigration) || manifest.dataMigration.length === 0) {
-      findings.push({
-        rule: "hierarchy",
-        file: `cubes/${child}/index.ts`,
-        message: "child cube must declare dataMigration",
-      })
-    }
+    // A child WITHOUT a dataMigration declares honestly that it has no predecessor (QWB-54
+    // ticket 08): the old "must declare dataMigration" rule forced exactly that invention --
+    // crm/accounts answered it with a migration from a cube that never existed. The
+    // protection moved where it belongs: the kernel's ownership rules refuse any declared
+    // source the ledger cannot attribute, at boot and in `qwbe check` alike.
   }
   // A cube is addressed by its path; its manifest must say the same thing. The old per-pack
   // test copies pinned `manifest.name` by hand; now every pack gets the check for free.

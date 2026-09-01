@@ -56,9 +56,15 @@ const routeContracts = (cubeName: string, group: unknown, m: DeclaredManifest): 
   const out: Record<string, RouteContract> = {}
   for (const [name, endpoint] of Object.entries(groupEndpoints(group))) {
     const own = ((endpoint as { middlewares?: ReadonlySet<unknown> }).middlewares ?? new Set()).has(Authorization)
+    const shaped = endpoint as { method?: unknown; path?: unknown }
     out[name] = {
       auth: groupAuth || own,
       permission: name === "list" ? (m.routes?.list ?? readPermissionOf(cubeName)) : (m.routes?.[name] ?? null),
+      // Read from the endpoint's own contract (QWB-54, ticket 08): what a route demands and
+      // WHERE it lives are one published fact, not two -- a probe or a frontend derived from
+      // metadata can call the route without guessing its spelling.
+      method: typeof shaped.method === "string" ? shaped.method : "",
+      path: typeof shaped.path === "string" ? shaped.path : "",
     }
   }
   return out

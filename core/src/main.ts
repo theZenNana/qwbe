@@ -64,7 +64,7 @@ const spaces = await loadSpaces().catch((e: Error) => failAfterSnapshot(e, 2))
 verifyLedgerUnchanged(ledgerRead)
 
 // --- 2. storage and declared data migrations (ADR-0001), split into boot-storage.ts ---
-await bootStorage(definitions, ledgerSnapshot, fail, failAfterSnapshot)
+const migrations = await bootStorage(definitions, ledgerSnapshot, fail, failAfterSnapshot)
 
 // --- 2. mount: unique tables, single privilege, switches, per-cube tools ---
 
@@ -112,10 +112,13 @@ const api = buildApi(system!.cubes)
 // The provenance ledger is written only after a mount that passed every life rule -- the
 // record must always describe a system that really ran, and a manifest cannot write it.
 verifyLedgerUnchanged(ledgerRead)
-writeLedger(
-  ledgerRead,
-  system!.cubes.map((c) => ({ name: c.name, plugin: c.plugin })),
-)
+writeLedger(ledgerRead, [
+  ...system!.cubes.map((c) => ({ name: c.name, plugin: c.plugin })),
+  // Each completed migration's source stays attributable (QWB-54 ticket 08): the ledger
+  // records it under the declaring package, so the next boot -- its source schema now
+  // renamed away -- still passes the ownership rules without the operator's env.
+  ...migrations.map((m) => ({ name: m.fromCube, plugin: m.declaredBy })),
+])
 
 const bySource = system!.cubes.map((c) => (c.plugin ? `${c.name}(${c.plugin})` : c.name))
 console.log(

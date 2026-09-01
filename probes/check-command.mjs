@@ -143,7 +143,10 @@ if (spec.status !== 200 && spec.status !== 401) {
     "the output shows the stages in order, with the runtime evidence",
     /\[1\/4\] source: ok/.test(pass.stdout) &&
       /\[2\/4\] caps: ok/.test(pass.stdout) &&
-      /\[3\/4\] runtime: kernel booted at http:\/\/127\.0\.0\.1:\d+; probes: selfcheck\.mjs exit 0/.test(pass.stdout) &&
+      // The generic probes (QWB-54, ticket 08) ride the same line: N checks, M findings.
+      /\[3\/4\] runtime: kernel booted at http:\/\/127\.0\.0\.1:\d+; generic probes: \d+ checks, \d+ findings; probes: selfcheck\.mjs exit 0/.test(
+        pass.stdout,
+      ) &&
       /\[4\/4\] invocation: ok/.test(pass.stdout),
   )
 

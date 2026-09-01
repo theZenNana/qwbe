@@ -92,8 +92,11 @@ disk. A pack placed in `plugins/` by hand keeps its own manifest and is judged a
     Exemptions, on purpose: `*.test.*` and `*.spec.*` files (a test's job is to name the
     forbidden thing), and the top-level `probes/`, `store/`, `dist/` and `build/` directories.
     For packs that only read.
-  - `hierarchy` -- child cubes declare `parent`, the parent declares `screen: true`, and
-    every child declares `dataMigration` (rule `hierarchy`). For parent/child packs.
+  - `hierarchy` -- child cubes declare `parent`, the parent declares `screen: true` (rule
+    `hierarchy`). A child without a `dataMigration` declares honestly that it has no
+    predecessor; a DECLARED migration is judged by the kernel's ownership rules, which
+    refuse any source the provenance ledger cannot attribute (QWB-54 ticket 08). For
+    parent/child packs.
 
 ## 5. How install-from installs a pack
 

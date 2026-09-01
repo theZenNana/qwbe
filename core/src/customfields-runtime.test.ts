@@ -24,7 +24,18 @@ const here = dirname(fileURLToPath(import.meta.url))
 const root = join(here, "..", "..")
 const core = join(root, "core")
 const fixture = join(root, "probes", "fixtures", "vault-pack")
-const installed = join(core, "plugins", "vault-pack")
+// Since the ownership rules of QWB-54 ticket 08, a boot refuses any declared dataMigration the
+// ledger cannot attribute -- including the honest pre-ledger ones the tracked example-plugin
+// carries, which a FRESH database has no record of (the operator authorizes those with
+// QWBE_LEGACY_MIGRATIONS in production). The test's subject is customfields, not whatever
+// else sits in core/plugins on this machine, so the servers here boot against a dedicated
+// plugins + store pair holding ONLY the vault fixture: deterministic on any checkout. The
+// plugins root lives INSIDE core/ on purpose -- a mounted pack resolves qwbe-core and its
+// dependencies exactly the way a checkout sandbox does (stageSandbox nests its sandbox in
+// core/ for the same reason).
+const pluginsRoot = mkdtempSync(join(core, ".qwbe-ticket05-plugins-"))
+const storeRoot = mkdtempSync(join(tmpdir(), "ticket05-store-"))
+const installed = join(pluginsRoot, "vault-pack")
 
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
@@ -124,6 +135,8 @@ before(async () => {
     QWBE_DATABASE_URL: dbUrl,
     QWBE_ADMIN_PASSWORD: "admin",
     QWBE_READER_PASSWORD: "reader",
+    QWBE_PLUGINS_DIR: pluginsRoot,
+    QWBE_STORE_DIR: storeRoot,
   }
   // Both instances boot BEFORE any definition is created: B must not know the definitions
   // through anything but the shared database.
@@ -143,6 +156,8 @@ after(async () => {
   rmSync(dataA, { recursive: true, force: true })
   rmSync(dataB, { recursive: true, force: true })
   rmSync(installed, { recursive: true, force: true })
+  rmSync(pluginsRoot, { recursive: true, force: true })
+  rmSync(storeRoot, { recursive: true, force: true })
 })
 
 const define = async (body: Record<string, unknown>) =>

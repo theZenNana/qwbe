@@ -82,6 +82,14 @@ export const RouteContract = Schema.Struct({
    * lie, so none is published.
    */
   permission: Schema.NullOr(Schema.String),
+  /**
+   * The HTTP method and the path template, read from the endpoint's own contract (QWB-54,
+   * ticket 08): the generic probes derived from metadata must be able to CALL what a route
+   * declares, and a frontend building a client from metadata should not guess the spelling
+   * either. Path parameters stay in their `:name` template form.
+   */
+  method: Schema.String,
+  path: Schema.String,
 }).annotations({ identifier: "RouteContract" })
 
 export type RouteContract = typeof RouteContract.Type

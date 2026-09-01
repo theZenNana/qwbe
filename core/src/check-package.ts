@@ -40,7 +40,7 @@ import { tmpdir } from "node:os"
 import { basename, dirname, join, sep } from "node:path"
 import { fileURLToPath } from "node:url"
 import pg from "pg"
-
+import { runGenericStage } from "./check-probes.ts"
 import { checkPackageSource } from "./package-contract.ts"
 import type { PackageFinding } from "./package-contract-scan.ts"
 import { capsFromConfig, type RawConfig, type SizeCaps, sizeCapsFindings } from "./package-size.ts"
@@ -53,6 +53,9 @@ export type RuntimeEvidence = {
   readonly booted: boolean
   readonly url: string
   readonly probes: ReadonlyArray<ProbeRun>
+  /** The generic probes (QWB-54, ticket 08): how many assertions ran and how many findings
+   *  they raised. Absent when the stage stopped before them. */
+  readonly generic?: { readonly checks: number; readonly findings: number }
 }
 
 export type CheckReport = {
@@ -267,7 +270,10 @@ export const runtimeStage = async (dir: string): Promise<CheckReport> => {
   const { findings: probeFindings, probes } = probesFindings(dir)
   if (probeFindings.length > 0) return { ok: false, failedStage: "runtime", findings: probeFindings }
 
-  const manifest = JSON.parse(readFileSync(join(dir, "qwbe-package.json"), "utf8")) as { name?: unknown }
+  const manifest = JSON.parse(readFileSync(join(dir, "qwbe-package.json"), "utf8")) as {
+    name?: unknown
+    cubes?: unknown
+  }
   if (typeof manifest.name !== "string" || manifest.name.length === 0) {
     return {
       ok: false,
@@ -275,13 +281,21 @@ export const runtimeStage = async (dir: string): Promise<CheckReport> => {
       findings: [{ rule: "manifest", file: "qwbe-package.json", message: "manifest.name must be a non-empty string" }],
     }
   }
+  // The cubes the package says it brings -- the generic probes are derived per cube. A
+  // malformed list is the source stage's finding to report; here it only means fewer probes.
+  const cubes = Array.isArray(manifest.cubes) ? manifest.cubes.filter((c): c is string => typeof c === "string") : []
   const db = `qwbe_check_${randomBytes(4).toString("hex")}`
   const admin = new pg.Pool({ connectionString: adminUrl(), max: 1 })
   let dbUrl = ""
   let proc: ReturnType<typeof spawn> | undefined
   let output = ""
   let sandboxRoot: string | undefined
-  const evidence: { booted: boolean; url: string; probes: ProbeRun[] } = { booted: false, url: "", probes: [] }
+  const evidence: { booted: boolean; url: string; probes: ProbeRun[]; generic?: { checks: number; findings: number } } =
+    {
+      booted: false,
+      url: "",
+      probes: [],
+    }
   const installed = isInstalledKernel()
   try {
     const sandbox = stageSandbox(dir, manifest.name, installed)
@@ -340,6 +354,27 @@ export const runtimeStage = async (dir: string): Promise<CheckReport> => {
     }
     evidence.booted = true
     evidence.url = `http://127.0.0.1:${port}`
+
+    // The generic probes (QWB-54, ticket 08) run FIRST, against the booted kernel, before the
+    // package's own probes: they are derived from the package's own declarations, so a pack
+    // cannot skip, weaken or pre-empt them. An invented dataMigration never reaches this
+    // point at all -- the ownership rules refuse it at boot. The declarations dump reads the
+    // MOUNTED copy, not the checked directory: discovery imports cubes from the plugins root,
+    // and only there does `import "qwbe-core/..."` resolve the way the booted kernel resolves
+    // it (a checkout sandbox sits inside qwbe-core; an install sandbox carries the
+    // node_modules link), so the probes judge exactly the code the kernel loaded.
+    const generic = await runGenericStage({
+      dir: join(sandbox.plugins, manifest.name),
+      cubes,
+      url: evidence.url,
+      adminPassword: "admin",
+      conditions: installed ? ["--conditions=qwbe-dist"] : [],
+      kernelRoot: kernelRoot(),
+    })
+    evidence.generic = { checks: generic.checks, findings: generic.findings.length }
+    if (generic.findings.length > 0) {
+      return { ok: false, failedStage: "runtime", findings: generic.findings, runtime: evidence }
+    }
 
     const failures: PackageFinding[] = []
     for (const probe of probes) {
