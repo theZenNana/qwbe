@@ -57,6 +57,19 @@ describe("shelf drift against its provenance", () => {
     assert.match(verdict.detail, /store copy was changed after staging/)
   })
 
+  it("a shelf that grew a node_modules is drifted: staging never writes tooling into a shelf", () => {
+    // The shelf hash skips nothing but the provenance file. Authoring tool state (node_modules,
+    // dot-directories, a package.json) on a shelf is by definition a manual change -- it can
+    // shadow the kernel's own resolution once installed -- so it must answer as drift, not
+    // vanish under the source-checkout rule.
+    const shelf = stage("poisoned")
+    mkdirSync(join(shelf, "node_modules", "shadow"), { recursive: true })
+    writeFileSync(join(shelf, "node_modules", "shadow", "index.js"), "module.exports = 1\n")
+    const verdict = shelfDrift(shelf, "poisoned")
+    assert.equal(verdict.status, "drifted")
+    assert.match(verdict.detail, /store copy was changed after staging/)
+  })
+
   it("a shelf without provenance is red, not silently trusted", () => {
     const shelf = stage("anonymous")
     rmSync(join(shelf, PROVENANCE))

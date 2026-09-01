@@ -9,7 +9,7 @@
 // what this probe pins is the whole chain: provenance, drift check, bin, exit codes.
 
 import { spawnSync } from "node:child_process"
-import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
@@ -97,6 +97,28 @@ try {
     "a shelf without provenance is red, not silently trusted",
     anonymous.status === 1 && anonymous.stdout.includes("RED") && anonymous.stdout.includes("staged by hand"),
     `exit ${anonymous.status}`,
+  )
+
+  // A shelf that grew tooling state staging never writes (node_modules): the shelf fingerprint
+  // skips nothing but the provenance file, so any foreign byte turns the check red even though
+  // the source stands still -- a planted node_modules could shadow the kernel's own resolution
+  // once installed, and this is the gate that makes it visible.
+  const poisoned = stage("poisoned-pack")
+  writeFileSync(
+    join(poisoned, PROVENANCE),
+    `${JSON.stringify(
+      { sourcePath: source, fingerprint: packageSourceFingerprint(source), stagedAt: new Date().toISOString() },
+      null,
+      2,
+    )}\n`,
+  )
+  mkdirSync(join(poisoned, "node_modules", "shadow"), { recursive: true })
+  writeFileSync(join(poisoned, "node_modules", "shadow", "index.js"), "module.exports = 1\n")
+  const tamperedTooling = drift(store)
+  check(
+    "a shelf that grew node_modules after staging is refused",
+    tamperedTooling.status === 1 && tamperedTooling.stdout.includes("store copy was changed after staging"),
+    `exit ${tamperedTooling.status}`,
   )
 
   const failed = results.filter((r) => !r.ok)

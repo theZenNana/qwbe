@@ -53,11 +53,21 @@ export type Provenance = Readonly<{
   stagedAt: string
 }>
 
-export const packageSourceFingerprint = (dir: string, exclude: readonly string[] = []): string => {
+/** The hash of every file under `dir` (path + sha256 of the bytes). Top-level `exclude`d names
+ * (bookkeeping) never count. `skipLocalTooling` (the default) also skips top-level authoring
+ * tooling (`isLocalSourceEntry`) -- the right rule for a SOURCE checkout. A shelf passes
+ * `false`: staging never writes tooling into a shelf, so any foreign byte there is a manual
+ * change and must change the hash -- that is the drift `qwbe drift` exists to catch. */
+export const packageSourceFingerprint = (
+  dir: string,
+  exclude: readonly string[] = [],
+  skipLocalTooling = true,
+): string => {
   const entries: string[] = []
   const walk = (current: string) => {
     for (const entry of readdirSync(current, { withFileTypes: true })) {
-      if (current === dir && (exclude.includes(entry.name) || isLocalSourceEntry(entry.name))) continue
+      if (current === dir && (exclude.includes(entry.name) || (skipLocalTooling && isLocalSourceEntry(entry.name))))
+        continue
       const path = join(current, entry.name)
       if (entry.isDirectory()) walk(path)
       else entries.push(`${relative(dir, path)}:${createHash("sha256").update(readFileSync(path)).digest("hex")}`)

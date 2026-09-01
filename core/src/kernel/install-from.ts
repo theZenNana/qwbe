@@ -120,11 +120,13 @@ export const stageAndInstall =
     // 4. Fingerprint of the source, then the raft question: same name already staged? The
     //    shelf's fingerprint is RE-COMPUTED from the bytes on disk, never read back from the
     //    provenance file: that file records what was staged, and content edited after staging
-    //    must answer as "different content", not inherit the old stamp.
+    //    must answer as "different content", not inherit the old stamp. The shelf is hashed
+    //    strictly (nothing skipped beyond the provenance file): staging never writes authoring
+    //    tooling into a shelf, so tooling appearing there is different content by definition.
     const fingerprint = packageSourceFingerprint(source)
     const shelfDir = join(ctx.storeDir, name)
     if (existsSync(shelfDir)) {
-      const prior = packageSourceFingerprint(shelfDir, [PROVENANCE])
+      const prior = packageSourceFingerprint(shelfDir, [PROVENANCE], false)
       if (prior === fingerprint) {
         // Idempotent: the raft already holds exactly this content - reuse it. The path is
         // deliberately NOT part of the decision: the same path can serve new content.

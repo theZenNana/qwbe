@@ -53,8 +53,10 @@ export const shelfDrift = (shelfDir: string, name: string): ShelfDrift => {
   } catch (error) {
     reasons.push(`the source cannot be re-hashed: ${String(error)}`)
   }
-  // The shelf's own fingerprint excludes the provenance file: it is bookkeeping, not content.
-  if (packageSourceFingerprint(shelfDir, [PROVENANCE]) !== provenance.fingerprint) {
+  // The shelf's own fingerprint excludes the provenance file (bookkeeping, not content) and
+  // skips NOTHING else: staging never writes authoring tooling into a shelf, so a planted
+  // node_modules or any other foreign byte is a manual change -- and must answer as drift.
+  if (packageSourceFingerprint(shelfDir, [PROVENANCE], false) !== provenance.fingerprint) {
     reasons.push("the store copy was changed after staging")
   }
   if (reasons.length > 0) {
