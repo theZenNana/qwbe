@@ -9,7 +9,7 @@
 
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs"
 import { join } from "node:path"
-import { PROVENANCE, type Provenance, packageSourceFingerprint } from "./package-source.ts"
+import { PROVENANCE, type Provenance, packageSourceFingerprint, shelfFingerprint } from "./package-source.ts"
 
 export type { Provenance }
 
@@ -53,10 +53,11 @@ export const shelfDrift = (shelfDir: string, name: string): ShelfDrift => {
   } catch (error) {
     reasons.push(`the source cannot be re-hashed: ${String(error)}`)
   }
-  // The shelf's own fingerprint excludes the provenance file (bookkeeping, not content) and
-  // skips NOTHING else: staging never writes authoring tooling into a shelf, so a planted
-  // node_modules or any other foreign byte is a manual change -- and must answer as drift.
-  if (packageSourceFingerprint(shelfDir, [PROVENANCE], false) !== provenance.fingerprint) {
+  // The shelf's own fingerprint goes through `shelfFingerprint` - the strict rule shared by
+  // every shelf reader: it excludes the provenance file (bookkeeping, not content) and skips
+  // NOTHING else, so a planted node_modules or any other foreign byte is a manual change --
+  // and must answer as drift.
+  if (shelfFingerprint(shelfDir) !== provenance.fingerprint) {
     reasons.push("the store copy was changed after staging")
   }
   if (reasons.length > 0) {

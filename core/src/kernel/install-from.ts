@@ -41,6 +41,7 @@ import {
   includePackageSourcePath,
   PROVENANCE,
   packageSourceFingerprint,
+  shelfFingerprint,
   validatePackageSourceTree,
 } from "../package-source.ts"
 import type { CubePackage } from "./manifest.ts"
@@ -121,12 +122,13 @@ export const stageAndInstall =
     //    shelf's fingerprint is RE-COMPUTED from the bytes on disk, never read back from the
     //    provenance file: that file records what was staged, and content edited after staging
     //    must answer as "different content", not inherit the old stamp. The shelf is hashed
-    //    strictly (nothing skipped beyond the provenance file): staging never writes authoring
-    //    tooling into a shelf, so tooling appearing there is different content by definition.
+    //    through `shelfFingerprint` -- the strict rule (nothing skipped beyond the provenance
+    //    file) every shelf reader shares: staging never writes authoring tooling into a shelf,
+    //    so tooling appearing there is different content by definition.
     const fingerprint = packageSourceFingerprint(source)
     const shelfDir = join(ctx.storeDir, name)
     if (existsSync(shelfDir)) {
-      const prior = packageSourceFingerprint(shelfDir, [PROVENANCE], false)
+      const prior = shelfFingerprint(shelfDir)
       if (prior === fingerprint) {
         // Idempotent: the raft already holds exactly this content - reuse it. The path is
         // deliberately NOT part of the decision: the same path can serve new content.

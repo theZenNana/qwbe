@@ -77,6 +77,14 @@ export const packageSourceFingerprint = (
   return createHash("sha256").update(entries.sort().join("\n")).digest("hex")
 }
 
+/** The shelf rule as ONE function: every reader that judges a store shelf copy (the drift
+ * check, install-from reuse, the install scanner) hashes it through here -- strictly, nothing
+ * skipped beyond the provenance file, because staging never writes tooling into a shelf. The
+ * source side stays on `packageSourceFingerprint(dir)`: a live checkout legitimately carries
+ * its tooling. package-source.test.ts pins every call site, so a reader re-deriving a shelf
+ * hash by hand -- the lax regression review 14b found in the scanner -- fails there. */
+export const shelfFingerprint = (dir: string): string => packageSourceFingerprint(dir, [PROVENANCE], false)
+
 export const validatePackageSourceTree = (root: string): string | undefined => {
   const walk = (current: string): string | undefined => {
     for (const entry of readdirSync(current)) {
