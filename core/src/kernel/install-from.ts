@@ -36,16 +36,20 @@ import {
 } from "node:fs"
 import { isAbsolute, join, sep } from "node:path"
 import { checkPackageContract, PackageContractError } from "../install-contract.ts"
-import { includePackageSourcePath, packageSourceFingerprint, validatePackageSourceTree } from "../package-source.ts"
+import { checkPackageSource } from "../package-contract.ts"
+import {
+  includePackageSourcePath,
+  PROVENANCE,
+  packageSourceFingerprint,
+  validatePackageSourceTree,
+} from "../package-source.ts"
 import type { CubePackage } from "./manifest.ts"
 
 /** Same refusal type the store flow throws - re-declared here to keep the seam acyclic. */
 import { InstallError } from "./manifest.ts"
 
-export { InstallError }
-
-/** Provenance of a staged package: where it came from and what it contained, fingerprinted. */
-export const PROVENANCE = "qwbe-source.json"
+/** The provenance file name lives next to the fingerprint it records (package-source.ts). */
+export { InstallError, PROVENANCE }
 
 /**
  * What stageAndInstall needs from the store flow - handed in, not imported, so this module
@@ -70,7 +74,7 @@ export type StageContext = Readonly<{
  */
 export const stageAndInstall =
   (ctx: StageContext) =>
-  (sourceDirectory: string): CubePackage & { staged: boolean } => {
+  async (sourceDirectory: string): Promise<CubePackage & { staged: boolean }> => {
     // 1. The path itself. Everything else follows from a path that is absolute, real and a
     //    directory - a relative path would resolve against whoever happened to be cwd.
     if (!isAbsolute(sourceDirectory)) {
@@ -136,6 +140,20 @@ export const stageAndInstall =
     // publication. Invalid code never reaches the shelf; an existing different package keeps
     // the more useful "different content" diagnostic.
     if (pkg.conflicts.length === 0) {
+      // The source contract the kernel enforces at boot (QWB-54 ticket 03) - the SAME checker,
+      // so a refusal here reads exactly like the boot refusal, seen before anything is staged.
+      // Cheap static scan first; the tsc gate below spawns processes. Only plugin packages,
+      // like the boot gate: a cube-kind source has no cubes/ for the checker to read, and the
+      // boot gate never judged one either.
+      if (pkg.kind === "plugin") {
+        const findings = await checkPackageSource(source)
+        if (findings.length > 0) {
+          throw new InstallError(
+            `refused: package breaks the source contract the kernel enforces at boot:\n` +
+              findings.map((f) => `    ${f.rule}: ${f.file} -- ${f.message}`).join("\n"),
+          )
+        }
+      }
       try {
         checkPackageContract(source, pkg)
       } catch (error) {

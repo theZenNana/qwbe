@@ -52,6 +52,7 @@ import {
   pluginsDir,
   srcDir,
   tried,
+  triedPromise,
   under,
 } from "./install-parts.ts"
 import { forgetShelfFor, type ScanInstaller, scanFor } from "./install-scan.ts"
@@ -212,7 +213,7 @@ const readPackageAt = (name: string, dir: string): CubePackage => {
 const readPackage = (name: string): CubePackage => readPackageAt(name, under(storeDir, join(storeDir, name)))
 
 export const installerFor = (): ScanInstaller => {
-  const stageAndInstallSync = stageAndInstallFor({ storeDir, readPackageAt, installExisting })
+  const stageAndInstallFrom = stageAndInstallFor({ storeDir, readPackageAt, installExisting })
   const scanContext = { storeDir, readPackageAt }
 
   return {
@@ -247,7 +248,7 @@ export const installerFor = (): ScanInstaller => {
 
     install: (name: string) => tried(() => installExisting(name)),
 
-    stageAndInstall: (sourceDirectory: string) => tried(() => stageAndInstallSync(sourceDirectory)),
+    stageAndInstall: (sourceDirectory: string) => triedPromise(() => stageAndInstallFrom(sourceDirectory)),
 
     scanDirectory: (directory: string) => tried(() => scanFor(scanContext)(directory)),
 

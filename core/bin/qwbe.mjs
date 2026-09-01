@@ -17,8 +17,9 @@ const { checkPackage } = await import(installed ? "../dist/check-package.js" : "
 
 const argv = process.argv.slice(2)
 const usage = `usage: qwbe check <package-dir>
+       qwbe drift [store-dir]
 
-Runs the four stages every qwbe package is judged by:
+check runs the four stages every qwbe package is judged by:
   1. source     the boot-time package contract (the kernel's own checker)
   2. caps       size caps from the installed kernel's qwbe.config.json
   3. runtime    the kernel booted with the package mounted, plus the package's probes/*.mjs
@@ -27,6 +28,38 @@ Runs the four stages every qwbe package is judged by:
 
 const command = argv[0]
 const dirArg = argv[1]
+
+if (command === "drift") {
+  // Is every shelf in the store provably what its source holds (QWB-54 ticket 22)? Default
+  // store: the one next to this bin. Exit 0 every shelf verified; 1 is the red the ticket asks
+  // for - drifted, edited or untraceable shelves; 2 a usage or environment error.
+  if (argv.length > 2) {
+    console.error(usage)
+    process.exit(2)
+  }
+  const { storeDrift } = await import(installed ? "../dist/store-drift.js" : "../src/store-drift.ts")
+  const { existsSync } = await import("node:fs")
+  const { resolve } = await import("node:path")
+  const storeDir = dirArg === undefined ? resolve(import.meta.dirname, "..", "store") : resolve(dirArg)
+  if (!existsSync(storeDir)) {
+    console.error(`qwbe drift: no store directory at ${storeDir}`)
+    process.exit(2)
+  }
+  const verdicts = storeDrift(storeDir)
+  const red = verdicts.filter((v) => v.status !== "ok")
+  for (const v of verdicts) {
+    if (v.status === "ok") console.log(`  ok        ${v.name}  staged ${v.stagedAt} from ${v.sourcePath}`)
+    else if (v.status === "no-provenance") console.log(`  RED       ${v.name}  ${v.detail}`)
+    else console.log(`  RED       ${v.name}  staged ${v.stagedAt} from ${v.sourcePath} -- ${v.detail}`)
+  }
+  console.log(
+    red.length === 0
+      ? `  qwbe drift: PASS (${verdicts.length} shelves)`
+      : `  qwbe drift: FAIL (${red.length} of ${verdicts.length} shelves are behind, edited or untraceable)`,
+  )
+  process.exit(red.length === 0 ? 0 : 1)
+}
+
 if (command !== "check" || argv.length !== 2) {
   console.error(usage)
   process.exit(2)

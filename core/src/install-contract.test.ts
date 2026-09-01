@@ -12,16 +12,23 @@ describe("install-from static contract gate", () => {
     assert.equal(isOutsideDiscoveryRoots(contractValidationParent), true)
   })
 
-  it("refuses a TypeScript-invalid cube before publishing it to the store", () => {
+  it("refuses a TypeScript-invalid cube before publishing it to the store", async () => {
     const bench = mkdtempSync(join(tmpdir(), "qwbe-install-contract-"))
     const source = join(bench, "broken-cube")
     const store = join(bench, "store")
-    mkdirSync(source, { recursive: true })
-    writeFileSync(join(source, "index.ts"), "const mustBeText: string = 42\nexport { mustBeText }\n")
+    mkdirSync(join(source, "cubes", "broken-cube"), { recursive: true })
+    writeFileSync(
+      join(source, "qwbe-package.json"),
+      JSON.stringify({ name: "broken-cube", kind: "plugin", cubes: ["broken-cube"] }),
+    )
+    writeFileSync(
+      join(source, "cubes", "broken-cube", "index.ts"),
+      "const mustBeText: string = 42\nexport { mustBeText }\n",
+    )
 
     const pkg: CubePackage = {
       name: "broken-cube",
-      kind: "cube",
+      kind: "plugin",
       summary: "invalid TypeScript",
       cubes: ["broken-cube"],
       installed: false,
@@ -36,28 +43,29 @@ describe("install-from static contract gate", () => {
         installExisting: () => ({ ...pkg, installed: true }),
       })
 
-      assert.throws(
-        () => install(source),
-        (error: unknown) => {
-          assert.ok(error instanceof InstallError)
-          assert.match(error.message, /TypeScript contract gate/)
-          assert.match(error.message, /TS2322/)
-          return true
-        },
-      )
+      await assert.rejects(install(source), (error: unknown) => {
+        assert.ok(error instanceof InstallError)
+        assert.match(error.message, /TypeScript contract gate/)
+        assert.match(error.message, /TS2322/)
+        return true
+      })
       assert.deepEqual(existsSync(store) ? readdirSync(store) : [], [])
     } finally {
       rmSync(bench, { recursive: true, force: true })
     }
   })
 
-  it("refuses deterministic lint defects before publishing", () => {
+  it("refuses deterministic lint defects before publishing", async () => {
     const bench = mkdtempSync(join(tmpdir(), "qwbe-install-lint-"))
     const source = join(bench, "unsafe-cube")
     const store = join(bench, "store")
-    mkdirSync(source, { recursive: true })
+    mkdirSync(join(source, "cubes", "unsafe-cube"), { recursive: true })
     writeFileSync(
-      join(source, "index.ts"),
+      join(source, "qwbe-package.json"),
+      JSON.stringify({ name: "unsafe-cube", kind: "plugin", cubes: ["unsafe-cube"] }),
+    )
+    writeFileSync(
+      join(source, "cubes", "unsafe-cube", "index.ts"),
       `import { HttpApiGroup } from "@effect/platform"
 import { defineCube } from "qwbe-core/cube"
 const group = HttpApiGroup.make("unsafe-cube")
@@ -70,7 +78,7 @@ export const unsafe: any = 1
     )
     const pkg: CubePackage = {
       name: "unsafe-cube",
-      kind: "cube",
+      kind: "plugin",
       summary: "unsafe TypeScript",
       cubes: ["unsafe-cube"],
       installed: false,
@@ -84,14 +92,53 @@ export const unsafe: any = 1
         readPackageAt: () => pkg,
         installExisting: () => ({ ...pkg, installed: true }),
       })
-      assert.throws(() => install(source), /no-explicit-any/)
+      await assert.rejects(install(source), /no-explicit-any/)
       assert.deepEqual(existsSync(store) ? readdirSync(store) : [], [])
     } finally {
       rmSync(bench, { recursive: true, force: true })
     }
   })
 
-  it("publishes source without local dependency and repository metadata", () => {
+  it("refuses a package that breaks the source contract, with the checker's own findings", async () => {
+    const bench = mkdtempSync(join(tmpdir(), "qwbe-install-source-contract-"))
+    const source = join(bench, "ghosted")
+    const store = join(bench, "store")
+    // A manifest promising a cube the tree does not carry: exactly what the source contract
+    // (the boot gate's checker) refuses, now before anything reaches the shelf.
+    mkdirSync(source, { recursive: true })
+    writeFileSync(
+      join(source, "qwbe-package.json"),
+      JSON.stringify({ name: "ghosted", kind: "plugin", summary: "declares air", cubes: ["ghost"] }),
+    )
+    const pkg: CubePackage = {
+      name: "ghosted",
+      kind: "plugin",
+      summary: "declares air",
+      cubes: ["ghost"],
+      installed: false,
+      bytes: 1,
+      conflicts: [],
+    }
+
+    try {
+      const install = stageAndInstall({
+        storeDir: store,
+        readPackageAt: () => pkg,
+        installExisting: () => ({ ...pkg, installed: true }),
+      })
+      await assert.rejects(install(source), (error: unknown) => {
+        assert.ok(error instanceof InstallError)
+        assert.match(error.message, /source contract/)
+        assert.match(error.message, /cubes\/ -- the cubes\/ directory is missing/)
+        return true
+      })
+      assert.deepEqual(existsSync(store) ? readdirSync(store) : [], [])
+    } finally {
+      rmSync(bench, { recursive: true, force: true })
+    }
+  })
+
+  it("publishes source without local dependency and repository metadata", async () => {
     const bench = mkdtempSync(join(tmpdir(), "qwbe-install-clean-source-"))
     const source = join(bench, "clean-source")
     const store = join(bench, "store")
@@ -127,7 +174,8 @@ export const unsafe: any = 1
         readPackageAt: () => pkg,
         installExisting: () => ({ ...pkg, installed: true }),
       })
-      assert.equal(install(source).staged, true)
+      const result = await install(source)
+      assert.equal(result.staged, true)
       assert.equal(existsSync(join(store, "clean-source", "index.ts")), true)
       assert.equal(existsSync(join(store, "clean-source", "node_modules")), false)
       assert.equal(existsSync(join(store, "clean-source", ".venv")), false)

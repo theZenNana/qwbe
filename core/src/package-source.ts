@@ -38,6 +38,17 @@ const isLocalSourceEntry = (name: string): boolean =>
 export const includePackageSourcePath = (root: string, path: string): boolean =>
   path === root || !isLocalSourceEntry(relative(root, path).split(sep)[0] ?? "")
 
+/** The provenance file every staged shelf carries: where it came from and when (QWB-54 ticket 22). */
+export const PROVENANCE = "qwbe-source.json"
+
+/** What a shelf's provenance records: the source directory, the content fingerprint at staging,
+ * and the moment. Written by the staging flow, re-checked by store-drift against both sides. */
+export type Provenance = Readonly<{
+  sourcePath: string
+  fingerprint: string
+  stagedAt: string
+}>
+
 export const packageSourceFingerprint = (dir: string, exclude: readonly string[] = []): string => {
   const entries: string[] = []
   const walk = (current: string) => {

@@ -61,6 +61,10 @@ export const toInstallError = (e: unknown): InstallError =>
 export const tried = <A>(run: () => A): Effect.Effect<A, InstallError> =>
   Effect.try({ try: run, catch: toInstallError })
 
+/** Same bridge for the one installer method that awaits an async checker before it stages. */
+export const triedPromise = <A>(run: () => Promise<A>): Effect.Effect<A, InstallError> =>
+  Effect.tryPromise({ try: run, catch: toInstallError })
+
 export const lifecycleInstaller = (): Pick<CubeInstaller, "cubeOnDisk" | "remove" | "restart"> => ({
   cubeOnDisk: (cube: string, plugin: string | null) => {
     // Discovery predates the package slug grammar and mounts any non-hidden directory. This

@@ -51,6 +51,7 @@
     "screenshots": "node screenshots.mjs",
     "probe:lifecycle": "node probes/lifecycle.mjs",
     "probe:store": "node probes/store.mjs && node probes/store-isolation.mjs && node probes/store-migration.mjs",
+    "probe:store-drift": "node probes/store-drift.mjs",
     "probe:store-isolation": "node probes/store-isolation.mjs",
     "probe:sizecaps-baseline": "node probes/sizecaps-baseline.mjs",
     "probe:external-auth": "node probes/external-auth.mjs",
