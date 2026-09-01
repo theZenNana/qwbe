@@ -8,17 +8,10 @@ import { join, relative, sep } from "node:path"
 // a pack's whole `frontend/`, walked into `frontend/node_modules/.bin` and refused the install on
 // the first symlink it found - so a pack whose frontend had ever been installed could not be
 // installed at all. `dist` and `build` follow the scanner for the same reason.
-const LOCAL_SOURCE_DIRECTORIES = new Set([
-  "node_modules",
-  ".venv",
-  ".git",
-  "docs",
-  "probes",
-  "test",
-  "frontend",
-  "dist",
-  "build",
-])
+// Hidden entries (`.pi`, `.claude`, `.githooks`, ...) are the authoring checkout's agent and git
+// tool state - the same family as `node_modules`, never package content. They are skipped by the
+// leading-dot rule below rather than by name, so the next tool's directory ships no surprises.
+const LOCAL_SOURCE_DIRECTORIES = new Set(["node_modules", "docs", "probes", "test", "frontend", "dist", "build"])
 const LOCAL_SOURCE_FILES = new Set(["package.json", "package-lock.json", "tsconfig.json"])
 const LOCAL_SOURCE_FILE_PATTERN = /\.(test|spec)\.(mjs|js|jsx)$/
 const PACKAGE_NAME = /^[a-z][a-z0-9-]{0,31}$/
@@ -30,10 +23,14 @@ export const isPackageCubeIdentity = (name: string): boolean => {
 }
 
 /** Local tooling belongs to the authoring checkout, never to the installable package. */
-export const isLocalSourceDirectory = (name: string): boolean => LOCAL_SOURCE_DIRECTORIES.has(name)
+export const isLocalSourceDirectory = (name: string): boolean =>
+  name.startsWith(".") || LOCAL_SOURCE_DIRECTORIES.has(name)
 
 const isLocalSourceEntry = (name: string): boolean =>
-  isLocalSourceDirectory(name) || LOCAL_SOURCE_FILES.has(name) || LOCAL_SOURCE_FILE_PATTERN.test(name)
+  name.startsWith(".") ||
+  isLocalSourceDirectory(name) ||
+  LOCAL_SOURCE_FILES.has(name) ||
+  LOCAL_SOURCE_FILE_PATTERN.test(name)
 
 export const includePackageSourcePath = (root: string, path: string): boolean =>
   path === root || !isLocalSourceEntry(relative(root, path).split(sep)[0] ?? "")
