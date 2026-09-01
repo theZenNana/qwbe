@@ -37,7 +37,7 @@ for (const name of cubes) {
   const base = join(dir, "cubes", ...name.split("/"))
   const entry = ["index.ts", "index.js"].map((f) => join(base, f)).find((f) => existsSync(f))
   if (!entry) {
-    out.errors[name] = "no entry file (index.ts or index.js) under cubes/" + name
+    out.errors[name] = `no entry file (index.ts or index.js) under cubes/${name}`
     continue
   }
   try {
