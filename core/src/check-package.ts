@@ -48,17 +48,7 @@ type CheckReport = {
   readonly runtime?: RuntimeEvidence
 }
 
-type CheckOptions = {
-  /**
-   * Boot the real kernel for the runtime stage (default). Unit tests pass false: the stage
-   * still checks that probes/ exists and is non-empty, but boots nothing.
-   */
-  readonly boot?: boolean
-}
-
 // --- the installed kernel -------------------------------------------------------------------
-
-let kernelRootCache: string | undefined
 
 /**
  * The qwbe-core package this command IS. Walking up from this module, the first package.json
@@ -66,7 +56,6 @@ let kernelRootCache: string | undefined
  * checkout that is core/, in a pack it is node_modules/qwbe-core. One spelling, everywhere.
  */
 export const kernelRoot = (): string => {
-  if (kernelRootCache) return kernelRootCache
   let dir = dirname(fileURLToPath(import.meta.url))
   for (let i = 0; i < 20; i++) {
     const manifest = join(dir, "package.json")
@@ -74,7 +63,6 @@ export const kernelRoot = (): string => {
       try {
         const pkg = JSON.parse(readFileSync(manifest, "utf8")) as { name?: unknown }
         if (pkg.name === "qwbe-core") {
-          kernelRootCache = dir
           return dir
         }
       } catch {
@@ -233,13 +221,6 @@ const freePort = (): Promise<number> =>
 
 const wait = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms))
 
-/** The runtime stage without the boot: the probes/ shape check alone. Unit tests use it. */
-const runtimeStageNoBoot = (dir: string): CheckReport => {
-  const { findings } = probesFindings(dir)
-  if (findings.length > 0) return { ok: false, failedStage: "runtime", findings }
-  return { ok: true, findings: [], runtime: { booted: false, url: "", probes: [] } }
-}
-
 /**
  * Boot the installed kernel with exactly one package mounted, run its probes against it, tear
  * everything down. The kernel the probes run against is the same qwbe-core this command is --
@@ -396,16 +377,15 @@ const runtimeStage = async (dir: string): Promise<CheckReport> => {
 
 // --- stage 4: invocation ---------------------------------------------------------------------
 
-export type ResolveQwbeCore = (dir: string) => string
-
-/**
- * How the pack resolves qwbe-core, anchored at the pack's own package.json. Exported for the
- * same reason the resolution rule exists: to be proved, not assumed.
- */
-const resolveFromPack: ResolveQwbeCore = (dir: string): string =>
+// How the pack resolves qwbe-core, anchored at the pack's own package.json (node resolution from
+// there): proved by the tests, not assumed. Inlined type -- the old alias was test-only surface.
+const resolveFromPack = (dir: string): string =>
   createRequire(join(dir, "package.json")).resolve("qwbe-core/package.json")
 
-export const invocationFindings = (dir: string, resolve: ResolveQwbeCore = resolveFromPack): PackageFinding[] => {
+export const invocationFindings = (
+  dir: string,
+  resolve: (dir: string) => string = resolveFromPack,
+): PackageFinding[] => {
   const findings: PackageFinding[] = []
   const manifestPath = join(dir, "package.json")
   if (!existsSync(manifestPath)) {
@@ -483,9 +463,7 @@ export const invocationFindings = (dir: string, resolve: ResolveQwbeCore = resol
  * means all four passed against the installed kernel. The report carries the runtime evidence
  * (booted URL, probe exits) so the caller's output can SHOW what ran.
  */
-export const checkPackage = async (dir: string, options: CheckOptions = {}): Promise<CheckReport> => {
-  const boot = options.boot ?? true
-
+export const checkPackage = async (dir: string): Promise<CheckReport> => {
   // 1. Source: the boot gate's own checker, unchanged.
   const sourceFindings = await checkPackageSource(dir)
   if (sourceFindings.length > 0) return { ok: false, failedStage: "source", findings: sourceFindings }
@@ -495,9 +473,8 @@ export const checkPackage = async (dir: string, options: CheckOptions = {}): Pro
   const capFindings = capsFindings(dir, caps)
   if (capFindings.length > 0) return { ok: false, failedStage: "caps", findings: capFindings }
 
-  // 3. Runtime: sandbox kernel + the pack's probes. Without `boot` only the probes/ shape is
-  // judged -- the same stage, minus the process it starts.
-  const runtime = boot ? await runtimeStage(dir) : runtimeStageNoBoot(dir)
+  // 3. Runtime: sandbox kernel + the pack's probes.
+  const runtime = await runtimeStage(dir)
   if (!runtime.ok) return runtime
 
   // 4. Invocation: how the pack asked to be tested.
