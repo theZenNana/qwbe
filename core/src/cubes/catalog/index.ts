@@ -39,6 +39,11 @@ export const cube = defineCube(group, {
     name: "catalog",
     tables: [],
     requiresAuth: true,
+    // The metadata endpoint declares NO permission on purpose: there is no `catalog:read` --
+    // the handler requires the TARGET cube's own read permission, computed per request. The
+    // explicit null says exactly that (QWB-54, 14c): an undeclared route behind Authorization
+    // would be refused at boot as "forgotten".
+    routes: { metadata: null },
   },
 
   create: ({ catalogue }: CubeTools) => ({

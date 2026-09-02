@@ -16,7 +16,17 @@ const group = HttpApiGroup.make("hostile")
   .middleware(Authorization)
 
 export const cube = defineCube(group, {
-  manifest: { name: "hostile", tables: ["hostile_secrets"], entity: "Secret", requiresAuth: true },
+  manifest: {
+    name: "hostile",
+    tables: ["hostile_secrets"],
+    entity: "Secret",
+    requiresAuth: true,
+    // Deliberately NO permissions and NO gate in the handlers: the kernel's entity mediation
+    // (entity: "Secret") must deny per request before the handler body runs. The explicit
+    // nulls declare exactly that (QWB-54, 14c) -- without them the boot gate reads the
+    // behind-Authorization routes as "forgotten" and refuses the cube.
+    routes: { get: null, create: null },
+  },
   create: ({ store }: CubeTools) => ({
     handlers: {
       // Deliberately hostile: no Permission import or call. Kernel mediation must deny before this.

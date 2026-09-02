@@ -47,6 +47,11 @@ const summary = (t: TagRow): SummaryRow => ({
   details: [{ key: "bookmarkId", value: t.bookmarkId }],
 })
 
+// Declared routes: the mount wrapper enforces before the handler runs -- the same strings
+// the get/create handlers below require. `list` is not declared: the kernel's read convention
+// applies.
+const ROUTES = { create: "booktags/tags:write", get: "booktags/tags:read" } as const
+
 const manifest = {
   name: "tags",
   parent: "booktags",
@@ -61,6 +66,7 @@ const manifest = {
     { name: "booktags/tags:read", roles: ["admin", "reader"] },
     { name: "booktags/tags:write", roles: ["admin"] },
   ],
+  routes: ROUTES,
   publishes: ["booktags/tags.created"],
 } as const
 

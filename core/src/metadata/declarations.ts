@@ -22,17 +22,22 @@ export type MetadataDeclarations = {
   readonly relations?: Readonly<Record<string, { readonly target: string }>>
   /**
    * The permission each of this cube's own routes requires, by ENDPOINT NAME (`list`,
-   * `create`, ...). Declared once, read twice: the cube's handlers check through the same
-   * object it puts here, and the metadata publishes it (QWB-54, ticket 10) -- so renaming a
-   * permission in the kernel moves enforcement and publication together, and the frontend
-   * follows by reading metadata instead of holding a mirrored literal.
+   * `create`, ...). The declaration IS the enforcement (QWB-54, 14c): the mount wrapper in
+   * `runtime-composition.ts` requires exactly what an entry declares before the handler runs,
+   * and the metadata publishes the same derivation -- so a handler that forgets
+   * `requirePermission` is still a 403, and renaming a permission in the kernel moves
+   * enforcement, publication and the frontend together.
    *
-   * The mount gate (`validateRoutes`) refuses a name that is not an endpoint of this cube or
-   * a permission this cube does not declare. Routes whose requirement is decided per request
-   * (e.g. the target cube's own read permission) stay undeclared: the metadata publishes
-   * them as null rather than a fixed name that would be a lie.
+   * `null` is the EXPLICIT opt-out: the requirement is decided per request in the handler
+   * (the target cube's own read permission, a session-level logout). A mutating endpoint
+   * behind Authorization with NO entry here is refused at boot (`validateRoutes`), so
+   * "forgotten" is not a state the kernel can be in; `list` may not opt out at all -- the
+   * kernel's read convention applies.
+   *
+   * The mount gate (`validateRoutes`) also refuses a name that is not an endpoint of this
+   * cube or a permission this cube does not declare.
    */
-  readonly routes?: Readonly<Record<string, string>>
+  readonly routes?: Readonly<Record<string, string | null>>
 }
 
 // --- QWB-54: the same two functions answer "what may a caller filter by" for BOTH the served

@@ -60,3 +60,19 @@ export const requirePermission = (permission: string) =>
  * derivation, not two literals kept in step by hand.
  */
 export const readPermissionOf = (cube: string): string => `${cube}:read`
+
+/**
+ * The permission a route demands, from the manifest's one declaration. `list` falls back to
+ * the kernel's read convention. `null` means, explicitly, "decided per request in the handler"
+ * (catalog's per-cube read, auth's session-level logout). This is the ONE derivation the
+ * metadata publishes, the generic list enforces and the mount wrapper enforces (QWB-54, 14c).
+ */
+export const declaredPermission = (
+  routes: Readonly<Record<string, string | null>> | undefined,
+  cube: string,
+  name: string,
+): string | null => {
+  const declared = routes?.[name]
+  if (declared !== undefined) return declared
+  return name === "list" ? readPermissionOf(cube) : null
+}

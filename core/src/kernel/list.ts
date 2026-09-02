@@ -25,7 +25,7 @@ import { HttpServerRequest } from "@effect/platform"
 import { Effect, Option, Schema } from "effect"
 import type { MetadataDeclarations } from "../metadata/declarations.ts"
 import { filterFields, searchFields } from "../metadata/declarations.ts"
-import { readPermissionOf, requirePermission } from "./auth-contract.ts"
+import { declaredPermission, readPermissionOf, requirePermission } from "./auth-contract.ts"
 import type { CubeStore } from "./manifest.ts"
 import { DEFAULT_LIMIT, type ListWhere, MAX_LIMIT, type PageRequest, pageRequest, SortField } from "./pagination.ts"
 
@@ -142,7 +142,11 @@ export const genericList =
   <A, B = A>(config: GenericList<A, B>) =>
   ({ urlParams }: { urlParams: ListParamsType }) =>
     Effect.gen(function* () {
-      yield* requirePermission(config.manifest.routes?.list ?? readPermissionOf(config.cube))
+      // The ONE derivation (QWB-54, 14c): the same `declaredPermission` the metadata publishes
+      // through. `??` is only for the type -- `validateRoutes` refuses `list: null` at mount.
+      yield* requirePermission(
+        declaredPermission(config.manifest.routes, config.cube, "list") ?? readPermissionOf(config.cube),
+      )
       if (config.before) yield* config.before
       const raw = yield* rawQuery
       const page = yield* config.store.page<A>(

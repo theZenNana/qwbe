@@ -61,6 +61,14 @@ export const cube = defineCube(group, {
       { name: "vault:read", roles: ["curator"] },
       { name: "vault:write", roles: ["admin"] },
     ],
+    // The permission each route requires, declared once (QWB-54, 14c): the mount wrapper
+    // enforces exactly what the handlers below already checked inline.
+    routes: {
+      list: "vault:read",
+      get: "vault:read",
+      patch: "vault:write",
+      create: "vault:write",
+    },
   },
 
   create: ({ store }: CubeTools) => ({

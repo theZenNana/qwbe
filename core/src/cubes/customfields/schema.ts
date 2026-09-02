@@ -34,6 +34,12 @@ export const ROUTES = {
   update: "customfields:write",
   remove: "customfields:write",
   orphans: "customfields:write",
+  // The handler checks `customfields:read` inline first, then the TARGET cube's own read
+  // permission per request (QWB-54 ticket 05, defect 6) -- the fixed half is declared here.
+  setValues: "customfields:read",
+  // Same target-cube rule, with no fixed half: the lookup rides on `<targetCube>:read`,
+  // computed per request, so the entry is an explicit null (QWB-54, 14c).
+  valuesFor: null,
 } as const
 
 /**

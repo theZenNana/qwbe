@@ -18,7 +18,7 @@
 
 import { createHash } from "node:crypto"
 import type { PropertySignature } from "effect/SchemaAST"
-import { Authorization, readPermissionOf } from "../kernel/auth-contract.ts"
+import { Authorization, declaredPermission } from "../kernel/auth-contract.ts"
 import { EntityMeta } from "../kernel/entity.ts"
 import { DEFAULT_LIMIT, MAX_LIMIT } from "../kernel/pagination.ts"
 import { classify, encodedLiteralOf, entityStructOf, groupEndpoints } from "./ast.ts"
@@ -59,7 +59,7 @@ const routeContracts = (cubeName: string, group: unknown, m: DeclaredManifest): 
     const shaped = endpoint as { method?: unknown; path?: unknown }
     out[name] = {
       auth: groupAuth || own,
-      permission: name === "list" ? (m.routes?.list ?? readPermissionOf(cubeName)) : (m.routes?.[name] ?? null),
+      permission: declaredPermission(m.routes, cubeName, name),
       // Read from the endpoint's own contract (QWB-54, ticket 08): what a route demands and
       // WHERE it lives are one published fact, not two -- a probe or a frontend derived from
       // metadata can call the route without guessing its spelling.
