@@ -1,4 +1,4 @@
-// Performance evidence for QWB-45: import a generated 100-thousand-row JSONL file in chunks
+// Performance evidence: import a generated 100-thousand-row JSONL file in chunks
 // and profile it. The numbers are printed; nothing is hidden.
 //
 //   node probes/staging-perf.mjs

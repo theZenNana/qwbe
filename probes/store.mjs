@@ -3,11 +3,8 @@
 //
 //   node probes/store.mjs
 //
-// Until 10 Aug 2026 this probe mounted every package on `core/store/` and refused an empty
-// shelf, because the store was the source users installed from and an untested package there was
-// a silent lie. QWB-13 moved every pack out of the repo; the shelf is empty on purpose now, and
-// the earlier refusal - "a probe over nothing would pass forever" - became the lie it guarded
-// against: the probe would have demanded fixtures the repo no longer ships.
+// The shelf is empty on purpose in a clean checkout -- the packs moved out of the repo -- and
+// a probe over nothing would pass forever, or demand fixtures the repo does not ship.
 //
 // What remains true and worth measuring over HTTP, not the filesystem:
 //
@@ -32,7 +29,7 @@ try {
   const session = await api.login()
 
   // The honest answer is whatever the shelf on disk holds: empty in a clean checkout, the
-  // installed packages after an install-from (QWB-29 runs this probe with a plugin present).
+  // installed packages after an install-from (a plugin is present then).
   // Comparing against the directory -- not against a hardcoded empty list -- keeps both true.
   const shelfDir = join(coreDir, "store")
   const onDisk = existsSync(shelfDir)

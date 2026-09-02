@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Cubes that RUN but are not in git.
 //
-// Found on 2 Aug 2026 by the coordinator, not by any gate: `core/src/cubes/tasks/`,
+// No gate catches these: `core/src/cubes/tasks/`,
 // `core/src/spaces/erp/`, `core/store/erp-pack/`, `core/store/customfields-pack/`,
 // `core/plugins/crm-pack/` were all untracked — and all mounted. The catalogue listed them,
 // `/tasks` answered 200. Working code that no commit contains.

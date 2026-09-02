@@ -1,4 +1,4 @@
-// Probe: logout closes ONLY the session that asked for it (QWB-54, ticket 21).
+// Probe: logout closes ONLY the session that asked for it.
 //
 // Two logins of the same account; logout on the first session; the second session must keep
 // answering. Before the fix, logout dropped every session of the account, so the last check

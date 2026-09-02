@@ -1,29 +1,32 @@
 // The disk walk behind `discover`: which cube directories exist, and under which parent.
 //
-// Split out of discovery.ts on 2026-08-11 (size cap -- the rule is "split the file, don't
-// raise the number"). The hierarchy rules live here because they ARE the walk: a cube
+// The hierarchy rules live here because they ARE the walk: a cube
 // directory whose subdirectories are themselves cubes is a PARENT, children are addressed
 // `<parent>/<child>`, and discovery is one level deep only (docs/booktags-hierarchy.md).
 
 import { existsSync, readdirSync } from "node:fs"
-import { dirname, join, relative, resolve } from "node:path"
+import { dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import { BrokenCubeError, DuplicateCubeError } from "./errors-discovery.ts"
 
 const here = dirname(fileURLToPath(import.meta.url))
 const cubesDir = join(here, "..", "cubes")
 
-/**
- * A core cube's entry file: `index.ts` in a checkout, `index.js` in the compiled kernel the
- * tarball installs (dist/ has the .js emit, not the .ts source). Packs always ship TypeScript
- * sources -- their cubes are read from their own directory, outside node_modules -- so plugin
- * cubes stay .ts and only the kernel's own need the lookup.
- */
+/** A core cube's entry file: `index.ts` in a checkout, `index.js` in the compiled kernel the
+ *  tarball installs (dist/ has the .js emit, not the .ts source). Packs always ship TypeScript
+ *  sources -- their cubes are read from their own directory, outside node_modules -- so plugin
+ *  cubes stay .ts and only the kernel's own need the lookup. */
 const coreEntry = (dir: string): string | null => {
   if (existsSync(join(dir, "index.ts"))) return "index.ts"
   if (existsSync(join(dir, "index.js"))) return "index.js"
   return null
 }
+
+/** A directory counts only if it carries a cube entry: index.ts for a plugin (packs ship
+ *  sources), index.ts or index.js for a core cube (source vs compiled kernel). */
+const entryOf = (dir: string, plugin: string | null): string | null =>
+  plugin ? (existsSync(join(dir, "index.ts")) ? "index.ts" : null) : coreEntry(dir)
+
 /** Where installed packages live. Exported so the boot-time package contract judges the same
  *  directory discovery mounts from -- two spellings of this path would drift. Overridable the
  *  way the store is (QWBE_STORE_DIR): `qwbe check` points it at a sandbox holding exactly the
@@ -42,26 +45,18 @@ export const subdirectories = (dir: string): ReadonlyArray<string> => {
 export const discover = (): ReadonlyArray<{ name: string; plugin: string | null; specifier: string }> => {
   const found: Array<{ name: string; plugin: string | null; specifier: string }> = []
 
-  // The import specifier is built FROM pluginsDir, not spelled `../../plugins/...`: discovery
-  // finds and loads the same tree. With QWBE_PLUGINS_DIR unset this is byte-identical to the
-  // old spelling; with the override set (qwbe check's sandbox) the two would otherwise point
-  // at different directories -- find the pack in the sandbox, import it from the checkout.
-  const pluginsRoot = relative(here, pluginsDir)
-
   const scan = (dir: string, plugin: string | null, parent: string | null): void => {
     for (const name of subdirectories(dir)) {
       const nested = join(dir, name)
-      // A directory counts only if it carries a cube entry: index.ts for a plugin (packs ship
-      // sources), index.ts or index.js for a core cube (source vs compiled kernel).
-      const entry = plugin ? (existsSync(join(nested, "index.ts")) ? "index.ts" : null) : coreEntry(nested)
+      const entry = entryOf(nested, plugin)
       if (entry === null) continue
       const specifier = parent
         ? plugin
-          ? join(pluginsRoot, plugin, "cubes", parent, name, entry)
-          : join("../cubes", parent, name, entry)
+          ? join(pluginsDir, plugin, "cubes", parent, name, entry)
+          : join(cubesDir, parent, name, entry)
         : plugin
-          ? join(pluginsRoot, plugin, "cubes", name, entry)
-          : join("../cubes", name, entry)
+          ? join(pluginsDir, plugin, "cubes", name, entry)
+          : join(cubesDir, name, entry)
       // Only directories that actually export a cube are scanned. A parent may hold assets/,
       // fixtures/ or migrations/ next to its children -- those are NOT cubes, and importing
       // their index.ts would stop the boot. A cube directory without index.ts is caught as
@@ -70,9 +65,7 @@ export const discover = (): ReadonlyArray<{ name: string; plugin: string | null;
       found.push({ name: full, plugin, specifier })
       if (parent) {
         // One level only (DIRECTION.md section 2.4). Deeper directories are refused loudly.
-        const deep = subdirectories(nested).filter((d) =>
-          plugin ? existsSync(join(nested, d, "index.ts")) : coreEntry(join(nested, d)) !== null,
-        )
+        const deep = subdirectories(nested).filter((d) => entryOf(join(nested, d), plugin) !== null)
         if (deep.length > 0) {
           throw new BrokenCubeError(
             full,

@@ -14,8 +14,7 @@
 // Severity is deliberate: a broken manifest stops startup rather than being skipped. Skipping
 // would mean starting with half the cubes and nobody noticing until production.
 
-import { dirname, resolve } from "node:path"
-import { fileURLToPath, pathToFileURL } from "node:url"
+import { pathToFileURL } from "node:url"
 import { Effect } from "effect"
 import { capabilityRuntime } from "../capability-runtime.ts"
 import { buildCatalogue } from "../catalogue.ts"
@@ -90,7 +89,7 @@ export const loadDefinitions = async (): Promise<
     if (p && !expanded.has(p)) expanded.add(p)
   }
   const mounting = onDisk.filter((c) => expanded.has(c.name))
-  // The package contract, enforced by the kernel rather than by the pack (QWB-54). Runs before
+  // The package contract, enforced by the kernel rather than by the pack. Runs before
   // the first plugin import below, so a package that breaks it never executes.
   await assertPackageContracts(mounting)
 
@@ -98,15 +97,7 @@ export const loadDefinitions = async (): Promise<
   for (const entry of mounting) {
     let mod: unknown
     try {
-      // The specifier is resolved HERE, against this module's own directory, and imported as a
-      // file URL. Two reasons, one per shape of the kernel. In a checkout nothing changes: the
-      // specifier is relative and lands on the same file the bare import reached. In the
-      // compiled kernel the TypeScript emit wraps relative dynamic imports in a helper that
-      // rewrites a trailing .ts to .js at runtime -- which would miss every pack cube, because
-      // a pack ships TypeScript sources and is never compiled. A file URL pins the exact file
-      // and is left untouched by that rewrite, so dist/index.js loads for core cubes and the
-      // pack's own index.ts loads (type-stripped, outside node_modules) for plugins.
-      mod = await import(pathToFileURL(resolve(dirname(fileURLToPath(import.meta.url)), entry.specifier)).href)
+      mod = await import(pathToFileURL(entry.specifier).href)
     } catch (e) {
       throw new BrokenCubeError(entry.name, e instanceof Error ? e.message : String(e))
     }
@@ -134,7 +125,7 @@ export const loadDefinitions = async (): Promise<
   return out
 }
 
-export type MountedSystem = {
+type MountedSystem = {
   readonly cubes: ReadonlyArray<MountedCube>
   readonly switches: Switches
   readonly bus: ReturnType<typeof busFrom>
@@ -160,10 +151,9 @@ export type MountedSystem = {
 export const mount = (
   definitions: ReadonlyArray<{ name: string; plugin: string | null; definition: CubeDefinition }>,
   spaces: ReadonlyArray<SpaceDefinition>,
-  // QWB-44: storage boot (Postgres init plus declared data migrations) moved to main.ts via
-  // bootStorage, and the ledger parameter mount used to swallow with `void ledger` is gone
-  // with it -- the only remaining caller is main.ts, AFTER bootStorage succeeded. Mounting
-  // against an unmigrated database is therefore unreachable from this module.
+  // Storage boot (Postgres init plus declared data migrations) happens in main.ts via
+  // bootStorage; the only remaining caller of mount is main.ts, AFTER bootStorage succeeded.
+  // Mounting against an unmigrated database is therefore unreachable from this module.
 ): MountedSystem => {
   const manifests = definitions.map((d) => d.definition.manifest)
 

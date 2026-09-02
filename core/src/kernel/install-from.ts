@@ -1,8 +1,7 @@
 // Installing from a pointed directory - the one door through which a caller hands the kernel
 // a PATH it did not build.
 //
-// Split out of `install.ts` on 10 Aug 2026, when that file stood at 10127 code characters
-// against a 6000 cap. The seam is the natural one: `install.ts` keeps everything that starts
+// The seam is the natural one: `install.ts` keeps everything that starts
 // from a NAME in the store; this file keeps everything that starts from a directory on the
 // administrator's filesystem and ends by asking the store flow its usual question.
 //
@@ -20,8 +19,8 @@
 //
 // Ownership after a successful stage: the staged copy belongs to the STORE. Uninstalling the
 // package removes the installed destination only - the shelf copy stays, so a reinstall does
-// not need the source path and the source may disappear. Forgetting the shelf is a separate,
-// future operation (decided on QWB-15).
+// not need the source path and the source may disappear. Forgetting the shelf copy is a
+// separate operation.
 
 import {
   cpSync,
@@ -56,7 +55,7 @@ export { InstallError, PROVENANCE }
  * What stageAndInstall needs from the store flow - handed in, not imported, so this module
  * cannot reach further into the store than the seam allows.
  */
-export type StageContext = Readonly<{
+type StageContext = Readonly<{
   storeDir: string
   readPackageAt: (name: string, dir: string) => CubePackage
   installExisting: (name: string) => CubePackage
@@ -144,7 +143,7 @@ export const stageAndInstall =
     // publication. Invalid code never reaches the shelf; an existing different package keeps
     // the more useful "different content" diagnostic.
     if (pkg.conflicts.length === 0) {
-      // The source contract the kernel enforces at boot (QWB-54 ticket 03) - the SAME checker,
+      // The source contract the kernel enforces at boot - the SAME checker,
       // so a refusal here reads exactly like the boot refusal, seen before anything is staged.
       // Cheap static scan first; the tsc gate below spawns processes. Only plugin packages,
       // like the boot gate: a cube-kind source has no cubes/ for the checker to read, and the

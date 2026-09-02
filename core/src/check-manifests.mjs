@@ -1,8 +1,8 @@
-// The declarations dump -- one input of the generic probes (QWB-54, ticket 08).
+// The declarations dump -- one input of the generic probes.
 //
 // Spawned by `qwbe check` (check-package.ts) against the package being judged. Imports each
 // cube's entry module the way discovery does and reports what the cube DECLARED about itself:
-// `searchable`, `relations`, `routes`, `dataMigration`.
+// `searchable`, `relations`, `dataMigration`.
 //
 // Why the raw declarations and not the published metadata: the derivation deliberately hides
 // broken declarations from clients. A relation whose target is not mounted publishes as
@@ -50,7 +50,6 @@ for (const name of cubes) {
     out.cubes[name] = {
       searchable: m.searchable,
       relations: m.relations,
-      routes: m.routes,
       dataMigration: m.dataMigration,
     }
   } catch (e) {

@@ -15,6 +15,9 @@
  *   - `relations`       -- fields holding another cube's id, with the target cube.
  */
 
+import { Schema } from "effect"
+import { SortField } from "../kernel/pagination.ts"
+
 export type MetadataDeclarations = {
   readonly version?: string
   readonly searchable?: readonly string[]
@@ -22,7 +25,7 @@ export type MetadataDeclarations = {
   readonly relations?: Readonly<Record<string, { readonly target: string }>>
   /**
    * The permission each of this cube's own routes requires, by ENDPOINT NAME (`list`,
-   * `create`, ...). The declaration IS the enforcement (QWB-54, 14c): the mount wrapper in
+   * `create`, ...). The declaration IS the enforcement: the mount wrapper in
    * `runtime-composition.ts` requires exactly what an entry declares before the handler runs,
    * and the metadata publishes the same derivation -- so a handler that forgets
    * `requirePermission` is still a 403, and renaming a permission in the kernel moves
@@ -40,17 +43,47 @@ export type MetadataDeclarations = {
   readonly routes?: Readonly<Record<string, string | null>>
 }
 
-// --- QWB-54: the same two functions answer "what may a caller filter by" for BOTH the served
+// --- The same two functions answer "what may a caller filter by" for BOTH the served
 // list (kernel/list.ts) and the published metadata (metadata.ts). They live here, next to the
-// declarations they read, precisely so the two answers cannot drift apart -- which is what the
-// ticket is about: `searchable` used to describe the /links route while every cube's list
-// handler decided the query string on its own.
+// declarations they read, precisely so the two answers cannot drift apart.
 
 /** A field name that can be an SQL identifier or a jsonb key without quoting games. */
 const SAFE_FIELD = /^[A-Za-z_][A-Za-z0-9_]*$/
 
+/** `field` or `field:asc` or `field:desc`. Rejected in the schema, so a bad value is a 400 with
+ *  a reason in the emitted OpenAPI -- not a silently ignored parameter. */
+const SORT = /^[A-Za-z_][A-Za-z0-9_]*(:(asc|desc))?$/
+
+/**
+ * The fixed half of the list query. The `<field>=<value>` half is NOT declared here on purpose:
+ * it differs per cube, and a Schema.Struct built per cube would make every list endpoint's type
+ * depend on its manifest at compile time for a gain the metadata already delivers. The handler
+ * reads those from the raw query string and accepts only the names `filterFields` allows.
+ */
+export const ListParams = Schema.Struct({
+  // The older four, WITHOUT the defaults `PageParams` gives them. A default would make
+  // "the caller asked for 25" and "the caller said nothing" the same value, and the rules
+  // below (the `ids=` batch size, and the entity-permission wrapper driving this handler
+  // with an offset of its own) both need to tell those apart.
+  offset: Schema.optional(Schema.NumberFromString),
+  limit: Schema.optional(Schema.NumberFromString),
+  sortBy: Schema.optional(SortField),
+  descending: Schema.optional(Schema.BooleanFromString),
+  page: Schema.optional(Schema.NumberFromString),
+  pageSize: Schema.optional(Schema.NumberFromString),
+  sort: Schema.optional(
+    Schema.String.pipe(Schema.pattern(SORT, { message: () => "sort must be `field`, `field:asc` or `field:desc`" })),
+  ),
+  q: Schema.optional(Schema.String),
+  ids: Schema.optional(Schema.String),
+})
+
+export type ListParamsType = typeof ListParams.Type
+
+export const LIST_PARAMS = Object.keys(ListParams.fields)
+
 /** Parameter names the list contract owns; a field of the same name could not be filtered on. */
-const RESERVED = new Set(["offset", "limit", "sortBy", "descending", "page", "pageSize", "sort", "q", "ids"])
+const RESERVED = new Set(LIST_PARAMS)
 
 /** What `q=` scans: exactly the fields the cube declares searchable. */
 export const searchFields = (m: MetadataDeclarations): ReadonlyArray<string> =>

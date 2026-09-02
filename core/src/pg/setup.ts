@@ -59,7 +59,7 @@ export const ensureCubeSchema = async (cube: string): Promise<string> => {
       // A SECOND, global lock around the role DDL: `tuple concurrently updated` is what two
       // transactions updating pg_roles at the same moment get, and the schema-keyed lock does
       // not prevent that -- two DIFFERENT cubes booting concurrently both reach CREATE ROLE.
-      // QWB-46 hit it for real: the customfields snapshot load runs at boot, racing the other
+      // The customfields snapshot load runs at boot, racing the other
       // cubes' first touch. One lock key serializes every role creation; ordering (schema
       // lock, then this one) is the same everywhere, so no deadlock.
       await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, ["qwbe/role-ddl"])
@@ -105,12 +105,6 @@ export const ensureCubeSchema = async (cube: string): Promise<string> => {
     ensuredSchemas.delete(schema)
     throw e
   }
-}
-
-/** The kernel forgets its setup cache -- used by tests that create and drop databases. */
-export const forgetEnsured = (): void => {
-  ensuredSchemas.clear()
-  ensuredTables.clear()
 }
 
 /** The one row shape, created on first touch of a table -- the cube writes no migrations yet. */
@@ -170,7 +164,7 @@ export const schemaExists = async (schema: string): Promise<boolean> => {
 }
 
 /*
- * The custom-value caps as a DATABASE constraint (QWB-54 ticket 05, defect 2). The app checks
+ * The custom-value caps as a DATABASE constraint. The app checks
  * the caps on every write; this CHECK holds in Postgres even without the application.
  *
  * The key count is exact (0002-custom-caps.sql gives the CHECK its helper function). The byte
@@ -188,8 +182,8 @@ const customCapsCheck = (): string => {
 }
 
 /**
- * Add the custom-caps CHECK if the table does not have it yet. Idempotent: tables created
- * before ticket 05 get the constraint on the next boot, and the lookups above run once per
+ * Add the custom-caps CHECK if the table does not have it yet. Idempotent: tables without it
+ * get the constraint on the next boot, and the lookups above run once per
  * process per table.
  */
 const ensureCustomCaps = async (client: Pool, schema: string, table: string): Promise<void> => {

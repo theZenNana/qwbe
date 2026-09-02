@@ -1,24 +1,5 @@
-// `qwbe check <dir>` -- the one entry point that says whether a package is done (QWB-54
-// ticket 03). The kernel runs the same four stages, in the same order, for every package:
-//
-//   1. source      -- the boot-time package contract, THE SAME CODE the kernel runs at mount
-//                     (`checkPackageSource`, no options), so a pack cannot pass here and fail
-//                     at boot, or the other way round.
-//   2. caps        -- the size caps read from the INSTALLED kernel's qwbe.config.json. A
-//                     qwbe.config.json inside the package is an error, not an override: the
-//                     numbers belong to the kernel, and a pack that could rewrite them would be
-//                     writing its own rules again.
-//   3. runtime     -- the kernel is booted in a sandbox with the package mounted, and the
-//                     package's own probes/*.mjs run against that kernel. A missing or empty
-//                     probes/ is an error: a package that never runs proves nothing.
-//   4. invocation  -- how the package asked to be checked. `scripts.test` must be exactly
-//                     `qwbe check .`; `dependencies["qwbe-core"]` must not point at a checkout
-//                     (`file:`, `link:`, `github:`); and `require.resolve("qwbe-core")` from the
-//                     package must land on a real install under its own node_modules -- which
-//                     catches `npm link`, whose symlink resolves outside the package.
-//
-// The library returns data; `bin/qwbe.mjs` prints it. The stages fail fast, all findings of the
-// failing stage together, so the first thing a pack author reads is the stage that stopped them.
+// `qwbe check <dir>` -- the one entry point that says whether a package is done. The four
+// stages are listed in bin/qwbe.mjs usage.
 
 import { spawn, spawnSync } from "node:child_process"
 import { randomBytes } from "node:crypto"
@@ -47,36 +28,27 @@ import { capsFromConfig, type RawConfig, type SizeCaps, sizeCapsFindings } from 
 import { includePackageSourcePath, isBookkeeping } from "./package-source.ts"
 
 export type { PackageFinding }
-export type CheckStage = "source" | "caps" | "runtime" | "invocation"
 
-export type ProbeRun = { readonly probe: string; readonly exit: number | null }
-export type RuntimeEvidence = {
+type CheckStage = "source" | "caps" | "runtime" | "invocation"
+
+type ProbeRun = { readonly probe: string; readonly exit: number | null }
+type RuntimeEvidence = {
   readonly booted: boolean
   readonly url: string
   readonly probes: ReadonlyArray<ProbeRun>
-  /** The generic probes (QWB-54, ticket 08): how many assertions ran and how many findings
+  /** The generic probes: how many assertions ran and how many findings
    *  they raised. Absent when the stage stopped before them. */
   readonly generic?: { readonly checks: number; readonly findings: number }
 }
 
-export type CheckReport = {
+type CheckReport = {
   readonly ok: boolean
   readonly failedStage?: CheckStage
   readonly findings: ReadonlyArray<PackageFinding>
   readonly runtime?: RuntimeEvidence
 }
 
-export type CheckOptions = {
-  /**
-   * Boot the real kernel for the runtime stage (default). Unit tests pass false: the stage
-   * still checks that probes/ exists and is non-empty, but boots nothing.
-   */
-  readonly boot?: boolean
-}
-
 // --- the installed kernel -------------------------------------------------------------------
-
-let kernelRootCache: string | undefined
 
 /**
  * The qwbe-core package this command IS. Walking up from this module, the first package.json
@@ -84,7 +56,6 @@ let kernelRootCache: string | undefined
  * checkout that is core/, in a pack it is node_modules/qwbe-core. One spelling, everywhere.
  */
 export const kernelRoot = (): string => {
-  if (kernelRootCache) return kernelRootCache
   let dir = dirname(fileURLToPath(import.meta.url))
   for (let i = 0; i < 20; i++) {
     const manifest = join(dir, "package.json")
@@ -92,7 +63,6 @@ export const kernelRoot = (): string => {
       try {
         const pkg = JSON.parse(readFileSync(manifest, "utf8")) as { name?: unknown }
         if (pkg.name === "qwbe-core") {
-          kernelRootCache = dir
           return dir
         }
       } catch {
@@ -107,7 +77,7 @@ export const kernelRoot = (): string => {
 }
 
 /** The caps of the installed kernel. A config that cannot be parsed or is wrong is a kernel bug. */
-export const kernelCaps = (): SizeCaps => {
+const kernelCaps = (): SizeCaps => {
   const path = join(kernelRoot(), "qwbe.config.json")
   if (!existsSync(path)) {
     throw new TypeError(`the installed kernel has no qwbe.config.json at ${path} -- caps cannot be read`)
@@ -121,13 +91,13 @@ export const kernelCaps = (): SizeCaps => {
  * checkout. An install cannot execute any TypeScript under the package -- node refuses type
  * stripping below node_modules -- so everything an installed check runs must come from dist/.
  */
-export const isInstalledKernel = (): boolean => kernelRoot().split(sep).join("/").includes("/node_modules/")
+const isInstalledKernel = (): boolean => kernelRoot().split(sep).join("/").includes("/node_modules/")
 
 /**
  * The kernel entry the runtime stage boots. A checkout boots src/main.ts -- the same source
  * `npm run api` runs. An install boots dist/main.js, the compiled kernel the tarball carries.
  */
-export const kernelMainEntry = (): string =>
+const kernelMainEntry = (): string =>
   isInstalledKernel() ? join(kernelRoot(), "dist", "main.js") : join(kernelRoot(), "src", "main.ts")
 
 // --- stage 2: caps ---------------------------------------------------------------------------
@@ -251,19 +221,12 @@ const freePort = (): Promise<number> =>
 
 const wait = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms))
 
-/** The runtime stage without the boot: the probes/ shape check alone. Unit tests use it. */
-const runtimeStageNoBoot = (dir: string): CheckReport => {
-  const { findings } = probesFindings(dir)
-  if (findings.length > 0) return { ok: false, failedStage: "runtime", findings }
-  return { ok: true, findings: [], runtime: { booted: false, url: "", probes: [] } }
-}
-
 /**
  * Boot the installed kernel with exactly one package mounted, run its probes against it, tear
  * everything down. The kernel the probes run against is the same qwbe-core this command is --
  * that is the "same binary" property, and it is why the check cannot be faked from outside.
  */
-export const runtimeStage = async (dir: string): Promise<CheckReport> => {
+const runtimeStage = async (dir: string): Promise<CheckReport> => {
   const { findings: probeFindings, probes } = probesFindings(dir)
   if (probeFindings.length > 0) return { ok: false, failedStage: "runtime", findings: probeFindings }
 
@@ -351,7 +314,7 @@ export const runtimeStage = async (dir: string): Promise<CheckReport> => {
     evidence.booted = true
     evidence.url = `http://127.0.0.1:${port}`
 
-    // The generic probes (QWB-54, ticket 08) run FIRST, against the booted kernel, before the
+    // The generic probes run FIRST, against the booted kernel, before the
     // package's own probes: they are derived from the package's own declarations, so a pack
     // cannot skip, weaken or pre-empt them. An invented dataMigration never reaches this
     // point at all -- the ownership rules refuse it at boot. The declarations dump reads the
@@ -414,16 +377,15 @@ export const runtimeStage = async (dir: string): Promise<CheckReport> => {
 
 // --- stage 4: invocation ---------------------------------------------------------------------
 
-export type ResolveQwbeCore = (dir: string) => string
-
-/**
- * How the pack resolves qwbe-core, anchored at the pack's own package.json. Exported for the
- * same reason the resolution rule exists: to be proved, not assumed.
- */
-export const resolveFromPack: ResolveQwbeCore = (dir: string): string =>
+// How the pack resolves qwbe-core, anchored at the pack's own package.json (node resolution from
+// there): proved by the tests, not assumed. Inlined type -- the old alias was test-only surface.
+const resolveFromPack = (dir: string): string =>
   createRequire(join(dir, "package.json")).resolve("qwbe-core/package.json")
 
-export const invocationFindings = (dir: string, resolve: ResolveQwbeCore = resolveFromPack): PackageFinding[] => {
+export const invocationFindings = (
+  dir: string,
+  resolve: (dir: string) => string = resolveFromPack,
+): PackageFinding[] => {
   const findings: PackageFinding[] = []
   const manifestPath = join(dir, "package.json")
   if (!existsSync(manifestPath)) {
@@ -501,9 +463,7 @@ export const invocationFindings = (dir: string, resolve: ResolveQwbeCore = resol
  * means all four passed against the installed kernel. The report carries the runtime evidence
  * (booted URL, probe exits) so the caller's output can SHOW what ran.
  */
-export const checkPackage = async (dir: string, options: CheckOptions = {}): Promise<CheckReport> => {
-  const boot = options.boot ?? true
-
+export const checkPackage = async (dir: string): Promise<CheckReport> => {
   // 1. Source: the boot gate's own checker, unchanged.
   const sourceFindings = await checkPackageSource(dir)
   if (sourceFindings.length > 0) return { ok: false, failedStage: "source", findings: sourceFindings }
@@ -513,9 +473,8 @@ export const checkPackage = async (dir: string, options: CheckOptions = {}): Pro
   const capFindings = capsFindings(dir, caps)
   if (capFindings.length > 0) return { ok: false, failedStage: "caps", findings: capFindings }
 
-  // 3. Runtime: sandbox kernel + the pack's probes. Without `boot` only the probes/ shape is
-  // judged -- the same stage, minus the process it starts.
-  const runtime = boot ? await runtimeStage(dir) : runtimeStageNoBoot(dir)
+  // 3. Runtime: sandbox kernel + the pack's probes.
+  const runtime = await runtimeStage(dir)
   if (!runtime.ok) return runtime
 
   // 4. Invocation: how the pack asked to be tested.

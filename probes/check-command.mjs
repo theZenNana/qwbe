@@ -1,4 +1,4 @@
-// Runtime proof for `qwbe check` (QWB-54 ticket 03): the real bin, run as a real process,
+// Runtime proof for `qwbe check`: the real bin, run as a real process,
 // against real fixture packages in a temp directory. The unit tests prove the rules; this probe
 // proves the COMMAND -- the sandbox kernel boot, the probes running against it, and the exit
 // codes a pack's `npm test` will see.
@@ -143,7 +143,7 @@ if (spec.status !== 200 && spec.status !== 401) {
     "the output shows the stages in order, with the runtime evidence",
     /\[1\/4\] source: ok/.test(pass.stdout) &&
       /\[2\/4\] caps: ok/.test(pass.stdout) &&
-      // The generic probes (QWB-54, ticket 08) ride the same line: N checks, M findings.
+      // The generic probes ride the same line: N checks, M findings.
       /\[3\/4\] runtime: kernel booted at http:\/\/127\.0\.0\.1:\d+; generic probes: \d+ checks, \d+ findings; probes: selfcheck\.mjs exit 0/.test(
         pass.stdout,
       ) &&

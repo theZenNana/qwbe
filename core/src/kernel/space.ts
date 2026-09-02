@@ -57,7 +57,7 @@ export const defineSpace = (s: SpaceDefinition): SpaceDefinition => s
 /** Convenience so a space file reads as a list of statements. */
 export const link = (l: Link): Link => l
 
-export const spaceDirectories = (): ReadonlyArray<string> => {
+const spaceDirectories = (): ReadonlyArray<string> => {
   if (!existsSync(spacesDir)) return []
   return readdirSync(spacesDir, { withFileTypes: true })
     .filter((d) => d.isDirectory() && !d.name.startsWith("_") && !d.name.startsWith("."))
@@ -65,7 +65,7 @@ export const spaceDirectories = (): ReadonlyArray<string> => {
     .sort()
 }
 
-export class BrokenSpaceError extends Error {
+class BrokenSpaceError extends Error {
   constructor(space: string, cause: string) {
     super(`Space "${space}" failed to load: ${cause}\nFix it or remove spaces/${space}/.`)
     this.name = "BrokenSpaceError"

@@ -3,7 +3,7 @@
 //
 // The baseline records debt per file. Rebuilding it walks the checkout — so anything NOT in the
 // checkout is, to that walk, indistinguishable from deleted. Untracked work in another worktree
-// is exactly that: invisible. On 3 Aug 2026 six baseline entries were read as dead files and
+// is exactly that: invisible. Six baseline entries were read as dead files and
 // nearly regenerated away; all six were live, uncommitted work sitting in another checkout, and
 // three of them had already grown past their cap. Had the caps been dropped, the gate would have
 // turned red on those files the day they were committed — pointing at an author who changed

@@ -198,9 +198,9 @@ export type Manifest = {
    */
   readonly runsCommands?: boolean
   /**
-   * DECLARED CAPABILITY (QWB-46): this cube owns custom-field DEFINITIONS for other cubes.
+   * DECLARED CAPABILITY: this cube owns custom-field DEFINITIONS for other cubes.
    *
-   * The values are deliberately NOT here: since the storage decision of 30 Aug 2026 they live
+   * The values are deliberately NOT here: they live
    * in each target row's own body, under the reserved `custom` sub-object. The cube declaring
    * this receives the `customFields` tool: it registers its active definitions (so the
    * catalogue's metadata and the orphan report see them) and reads a target cube's rows to
@@ -222,7 +222,7 @@ export type Manifest = {
    * Without this flag a cube's store is the six-operation CubeStore and nothing else. The
    * batch runs arbitrary SQL under the cube's own role, so it is a privilege like the
    * switches: declared by the cube, checked at mount, and `grep -r usesBatch` returns the
-   * complete list of holders (QWB-45 review, item 9).
+   * complete list of holders.
    */
   readonly usesBatch?: boolean
 }
@@ -281,7 +281,7 @@ export type CubeTools = {
   /** Present only when the manifest declares `usesIdentityDirectory`. */
   readonly identities?: IdentityDirectory | undefined
   readonly entityPermissions?: PermissionService | undefined
-  /** Present ONLY when the manifest declares `providesCustomFields` (QWB-46). */
+  /** Present ONLY when the manifest declares `providesCustomFields`. */
   readonly customFields?: CustomFieldTools | undefined
 }
 
@@ -399,15 +399,14 @@ export type CubeParts<Group extends CubeGroup = CubeGroup, Provided = never> = {
    * cube layer. What the layer PROVIDES is the `Provided` parameter, inferred per cube at
    * `defineCube` and kept opaque to the kernel: with runtime discovery kept, the exact union
    * across cubes is unknowable, so the composition seam in `main.ts` erases it exactly once
-   * (the audited adapter, QWB-19).
+   * (the audited adapter).
    */
   readonly layers?: Layer.Layer<Provided, unknown, Registry>
 }
 
 // The gates and identity helpers (fullName, storeFileName, pathPrefix, validateManifest,
 // validateCommands, validateAgentSurface, InvalidManifestError, DataMigration) live in
-// manifest-validation.ts since 2026-08-12 (size cap -- split the file, don't raise the
-// number). Import them from there directly: re-exporting through here severs the
+// manifest-validation.ts. Import them from there directly: re-exporting through here severs the
 // declaration-site inference defineCube depends on.
 
 export type CubeStore = {
@@ -416,8 +415,7 @@ export type CubeStore = {
   readonly page: <A>(
     table: string,
     page: PageRequest,
-    /** One pair (the pre-QWB-54 shape, still used by `relational.search`) or the full list
-     *  vocabulary the generic list handler speaks. */
+    /** One pair or the full ListWhere. */
     where?: { readonly field: string; readonly value: string } | ListWhere,
   ) => Effect.Effect<Page<A>, never, never>
   readonly byId: <A>(table: string, id: string) => Effect.Effect<A | undefined, never, never>

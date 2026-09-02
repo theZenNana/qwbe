@@ -6,13 +6,8 @@
 // same door the kernel always used.
 
 /**
- * The merged `custom` object grew past the system cap (QWB-54 ticket 05, defect 2).
- *
- * The caps are checked on the REQUEST by the kernel's fold, but a PATCH merges with the row's
- * existing values in the store -- a few keys at a time, repeated, used to walk a row past both
- * caps inside an indexed GIN column. The merge now refuses. The one audited wrapper that owns
- * the custom policy (runtime-composition.ts) catches this and answers 400; any other path that
- * hits it is an internal error and deserves to die.
+ * The caps are checked per request by the kernel's fold, but a PATCH merge adds a few keys
+ * at a time and can walk a row past both caps; custom-fold.ts catches this and answers 400.
  */
 export class CustomCapError extends Error {
   constructor(message: string) {

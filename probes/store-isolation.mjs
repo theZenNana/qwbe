@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-// The isolation ADR-0001 bought with roles, observed from the engine (QWB-44).
+// The isolation ADR-0001 bought with roles, observed from the engine.
 //
 //   node probes/store-isolation.mjs
 //
@@ -82,7 +82,7 @@ try {
   await client.end()
 
   // The same checks through the login the APPLICATION would use: a non-superuser that is a
-  // member of the cube roles, the shape the reviewer's finding 18 asked for. Table-level
+  // member of the cube roles. Table-level
   // refusal seen from the superuser proves nothing about the application login.
   const appUrl = new URL(db.url)
   appUrl.username = "qwbe_probe_app"

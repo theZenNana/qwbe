@@ -1,8 +1,6 @@
 // Manifest validation and cube identity helpers -- the gates that run at mount.
 //
-// Split out of manifest.ts on 2026-08-12 (size cap -- the rule is "split the file, don't
-// raise the number") when the generic agent gate pushed the declarative half over its
-// baseline. manifest.ts keeps WHAT a cube declares; this file checks that the declaration
+// manifest.ts keeps WHAT a cube declares; this file checks that the declaration
 // cannot lie, against the real artefacts (directory names, endpoint lists).
 
 import { AGENT_SURFACE } from "../agent-contracts.ts"
@@ -183,9 +181,9 @@ export const validateCommands = (m: Manifest, commands: ReadonlyArray<CommandSpe
 
 /**
  * Route permissions are validated like commands: the declaration may not name a route the
- * cube does not serve, nor a permission the cube does not declare (QWB-54, ticket 10).
+ * cube does not serve, nor a permission the cube does not declare.
  *
- * Since 14c the declaration is also the enforcement (`withDeclaredPermission` wraps every
+ * The declaration is also the enforcement (`withDeclaredPermission` wraps every
  * mounted handler), which closes the gap a convention had: a handler that forgot
  * `requirePermission` passed every gate, and `permission: null` meant both "decided per
  * request" and "forgotten". Three rules keep declaration and enforcement one thing:

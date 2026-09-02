@@ -1,6 +1,7 @@
 import assert from "node:assert/strict"
 import { describe, it } from "node:test"
-import { cube, readPermissionOf } from "./index.ts"
+import { readPermissionOf } from "../../kernel/auth-contract.ts"
+import { cube } from "./index.ts"
 
 describe("catalog cube", () => {
   it("derives a cube's read permission from its full name", () => {

@@ -3,12 +3,7 @@
 
 import { Schema } from "effect"
 
-/**
- * The permission each route requires, declared ONCE (QWB-54, ticket 10): the manifest
- * publishes this object through the kernel's metadata and the handlers in handlers.ts check
- * through the same names, so renaming a permission moves enforcement and publication
- * together.
- */
+// Route permissions, published by the metadata and checked by the handlers (see metadata/declarations.ts).
 export const ROUTES = {
   createSet: "staging:write",
   listSets: "staging:read",
@@ -21,7 +16,7 @@ export const ROUTES = {
 } as const
 
 /** The two import formats. A set is ONE file's worth of rows, so the format is per set. */
-export const StagingFormat = Schema.Literal("jsonl", "csv").annotations({ identifier: "StagingFormat" })
+const StagingFormat = Schema.Literal("jsonl", "csv").annotations({ identifier: "StagingFormat" })
 
 /** A set: one imported source file, its progress and its import tallies. */
 export const StagingSet = Schema.Struct({
@@ -51,11 +46,11 @@ export const SetCreate = Schema.Struct({
  * CONTRACT: a chunk must end on a LINE BOUNDARY. A client that splits by byte size will get
  * two spurious "invalid JSON" (or wrong-column) entries at wrong line numbers and two silently
  * lost records -- splitting mid-line is a client bug, stated here so the refusal is documented
- * rather than mysterious (QWB-45 review, item 19).
+ * rather than mysterious.
  *
  * The text is capped: one request may not hold a whole file in JS, expand to thousands of
  * INSERT statements and pin a pool connection for the length of the batch -- split the file
- * into more chunks instead (QWB-45 review, item 6). */
+ * into more chunks instead. */
 export const MAX_CHUNK_CHARS = 2_000_000
 
 export const ChunkPayload = Schema.Struct({
@@ -64,7 +59,7 @@ export const ChunkPayload = Schema.Struct({
   startLine: Schema.optionalWith(Schema.Number, { default: () => 1 }),
 }).annotations({ identifier: "ChunkPayload" })
 
-export const MalformedLine = Schema.Struct({ line: Schema.Number, reason: Schema.String }).annotations({
+const MalformedLine = Schema.Struct({ line: Schema.Number, reason: Schema.String }).annotations({
   identifier: "MalformedLine",
 })
 
@@ -92,7 +87,7 @@ export const ShapeCount = Schema.Struct({ shape: Schema.String, count: Schema.Nu
   identifier: "ShapeCount",
 })
 
-export const ValueCount = Schema.Struct({ value: Schema.String, count: Schema.Number }).annotations({
+const ValueCount = Schema.Struct({ value: Schema.String, count: Schema.Number }).annotations({
   identifier: "ValueCount",
 })
 
@@ -120,7 +115,5 @@ export const TABLES = { sets: "sets", rows: "rows" } as const
 
 // The type side of each schema: values at runtime, these at compile time. Same name on purpose.
 export type StagingSet = typeof StagingSet.Type
-export type MalformedLine = typeof MalformedLine.Type
 export type FieldProfile = typeof FieldProfile.Type
 export type ShapeCount = typeof ShapeCount.Type
-export type ValueCount = typeof ValueCount.Type

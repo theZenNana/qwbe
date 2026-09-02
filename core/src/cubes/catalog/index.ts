@@ -17,14 +17,6 @@ import { Authorization, readPermissionOf, requirePermission } from "../../kernel
 import { Forbidden, NotFound } from "../../kernel/errors.ts"
 import { CubeMetadata } from "../../metadata/metadata.ts"
 
-/**
- * The read permission of a cube is its full name plus `:read`. The rule lives in the kernel
- * (`kernel/auth-contract.ts`) next to the permission contract it belongs to, because the
- * kernel itself derives the same name for the generic list route and for the published
- * metadata; re-exported here so the cube's own callers keep one import site.
- */
-export { readPermissionOf }
-
 const group = HttpApiGroup.make("catalog")
   .add(
     HttpApiEndpoint.get("metadata")`/catalog/${HttpApiSchema.param("cube", Schema.String)}/metadata`
@@ -41,7 +33,7 @@ export const cube = defineCube(group, {
     requiresAuth: true,
     // The metadata endpoint declares NO permission on purpose: there is no `catalog:read` --
     // the handler requires the TARGET cube's own read permission, computed per request. The
-    // explicit null says exactly that (QWB-54, 14c): an undeclared route behind Authorization
+    // explicit null says exactly that: an undeclared route behind Authorization
     // would be refused at boot as "forgotten".
     routes: { metadata: null },
   },

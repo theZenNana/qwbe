@@ -1,5 +1,4 @@
-// The customfields walk, phase 1 (QWB-46): split out of the probe driver because the file
-// passed the size cap -- the rule is "split the file, never raise the cap".
+// The customfields walk, phase 1: the values lifecycle over HTTP, start to finish.
 //
 // Covers: the definition lands, an unmounted cube is refused with a clear message, values are
 // saved through the TARGET cube's own API and folded into its row's `custom` sub-object (a

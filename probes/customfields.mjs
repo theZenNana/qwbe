@@ -1,9 +1,8 @@
-// The CUSTOMFIELDS probe -- the SYSTEM cube in core/src/cubes/customfields, over HTTP (QWB-54
-// ticket 04: the former customfields-pack moved into the kernel, next to auth and account).
+// The CUSTOMFIELDS probe -- the SYSTEM cube in core/src/cubes/customfields, over HTTP.
 //
 //   node probes/customfields.mjs        (with `npm run db:up` first: Postgres on :5433)
 //
-// QWB-46 acceptance, end to end: values live in the TARGET row's own body under the reserved
+// End to end: values live in the TARGET row's own body under the reserved
 // `custom` sub-object, not in a sidecar table. The walk itself lives in customfields-walk.mjs
 // (phase 1) and customfields-orphan.mjs (phase 2) -- split out because the file passed the size
 // cap. This driver owns the environment: it installs the fixture cube the fields are defined

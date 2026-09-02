@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// The `qwbe` binary, delivered by qwbe-core (QWB-54 ticket 03). A pack installs the kernel
+// The `qwbe` binary, delivered by qwbe-core. A pack installs the kernel
 // from the tarball `npm pack` produces, and `node_modules/.bin/qwbe` is how its npm scripts
 // reach the command: `scripts.test` is `qwbe check .`, and that must be the WHOLE test story --
 // the pack does not get to choose its own gates.
@@ -30,7 +30,7 @@ const command = argv[0]
 const dirArg = argv[1]
 
 if (command === "drift") {
-  // Is every shelf in the store provably what its source holds (QWB-54 ticket 22)? Default
+  // Is every shelf in the store provably what its source holds? Default
   // store: the one next to this bin. Exit 0 every shelf verified; 1 is the red the ticket asks
   // for - drifted, edited or untraceable shelves; 2 a usage or environment error.
   if (argv.length > 2) {

@@ -1,4 +1,4 @@
-// The generic probes (QWB-54, ticket 08) -- the checks a package cannot write, dodge or
+// The generic probes -- the checks a package cannot write, dodge or
 // weaken, because nothing in the package composes them. Derived from what the package
 // DECLARES (its cubes' manifests, dumped by `check-manifests.mjs`) and from the metadata the
 // booted kernel publishes, then run against that same kernel:
@@ -9,10 +9,6 @@
 //   2. searchable  every declared searchable field: two rows plus a filter = exactly one row.
 //   3. required    every required field: missing at create = 400.
 //   4. relations   every declared `relations[].target` exists in the catalog.
-//
-// The fifth family -- every `dataMigration.from` must exist in the kernel's registry -- is
-// enforced by the kernel itself at boot (migrate-ownership.ts); a package carrying an
-// invented source never gets a booted kernel to probe, so this module has nothing to add.
 //
 // The library returns data; check-package.ts decides the verdict. All state the probes create
 // (rows, a user) lives in the check's throwaway sandbox database.
@@ -27,10 +23,9 @@ import type { PackageFinding } from "./package-contract-scan.ts"
 // --- shapes ---------------------------------------------------------------------------------
 
 /** The raw declarations of one cube, as `check-manifests.mjs` reports them. */
-export type PackDeclarations = {
+type PackDeclarations = {
   readonly searchable?: unknown
   readonly relations?: unknown
-  readonly routes?: unknown
 }
 
 /** What the dump wrote: per-cube declarations, plus per-cube import errors. */
@@ -39,7 +34,7 @@ export type DeclarationsDump = {
   readonly errors?: Readonly<Record<string, string>>
 }
 
-export type GenericProbeReport = {
+type GenericProbeReport = {
   /** Findings are failures only: a check that ran and saw what the contract promises is silence. */
   readonly findings: PackageFinding[]
   /** How many assertions actually ran -- the number the check's output shows. */
@@ -48,7 +43,7 @@ export type GenericProbeReport = {
 
 /** Minimal view of the published CubeMetadata the probes need. Read over HTTP, never derived
  *  here: the probes must judge the metadata the kernel REALLY serves, not a second derivation. */
-export type PublishedMetadata = {
+type PublishedMetadata = {
   readonly cube: string
   readonly fields?: ReadonlyArray<{
     readonly name: string
@@ -154,7 +149,7 @@ const probeRelations = (
   }
 }
 
-export type GenericProbeInput = {
+type GenericProbeInput = {
   /** Kernel base URL, no trailing slash -- the sandbox the check booted. */
   readonly url: string
   readonly adminPassword: string
@@ -428,14 +423,12 @@ export const runGenericProbes = async (input: GenericProbeInput): Promise<Generi
 
 // --- the stage check-package.ts runs -----------------------------------------------------------
 
-export type GenericStageOptions = {
+type GenericStageOptions = {
   readonly dir: string
   readonly cubes: ReadonlyArray<string>
   readonly url: string
   readonly adminPassword: string
-  /** True when the kernel running the check is an install: the dump must resolve the pack's
-   *  `import "qwbe-core/..."` to the compiled dist (the qwbe-dist export condition), exactly
-   *  like the pack's own probes. */
+  /** Node flags for the dump, e.g. `--conditions=qwbe-dist`; empty for a checkout. */
   readonly conditions: ReadonlyArray<string>
   /** The qwbe-core root carrying src/check-manifests.mjs. */
   readonly kernelRoot: string

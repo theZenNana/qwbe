@@ -4,7 +4,7 @@
 // every module, you can extend it with custom fields. A separate cube that can give fields to
 // the other cubes.
 //
-// WHERE THE VALUES LIVE (QWB-46, storage decision of 2026-08-30).
+// WHERE THE VALUES LIVE.
 //
 // In the TARGET ROW itself. The kernel keeps a row body as jsonb under a GIN index
 // (ADR-0001 sections 3-4) and no longer silently drops keys a cube's static payload schema does
@@ -35,7 +35,7 @@ import { Authorization } from "qwbe-core/auth"
 import { type CubeTools, defineCube } from "qwbe-core/cube"
 import { BadRequest, Forbidden, NotFound } from "qwbe-core/errors"
 import { PageOf } from "qwbe-core/http"
-import { customFieldsTool, definitionsFor, type PackTools, refreshSnapshot, type Snapshot } from "./context.ts"
+import { definitionsFor, type PackTools, refreshSnapshot, type Snapshot } from "./context.ts"
 import { definitionHandlers } from "./handlers.ts"
 import {
   byPosition,
@@ -102,7 +102,7 @@ const group = HttpApiGroup.make("customfields")
       .addError(Forbidden),
   )
   .add(
-    // The orphan report: values still in rows whose definition was deleted (QWB-46 step 5).
+    // The orphan report: values still in rows whose definition was deleted.
     HttpApiEndpoint.get("orphans")`/customfields/orphans`
       .setUrlParams(OrphansLookup)
       .addSuccess(OrphansReport)
@@ -114,8 +114,8 @@ const group = HttpApiGroup.make("customfields")
 // the no-param GET must BE the entity list (per-row visibility) and path parameters are the
 // entity's own id. This cube's surface is not that: definitions are admin metadata, and the
 // values lookup addresses ANOTHER cube's row, which an entity id here would misname. Every
-// handler keeps its own permission gate instead -- exactly the gates the pre-QWB-15 original
-// used. ENTITY stays as the store row label for the definitions table.
+// handler keeps its own permission gate instead. ENTITY stays as the store row label for the
+// definitions table.
 export const cube = defineCube(group, {
   manifest: {
     name: "customfields",
@@ -142,28 +142,23 @@ export const cube = defineCube(group, {
     }
     const tools: PackTools = { store, bus, catalogue, customFields }
     const snapshot: Snapshot = { current: [] }
-    // Load the definitions snapshot asynchronously: the kernel's provider registry is a
-    // synchronous read, and metadata is served per request, so the first catalogue call after
-    // boot races this load at worst and shows no custom fields until it lands.
-    // Review fix 5 (QWB-46): `void effect` DISCARDS the lazy Effect -- it never ran, so after
-    // every restart the snapshot stayed empty and the catalogue published zero custom fields.
-    // Run it for real: the same fire-and-forget boot layer the notes cube uses.
+    // Effect.runFork: load the snapshot once at boot; the catalogue reads it synchronously.
     Effect.runFork(refreshSnapshot(store, snapshot))
 
     // The kernel publishes these definitions as custom metadata of each target cube.
-    customFieldsTool(tools).register((cube) =>
+    tools.customFields.register((cube) =>
       snapshot.current
         .filter((d) => d.targetCube === cube)
         .sort(byPosition)
         .map(toDefinition),
     )
 
-    // QWB-54 ticket 05 (defect 4): the definitions the KERNEL VALIDATES AGAINST are read from
+    // The definitions the KERNEL VALIDATES AGAINST are read from
     // this cube's own store, per request, through the tool's reader. The in-memory snapshot
     // above stays only for the catalogue's synchronous metadata read; validation must see
     // definitions defined through ANY instance of the API, and a failed read must fail the
     // request rather than validate on empty.
-    customFieldsTool(tools).registerDefsReader((target) =>
+    tools.customFields.registerDefsReader((target) =>
       Effect.map(definitionsFor(store, target), (rows) => rows.map(toDefinition)),
     )
 
@@ -207,8 +202,7 @@ export const cube = defineCube(group, {
             Effect.gen(function* () {
               const cube = args[0]
               if (!cube) return "usage: customfields:orphans <cube>"
-              const defs = yield* store.all<DefRow>(DEFS)
-              const active = defs.filter((d) => d.deleted === false && d.targetCube === cube).sort(byPosition)
+              const active = yield* definitionsFor(store, cube)
               const rows = yield* customFields.rows(cube)
               const orphans = orphanValues(active, rows)
               return orphans.map((o) => `${o.rowId}\t${o.name}\t${displayValue(o.value)}`).join("\n") || "(no orphans)"
@@ -216,7 +210,7 @@ export const cube = defineCube(group, {
         },
       ],
 
-      handlers: { ...definitionHandlers(tools, snapshot), ...valuesHandlers(tools, snapshot) },
+      handlers: { ...definitionHandlers(tools, snapshot), ...valuesHandlers(tools) },
 
       relational: {
         search: (field, value, page) =>

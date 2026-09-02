@@ -1,4 +1,4 @@
-// Row mapping and SQL-clause building for the Postgres store, split out of store.ts (QWB-44)
+// Row mapping and SQL-clause building for the Postgres store, split out of store.ts.
 // when the file passed its cap. Pure functions: no pool, no transactions.
 
 import { randomBytes } from "node:crypto"
@@ -19,7 +19,7 @@ export const decode = (row: Record<string, unknown>): Record<string, unknown> =>
 })
 
 /** Only these may be interpolated into SQL. Everything else is a bound parameter. */
-export const META_COLUMNS = new Set(["id", "type", "createdAt", "deleted"])
+const META_COLUMNS = new Set(["id", "type", "createdAt", "deleted"])
 
 export const outboxInsert = (cube: string, table: string, id: string, op: string, version: number) => ({
   text: `INSERT INTO qwbe.outbox (cube, "table", row_id, op, version) VALUES ($1, $2, $3, $4, $5)`,
@@ -52,10 +52,9 @@ export const orderClause = (sortBy: string | undefined, descending: boolean, sor
  *     yield an empty page, exactly like the old store, not a cast error that escapes
  *     `Effect.promise` as a defect.
  *
- * QWB-54 widened the input from one `{field, value}` pair to `ListWhere`, so the generic list
- * handler's whole vocabulary -- several equalities, a batch of ids, a prefix search -- is built
- * HERE, in SQL, and never by reading rows and filtering them in JavaScript. The single-pair
- * shape still works and means the same thing; `relational.search` still passes it.
+ * The generic list handler's whole vocabulary -- several equalities, a batch of ids, a prefix
+ * search -- is built HERE, in SQL, and never by reading rows and filtering them in JavaScript.
+ * One pair or the full ListWhere.
  */
 /** Bind a value and return the placeholder it got. The order of calls IS the parameter order. */
 const bind = (params: Array<unknown>, value: unknown): string => {
@@ -111,12 +110,12 @@ export const whereClause = (
 export const renumber = (sql: string, offset: number) => sql.replace("$SORTBY", `$${offset + 1}`)
 
 /**
- * QWB-46: `custom` is the reserved sub-object of a row body holding undeclared (custom-field)
+ * `custom` is the reserved sub-object of a row body holding undeclared (custom-field)
  * keys. A PATCH is partial, so its `custom` MERGES with the row's -- replacing it wholesale
  * would silently drop every custom value the patch did not mention. Declared fields keep the
  * plain shallow-merge semantics the caller applies before this runs.
  *
- * QWB-54 ticket 05 (defect 2): the caps apply to the MERGED result, not only to what one
+ * the caps apply to the MERGED result, not only to what one
  * request carried. A row with 30 keys could otherwise take two more per PATCH forever -- the
  * merge is the last application-level door, and Postgres holds the same rule in a CHECK
  * constraint (setup.ts), so the limit exists even without the application.

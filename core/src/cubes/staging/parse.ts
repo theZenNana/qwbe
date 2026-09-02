@@ -106,11 +106,11 @@ const csvRecord = (text: string, from: number): { fields: string[]; end: number;
 }
 
 /** The field names of a CSV's header row -- used to store the header on the set at the first
- *  chunk so later chunks are parsed against the SAME names (QWB-45 review, blocker 1). */
+ *  chunk so later chunks are parsed against the SAME names. */
 export const csvHeaderOf = (text: string): ReadonlyArray<string> => dedupe(csvRecord(text, 0).fields)
 
 /** Duplicate header names get a `_2`, `_3` ... suffix -- silently collapsing them lost a
- *  column with no malformed entry (QWB-45 review, item 14). */
+ *  column with no malformed entry. */
 const dedupe = (names: ReadonlyArray<string>): ReadonlyArray<string> => {
   const seen = new Map<string, number>()
   return names.map((raw) => {

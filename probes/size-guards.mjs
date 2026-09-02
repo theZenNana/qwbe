@@ -15,7 +15,7 @@
 //                       unit came to read 51049: an uncommitted +1242 in install.ts, frozen into
 //                       a number everyone else reads as the repository's.
 //
-// Found on 3 Aug 2026. Six baseline entries were read as debt for deleted files — `git ls-tree`
+// Six baseline entries were read as debt for deleted files — `git ls-tree`
 // on every branch found nothing, the right answer to the wrong question — and were in fact
 // erp-pack and customfields-pack, alive and uncommitted in the main checkout. Seven, counting the
 // one that escaped the count.

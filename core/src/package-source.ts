@@ -35,7 +35,7 @@ const isLocalSourceEntry = (name: string): boolean =>
 export const includePackageSourcePath = (root: string, path: string): boolean =>
   path === root || !isLocalSourceEntry(relative(root, path).split(sep)[0] ?? "")
 
-/** The provenance file every staged shelf carries: where it came from and when (QWB-54 ticket 22). */
+/** The provenance file every staged shelf carries: where it came from and when. */
 export const PROVENANCE = "qwbe-source.json"
 
 /** The package manifest: what makes a directory a package (and what stays bookkeeping). */

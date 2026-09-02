@@ -1,7 +1,7 @@
 // The CUSTOMFIELDS schemas and the whole of value validation, in one place.
 //
-// Ported to the QWB-46 contract (storage decision of 2026-08-30): DEFINITIONS live in this
-// cube's own table; VALUES live in the target row's own body, under the reserved `custom`
+// DEFINITIONS live in this cube's own table; VALUES live in the target row's own body, under
+// the reserved `custom`
 // sub-object, written and read through the target cube's own API. This cube therefore no longer
 // holds a values table, and its values endpoint VALIDATES ONLY -- it stores nothing, because it
 // cannot: another cube's row belongs to that cube's store, and the fold into `custom` happens
@@ -18,16 +18,7 @@ import { PageParams } from "qwbe-core/pagination"
 export const DEFS = "customfield_defs"
 export const ENTITY = "CustomField"
 
-/**
- * The permission each STATIC route requires, declared ONCE (QWB-54, ticket 10): the manifest
- * publishes this object through the kernel's metadata and the handlers in handlers.ts check
- * through the same names, so renaming a permission moves enforcement and publication
- * together.
- *
- * `valuesFor` and `setValues` are deliberately NOT here: their requirement is decided per
- * request -- the TARGET cube's own read permission (`${cube}:read`) -- so no fixed name could
- * be true. The metadata publishes them with `permission: null` rather than a guess.
- */
+// Route permissions, published by the metadata and checked by the handlers (see metadata/declarations.ts).
 export const ROUTES = {
   list: "customfields:read",
   define: "customfields:write",
@@ -35,10 +26,10 @@ export const ROUTES = {
   remove: "customfields:write",
   orphans: "customfields:write",
   // The handler checks `customfields:read` inline first, then the TARGET cube's own read
-  // permission per request (QWB-54 ticket 05, defect 6) -- the fixed half is declared here.
+  // permission per request -- the fixed half is declared here.
   setValues: "customfields:read",
   // Same target-cube rule, with no fixed half: the lookup rides on `<targetCube>:read`,
-  // computed per request, so the entry is an explicit null (QWB-54, 14c).
+  // computed per request, so the entry is an explicit null.
   valuesFor: null,
 } as const
 
@@ -49,7 +40,6 @@ export const ROUTES = {
 export const NAME = /^[a-z][a-zA-Z0-9_]{0,31}$/
 
 export const FieldType = Schema.Literal("text", "number", "date", "bool", "select")
-export type FieldTypeName = typeof FieldType.Type
 
 export const CustomField = Schema.Struct({
   ...EntityMeta,
@@ -114,7 +104,7 @@ export const RowFields = Schema.Struct({
  * entity's own id), and a values address belongs to ANOTHER cube's row, so it cannot be a path
  * segment here.
  *
- * QWB-46: the lookup READS the target row's `custom` sub-object (through the kernel-provided
+ * The lookup READS the target row's `custom` sub-object (through the kernel-provided
  * rows reader); the write VALIDATES ONLY. Nothing is stored from here.
  */
 export const ValuesLookup = Schema.Struct({
@@ -128,7 +118,7 @@ export const ValuesWrite = Schema.Struct({
   values: Schema.Record({ key: Schema.String, value: Schema.String }),
 }).annotations({ identifier: "ValuesWrite" })
 
-/** The orphan report: values still in rows whose definition is gone (QWB-46 step 5). */
+/** The orphan report: values still in rows whose definition is gone. */
 export const OrphansLookup = Schema.Struct({
   cube: Schema.String,
 }).annotations({ identifier: "OrphansLookup" })
@@ -137,7 +127,7 @@ export const OrphanValue = Schema.Struct({
   rowId: Schema.String,
   name: Schema.String,
   value: Schema.String,
-  /** Review fix 11 (QWB-46): the row is soft-deleted -- the value is still stored data. */
+  /** The row is soft-deleted -- the value is still stored data. */
   deleted: Schema.Boolean,
 }).annotations({ identifier: "OrphanValue" })
 
@@ -153,14 +143,6 @@ export const ListParams = Schema.Struct({
 })
 
 export type DefRow = typeof CustomField.Type
-
-/**
- * Value validation lives in ONE place: the kernel's `checkCustomValue`
- * (`qwbe-core/custom-values`), shared with the write-path fold (QWB-54 ticket 05, defect 7).
- * The copy that used to live here (`reject`) was already out of step with it -- it refused
- * numeric strings on `number` and real booleans on `bool` -- which is exactly why a second
- * copy of a rule is a defect waiting to happen.
- */
 
 export const byPosition = (a: DefRow, b: DefRow) => a.position - b.position || a.name.localeCompare(b.name)
 
@@ -178,7 +160,7 @@ export const summary = (d: DefRow): SummaryRow => ({
   ],
 })
 
-/** The definition shape the kernel's provider registry expects (catalogue.ts, QWB-46). */
+/** The definition shape the kernel's provider registry expects. */
 export const toDefinition = (d: DefRow) => ({
   name: d.name,
   label: d.label || d.name,
@@ -191,9 +173,9 @@ export const toDefinition = (d: DefRow) => ({
 /**
  * The orphan computation, pure so it is testable without a store: every `custom` key on a row
  * that no active definition names is an orphan. Values are REPORTED, never deleted -- deleting
- * a definition must not damage existing rows (QWB-46 step 5). Since review fixes 1 and 2 gate
- * every write path on an active definition, an orphan is a value whose DEFINITION was deleted;
- * the row's `deleted` flag says whether the row itself is gone too.
+ * a definition must not damage existing rows. Every write path is gated on an active
+ * definition, so an orphan is a value whose DEFINITION was deleted; the row's `deleted` flag
+ * says whether the row itself is gone too.
  */
 export const orphanValues = (
   defs: ReadonlyArray<DefRow>,

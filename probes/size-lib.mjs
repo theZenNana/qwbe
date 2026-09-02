@@ -1,120 +1,15 @@
-// Measuring, separated from judging.
+// The size probes' measuring half. What it judges (caps, baselines, verdicts) lives in
+// sizecaps.mjs / testgate.mjs; what counts characters imports from the kernel itself, the
+// same module `qwbe check` uses -- one walk, one count, everywhere.
 //
-// This file exists because `sizecaps.mjs` went over its own cap. That is the split the rule
-// asks for, performed on the rule's own enforcer: what counts characters lives here, what
-// compares them to a cap and prints a verdict lives there.
+// Kept here, probe-specific: `unitDirs` (what one unit is: cube/space/kernel/pg/metadata/host)
+// and `measure` (raw vs code, the numbers the baselines carry).
 
 import { readdirSync, readFileSync, statSync } from "node:fs"
-import { join, sep } from "node:path"
+import { join } from "node:path"
+import { IS_TEST, posix, stripComments, walk } from "../core/src/package-size.ts"
 
-const SOURCE = /\.(ts|tsx|mjs|js|jsx)$/
-const SKIP_DIR = new Set([
-  "node_modules",
-  ".next",
-  ".git",
-  "test-results",
-  "screenshots",
-  "data",
-  "dist",
-  "build",
-  "store",
-  "probes",
-])
-
-// `frontend` is NOT in SKIP_DIR. A pack's own UI is outside the cube contract (QWB-40) only at
-// the TOP of the tree being judged -- it is skipped there, in the depth-0 pass. Applying the
-// skip at every depth would let `cubes/<x>/frontend/` escape both the per-file and the per-unit
-// cap: a one-directory bypass across the whole kernel. Nested `frontend/` counts like any
-// other source.
-const TOP_LEVEL_SKIP = new Set(["frontend"])
-
-/**
- * Unit tests do not count against a cube's size.
- *
- * Counting them would mean every test written makes the gate redder — a rule that punishes the
- * behaviour the rest of this work exists to encourage. The cap is about how much CODE a cube
- * carries; its tests are measured by whether they exist and pass, which is a different gate.
- */
-export const IS_TEST = /\.(test|spec)\.(ts|tsx|mjs|js|jsx)$/
-
-export const posix = (p) => p.split(sep).join("/")
-
-export const walk = (dir, { includeTests = false, top = true } = {}) => {
-  const found = []
-  let entries
-  try {
-    entries = readdirSync(dir, { withFileTypes: true })
-  } catch {
-    return found
-  }
-  for (const e of entries) {
-    if (e.name.startsWith(".") || SKIP_DIR.has(e.name)) continue
-    if (top && TOP_LEVEL_SKIP.has(e.name)) continue
-    const full = join(dir, e.name)
-    if (e.isDirectory()) found.push(...walk(full, { includeTests, top: false }))
-    else if (SOURCE.test(e.name) && (includeTests || !IS_TEST.test(e.name))) found.push(full)
-  }
-  return found
-}
-
-/**
- * Strip comments so the cap can measure code.
- *
- * A lexer, not a regex: a regex over `//` eats the `//` inside a URL string and the `/*` inside
- * a regular-expression literal, and the resulting number is quietly wrong. A gate whose number
- * is quietly wrong is worse than no gate, because people trust it.
- */
-export const stripComments = (source) => {
-  let out = ""
-  let i = 0
-  const n = source.length
-  let quote = null
-
-  while (i < n) {
-    const c = source[i]
-    const next = source[i + 1]
-
-    if (quote) {
-      out += c
-      if (c === "\\") {
-        out += source[i + 1] ?? ""
-        i += 2
-        continue
-      }
-      if (c === quote) quote = null
-      i++
-      continue
-    }
-
-    if (c === '"' || c === "'" || c === "`") {
-      quote = c
-      out += c
-      i++
-      continue
-    }
-
-    if (c === "/" && next === "/") {
-      while (i < n && source[i] !== "\n") i++
-      continue
-    }
-
-    if (c === "/" && next === "*") {
-      i += 2
-      while (i < n && !(source[i] === "*" && source[i + 1] === "/")) i++
-      i += 2
-      continue
-    }
-
-    out += c
-    i++
-  }
-
-  // Blank lines left behind by removed comments are not code either.
-  return out
-    .split("\n")
-    .filter((l) => l.trim() !== "")
-    .join("\n")
-}
+export { IS_TEST, posix, walk }
 
 export const measure = (file) => {
   const source = readFileSync(file, "utf8")
@@ -153,13 +48,12 @@ export const unitDirs = (root) => {
   for (const c of children(join(root, "core/src/cubes"))) add(`cube ${c.name}`, join(root, "core/src/cubes", c.name))
   for (const s of children(join(root, "core/src/spaces"))) add(`space ${s.name}`, join(root, "core/src/spaces", s.name))
   add("kernel", join(root, "core/src/kernel"))
-  // Born with QWB-44 (one Postgres, one schema per cube). Same precedent as `metadata`: the
-  // kernel was at its recorded unit ceiling, so the new subsystem became its own unit the day
-  // the directory was born -- measured from the first commit, never a blind spot.
+  // The pg store is its own measured unit (one Postgres, one schema per cube): a new subsystem
+  // becomes its own unit the day the directory is born -- measured from the first commit,
+  // never a blind spot.
   add("pg store", join(root, "core/src/pg"))
-  // Born with QWB-41 (per-cube field metadata). The kernel was at its recorded unit ceiling,
-  // so the new subsystem became its own unit the day the directory was born -- measured from
-  // the first commit, never a blind spot.
+  // The metadata module likewise (per-cube field metadata): its own unit from the first
+  // commit, never a blind spot.
   add("metadata", join(root, "core/src/metadata"))
   // The machine-facing modules the kernel lends to a cube (`host/workstation.ts` and what it
   // uses). Added the day the directory was born, not after: the per-file cap already covered

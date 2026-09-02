@@ -3,9 +3,9 @@
 //   node probes/drift.mjs
 //
 // The fixture is a cube PLANTED as a real directory in `core/src/cubes/` for the duration of
-// the run and deleted in `finally`. Nothing committed is ever touched - the pre-QWB-13 version
-// deleted crm-pack from the tree and restored it from a copy, and an interrupted run left the
-// repo broken (raised in the QWB-12 review). A planted directory is the honest middle ground:
+// the run and deleted in `finally`. Nothing committed is ever touched. An earlier version
+// deleted crm-pack from the tree and restored it from a copy, and an
+// interrupted run left the repo broken. A planted directory is the honest middle ground:
 // drift means "mounted but gone from disk", and the only way to be gone from disk is to be a
 // real directory that really gets removed. A symlink was tried and rejected: `existsSync`
 // follows it, so a dangling link reads as absent even before anything is deleted - no drift.

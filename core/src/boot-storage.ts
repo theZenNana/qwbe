@@ -1,6 +1,5 @@
 // The storage half of the boot: init the Postgres store, then run the declared data
-// migrations. Split out of main.ts (QWB-44) when the Postgres move pushed main.ts past its
-// file cap -- the boot order itself is unchanged and lives in exactly one place.
+// migrations. The boot order itself is unchanged and lives in exactly one place.
 //
 // Both steps stop the boot with the variable or reason named: a missing or unreachable
 // database has no fallback, and a refused migration means the operator chooses, not the
@@ -27,8 +26,8 @@ export const bootStorage = async (
   try {
     const ms = await checkMigrationOwnership(definitions, ledgerSnapshot)
     await migrateDataSchemas(ms)
-    // The validated migrations travel back to main.ts: it records each source in the ledger
-    // (QWB-54 ticket 08), so a completed migration stays attributable after its source schema
+    // The validated migrations travel back to main.ts: it records each source in the ledger,
+    // so a completed migration stays attributable after its source schema
     // is gone -- the restart of a migrated system must not need the operator's env forever.
     return ms
   } catch (e) {

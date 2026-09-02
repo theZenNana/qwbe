@@ -45,7 +45,7 @@ type CatalogueDefinition = Readonly<{
     | undefined
 }>
 
-// --- custom fields (QWB-46) ---
+// --- custom fields ---
 //
 // Custom-field VALUES live in the target row's `custom` sub-object; DEFINITIONS live in the
 // cube that provides them. The kernel never knew about definitions before this ticket: they
@@ -74,11 +74,8 @@ export type CustomFieldProvider = (cube: string) => ReadonlyArray<CustomFieldDef
 
 const customFieldProviders: Array<CustomFieldProvider> = []
 
-// The per-request defs reader and the one-row value view moved to custom-defs-reader.ts
-// (QWB-54 ticket 05); the tool TYPE below keeps pointing at them.
-
 /**
- * The narrow tool the kernel lends a cube declaring `providesCustomFields` (QWB-46).
+ * The narrow tool the kernel lends a cube declaring `providesCustomFields`.
  *
  * `register` publishes the cube's ACTIVE definitions per target cube; the catalogue's metadata
  * appends them marked `custom: true`, and a frontend can tell them apart from static fields.
@@ -89,14 +86,14 @@ const customFieldProviders: Array<CustomFieldProvider> = []
 export type CustomFieldTools = {
   readonly register: (provide: (cube: string) => ReadonlyArray<CustomFieldDefinition>) => void
   /**
-   * QWB-54 ticket 05 (defect 4): register where the ACTIVE definitions come from at request
+   * register where the ACTIVE definitions come from at request
    * time -- the fold reads through this, per request, from the provider's own store.
    */
   readonly registerDefsReader: (read: import("./custom-defs-reader.ts").CustomFieldDefsReader) => void
   readonly rows: (
     cube: string,
   ) => Effect.Effect<ReadonlyArray<import("./custom-defs-reader.ts").CustomRowView>, never, never>
-  /** ONE row's custom values, read with `WHERE id = $1` (ticket 05, defect 5). */
+  /** ONE row's custom values, read with `WHERE id = $1`. */
   readonly row: (
     cube: string,
     rowId: string,
@@ -109,7 +106,7 @@ export const registerCustomFieldProvider = (provider: CustomFieldProvider): void
 }
 
 /** The active custom-field definitions registered for a target cube. Pure read. */
-export const activeCustomFields = (cube: string): ReadonlyArray<CustomFieldDefinition> =>
+const activeCustomFields = (cube: string): ReadonlyArray<CustomFieldDefinition> =>
   customFieldProviders.flatMap((provider) => provider(cube))
 
 /** A custom field's definition type, in the vocabulary the published metadata speaks. */
@@ -148,7 +145,7 @@ const enrichWithCustomFields = (base: CubeMetadata | undefined, cube: string): C
   if (!base) return undefined
   const taken = new Set(base.fields.map((f) => f.name))
   const custom = activeCustomFields(cube).filter((d) => {
-    // Review fix 9 (QWB-46) backstop: a definition named like a declared field can never hold
+    // Backstop: a definition named like a declared field can never hold
     // a value (the fold never touches declared keys), so publishing it would be a lie. The
     // `define` handler refuses the collision; this drops any that slipped through earlier.
     return !taken.has(d.name)

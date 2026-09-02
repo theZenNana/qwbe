@@ -30,10 +30,9 @@ export type PageRequest = {
 }
 
 /**
- * What a list query filters by, all of it turned into SQL by the store (QWB-54).
+ * What a list query filters by, all of it turned into SQL by the store.
  *
- * The store's `page` used to take a single `{field, value}` pair, which is why every cube that
- * wanted more wrote its own handler and no two agreed. This is the whole vocabulary of the one
+ * This is the whole vocabulary of the one
  * generic list handler (`kernel/list.ts`): exact matches, a batch of ids, and a prefix search
  * over the fields the cube declares searchable.
  */

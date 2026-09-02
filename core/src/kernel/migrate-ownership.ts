@@ -1,17 +1,15 @@
 // Migration ownership -- who may move whose data, checked before a byte moves.
 //
-// Split out of migrate.ts on 2026-08-11 (file cap -- "split the file, don't raise the
-// number"). The checks here are the wall between a package's CLAIM and the kernel's RECORD.
+// The checks here are the wall between a package's CLAIM and the kernel's RECORD.
 //
-// Since QWB-44 the data lives in one Postgres schema per cube, so "does the legacy file
-// exist" became "does the legacy schema exist" -- answered by Postgres, not the filesystem.
+// Data lives in one Postgres schema per cube, so "does the legacy source exist" is answered
+// by Postgres, not the filesystem.
 //
-// QWB-54 ticket 08 closed the last hole. Until then a source with NO schema in the database
-// was treated as "inert this boot" and its provenance was never questioned -- which let a
-// package declare a migration from a cube that NEVER existed, purely to satisfy a hierarchy
-// gate. The declaration sat silent until some other package mounted a cube under that name:
-// the schema then existed, the provenance checks woke up, found no ledger record, and stopped
-// an innocent boot. Now every declared source must be attributable on EVERY boot, schema or
+// A source with NO schema in the database is not "inert": a package can declare a migration
+// from a cube that NEVER existed, purely to satisfy a hierarchy gate, and the declaration
+// sits silent until some other package mounts a cube under that name -- the schema then
+// exists, the provenance checks find no ledger record, and an innocent boot stops. So every
+// declared source must be attributable on EVERY boot, schema or
 // no schema. The kernel's registry of cubes that have existed is the LEDGER (written by the
 // kernel at mount, extended with each completed migration's source by main.ts) -- so a
 // completed migration stays attributable after its source schema is gone, and a source the
@@ -42,8 +40,8 @@ export type ValidatedMigration = DataMigration & { readonly declaredBy: string |
  *   - `fromCube` must NOT be a currently-mounted cube of another package -- a live cube's
  *     schema is not legacy data;
  *   - `fromPlugin` is REQUIRED, and must match the ledger's record for `fromCube`;
- *   - a source with NO ledger record is refused -- schema or no schema (QWB-54 ticket 08:
- *     a source the kernel has never seen is an invention, and an invented source becomes a
+ *   - a source with NO ledger record is refused -- schema or no schema: a source the kernel
+ *     has never seen is an invention, and an invented source becomes a
  *     boot-breaking landmine the day another package mounts a cube under that name). The one
  *     exception is pre-ledger history, and the manifest does not get to claim it: an
  *     administrator authorizes the legacy claim with
@@ -91,7 +89,7 @@ export const checkMigrationOwnership = async (
       }
       // Runtime-required too: the TYPE says fromPlugin is mandatory, but a cube's index.ts
       // is imported code -- a plain JS cube can omit it and the type never runs. Checked on
-      // every boot since ticket 08: an unattributable source is refused, not shelved until
+      // Checked on every boot: an unattributable source is refused, not shelved until
       // a schema happens to appear under its name.
       if (m.fromPlugin === undefined) {
         throw new MigrationOwnershipError(

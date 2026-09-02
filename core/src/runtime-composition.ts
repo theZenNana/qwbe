@@ -2,15 +2,14 @@
 // Runtime discovery makes the concrete union of HttpApi groups unknowable to TypeScript. Every
 // cube is fully typed and runtime-validated before this seam; no erased value leaves it.
 //
-// QWB-46 (custom-field values live in the row): this seam also carries the one kernel policy
-// that makes that storage possible. A cube's static payload schema strips every key it does not
-// declare -- measured on 30 Aug 2026: `POST /contacts {"lastName":"Test","cnp":"123"}` answered
-// 200 and stored no `cnp`. Instead of losing those keys, this module widens struct-shaped
+// This seam also carries the one kernel policy that stores custom-field values in the row.
+// A cube's static payload schema strips every key it does not declare. Instead of losing
+// those keys, this module widens struct-shaped
 // schemas and the handler wrapper folds the keys the payload schema did NOT declare into one
 // reserved sub-object of the row body: `custom`. The VALUE policy itself -- the definition gate,
 // the per-type validation, the size caps -- lives in `custom-values.ts`; this module only wires
 // it: the fold runs against the cube's ACTIVE definitions, read at request time, so a cube with
-// no defined custom fields keeps exactly its pre-QWB-46 behavior (undeclared keys stripped) and
+// no defined custom fields keeps exactly its pre-custom behavior (undeclared keys stripped) and
 // no holder of a plain `<cube>:write` permission can store anything without a definition.
 //
 // Deliberately narrow:
@@ -24,7 +23,7 @@
 //     stays in place system-wide. On a LIST endpoint the success is the envelope `{rows, ...}`,
 //     so the widening also reaches the row schema inside `rows` -- declared only on the
 //     envelope, Effect strips the values from every row and the list answer would never carry
-//     them (QWB-54 ticket 16).
+//     them.
 
 import { HttpApi, HttpApiBuilder, OpenApi } from "@effect/platform"
 import { Effect, Layer, Option, Schema } from "effect"
@@ -177,13 +176,13 @@ export const buildHandlers = (api: unknown, cubes: ReadonlyArray<MountedCube>): 
 }
 
 /**
- * The declaration IS the enforcement (QWB-54, 14c): whatever `routes` declares for this
+ * The declaration IS the enforcement: whatever `routes` declares for this
  * endpoint is required here, before the handler runs, so a handler that forgets
  * `requirePermission` is still a 403. `null` (explicit or undeclared non-list) leaves the
  * handler to decide per request. Outermost wrapper on purpose: the permission answer comes
  * before the entity gate and before the custom fold touch the request.
  */
-// Exported for runtime-composition.test.ts (QWB-54, 14c): the wrapper's behavior is the contract.
+// Exported for runtime-composition.test.ts: the wrapper's behavior is the contract.
 export const withDeclaredPermission = (cube: MountedCube, name: string, implementation: unknown) => {
   const permission = declaredPermission(cube.manifest.routes, cube.name, name)
   if (permission === null) return implementation
@@ -198,9 +197,9 @@ export const withDeclaredPermission = (cube: MountedCube, name: string, implemen
  * are stripped and nothing is stored, so a plain `<cube>:write` permission buys nothing until
  * an administrator defines a field (which is gated on `customfields:write`).
  *
- * The policy itself lives in custom-fold.ts (QWB-54 ticket 05): per-request definitions from
- * the provider's store (defect 4), create-vs-patch mode on the HTTP method (defect 1), and the
- * merged-cap CustomCapError answered as a 400 (defect 2). This side only decides WHICH handlers
+ * The policy itself lives in custom-fold.ts: per-request definitions from
+ * the provider's store, create-vs-patch mode on the HTTP method, and the
+ * merged-cap CustomCapError answered as a 400. This side only decides WHICH handlers
  * are wrapped and with what.
  */
 const withCustomFold = (cube: MountedCube, name: string, implementation: unknown) => {
@@ -210,8 +209,8 @@ const withCustomFold = (cube: MountedCube, name: string, implementation: unknown
     }
   ).endpoints
   const payloadSchema = endpoints?.[name]?.payloadSchema
-  // Item 7 of the QWB-46 review: a schema that is not a struct was never widened -- skip the
-  // fold. Folding against an empty declared list would hand the handler an empty payload.
+  // A non-struct schema is not widened by this module -- skip the fold. Folding against an
+  // empty declared list would hand the handler an empty payload.
   if (!payloadSchema || !Option.isSome(payloadSchema) || !isStructSchema(payloadSchema.value)) {
     return implementation
   }

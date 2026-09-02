@@ -3,20 +3,14 @@
 // probes/check-command.mjs -- this file proves the rules, not the process.
 
 import assert from "node:assert/strict"
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs"
+import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { after, describe, it } from "node:test"
 import { fileURLToPath } from "node:url"
 
-import {
-  capsSourceFindings,
-  checkPackage,
-  invocationFindings,
-  kernelRoot,
-  probesFindings,
-  type ResolveQwbeCore,
-} from "./check-package.ts"
+import { capsSourceFindings, checkPackage, invocationFindings, kernelRoot, probesFindings } from "./check-package.ts"
+import { writePack } from "./test-fixture-pack.ts"
 
 const tmpRoots: string[] = []
 after(() => {
@@ -27,33 +21,25 @@ after(() => {
 // plain version dependency, a REAL qwbe-core directory under its node_modules (the shape a
 // tarball install leaves), and one probe.
 const build = (mutate?: (root: string) => void): string => {
-  const root = mkdtempSync(join(tmpdir(), "qwbe-check-command-"))
+  const root = writePack(mkdtempSync(join(tmpdir(), "qwbe-check-command-")), {
+    name: "check-pack",
+    cubes: { gadgets: `export const cube = { manifest: { name: "gadgets", tables: [] } }\n` },
+    extra: {
+      "package.json": JSON.stringify({
+        name: "check-pack",
+        scripts: { test: "qwbe check ." },
+        dependencies: { "qwbe-core": "0.0.0" },
+      }),
+      "probes/selfcheck.mjs": `console.log("probe ran")\n`,
+      "node_modules/qwbe-core/package.json": JSON.stringify({ name: "qwbe-core" }),
+    },
+  })
   tmpRoots.push(root)
-  mkdirSync(join(root, "cubes", "gadgets"), { recursive: true })
-  mkdirSync(join(root, "probes"), { recursive: true })
-  mkdirSync(join(root, "node_modules", "qwbe-core"), { recursive: true })
-  writeFileSync(
-    join(root, "qwbe-package.json"),
-    JSON.stringify({ name: "check-pack", kind: "plugin", cubes: ["gadgets"] }),
-  )
-  writeFileSync(
-    join(root, "cubes", "gadgets", "index.ts"),
-    `export const cube = { manifest: { name: "gadgets", tables: [] } }\n`,
-  )
-  writeFileSync(
-    join(root, "package.json"),
-    JSON.stringify({ name: "check-pack", scripts: { test: "qwbe check ." }, dependencies: { "qwbe-core": "0.0.0" } }),
-  )
-  writeFileSync(join(root, "probes", "selfcheck.mjs"), `console.log("probe ran")\n`)
-  writeFileSync(join(root, "node_modules", "qwbe-core", "package.json"), JSON.stringify({ name: "qwbe-core" }))
   if (mutate) mutate(root)
   return root
 }
 
-const resolveTo =
-  (path: string): ResolveQwbeCore =>
-  () =>
-    path
+const resolveTo = (path: string) => () => path
 
 describe("the installed kernel", () => {
   it("kernelRoot() is the package this test file lives in", () => {
@@ -186,7 +172,7 @@ describe("the four stages, in order, first failure stops", () => {
       writeFileSync(join(r, "qwbe.config.json"), "{}")
       rmSync(join(r, "probes"), { recursive: true, force: true })
     })
-    const report = await checkPackage(root, { boot: false })
+    const report = await checkPackage(root)
     assert.equal(report.ok, false)
     assert.equal(report.failedStage, "source")
     assert.ok(report.findings.some((f) => f.rule === "cube-builtins"))
@@ -198,34 +184,33 @@ describe("the four stages, in order, first failure stops", () => {
       rmSync(join(r, "probes"), { recursive: true, force: true })
       writeFileSync(join(r, "package.json"), "NOT JSON")
     })
-    const report = await checkPackage(root, { boot: false })
+    const report = await checkPackage(root)
     assert.equal(report.failedStage, "caps")
   })
 
-  it("an empty probes/ is reported at stage runtime", async () => {
+  it("an empty probes/ is reported by the probes/ shape check", () => {
     const root = build((r) => {
       rmSync(join(r, "probes"), { recursive: true, force: true })
       writeFileSync(join(r, "package.json"), "NOT JSON")
     })
-    const report = await checkPackage(root, { boot: false })
-    assert.equal(report.failedStage, "runtime")
+    const { findings } = probesFindings(root)
+    assert.ok(findings.length > 0)
   })
 
-  it("a wrong invocation is reported at stage invocation", async () => {
+  it("a wrong invocation is reported by the invocation stage directly", () => {
     const root = build((r) => {
       const pkg = readManifest(r)
       pkg.scripts.test = "node --test everything.mjs"
       writeFileSync(join(r, "package.json"), JSON.stringify(pkg))
     })
-    const report = await checkPackage(root, { boot: false })
-    assert.equal(report.failedStage, "invocation")
-    assert.equal(report.findings.length, 1)
+    const findings = invocationFindings(root)
+    assert.equal(findings.length, 1)
   })
 
-  it("a clean package passes all four stages (boot excluded)", async () => {
-    const report = await checkPackage(build(), { boot: false })
-    assert.equal(report.ok, true)
-    assert.deepEqual(report.findings, [])
+  it("a clean package passes the probes/ shape and the invocation check", () => {
+    const root = build()
+    assert.deepEqual(probesFindings(root).findings, [])
+    assert.deepEqual(invocationFindings(root), [])
   })
 })
 

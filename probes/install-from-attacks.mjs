@@ -1,4 +1,4 @@
-// The attacks the review of QWB-15 asked probes for, kept apart from the flow they attack.
+// Attack probes, kept apart from the flow they attack.
 //
 // Split out of `install-from-life.mjs` when that file crossed the 6000-character cap: these
 // are the refusals - symlink as root, plain file as path, FIFO in the tree, a manifest

@@ -3,9 +3,8 @@
 // Split into its own file for the size cap and for the seam it keeps: both operations start
 // from a PATH an administrator pointed at - the same administrative exception that
 // `install-from.ts` guards - but neither copies or installs anything. Scan is read-only
-// reconnaissance for the install page (QWB-32 feedback: pick packages with checkboxes instead
-// of typing one path at a time); forget is the store-side operation QWB-15 deferred ("remove
-// it from the store first" had no API to do it with).
+// reconnaissance for the install page; forget removes a store shelf copy, the store-side
+// operation that previously had no API.
 //
 // The two methods deliberately live OUTSIDE `CubeInstaller`: that type promises cubes a
 // world without paths, and scan returns paths. Settings narrows to `ScanInstaller` at
@@ -22,9 +21,9 @@ import { InstallError } from "./manifest.ts"
 const MANIFEST = "qwbe-package.json"
 
 /** What the store knows about a scanned package's shelf copy. */
-export type ShelfState = "absent" | "identical" | "different"
+type ShelfState = "absent" | "identical" | "different"
 
-export type ScannedPackage = CubePackage & Readonly<{ path: string; shelf: ShelfState }>
+type ScannedPackage = CubePackage & Readonly<{ path: string; shelf: ShelfState }>
 
 /** `CubeInstaller` plus the two path-taking operations only settings is allowed to call. */
 export type ScanInstaller = CubeInstaller & {
@@ -33,7 +32,7 @@ export type ScanInstaller = CubeInstaller & {
 }
 
 /** What scan and forget need from the store flow - handed in, not imported. */
-export type ScanContext = Readonly<{
+type ScanContext = Readonly<{
   storeDir: string
   readPackageAt: (name: string, dir: string) => CubePackage
 }>

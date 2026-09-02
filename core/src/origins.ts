@@ -1,9 +1,9 @@
-// Browser origins allowed to call the API cross-origin (QWB-42), read from
+// Browser origins allowed to call the API cross-origin, read from
 // QWBE_ALLOWED_ORIGINS as a comma-separated list (e.g.
 // `http://localhost:3000,https://crm.example.com`).
 //
-// Default when the variable is undefined: `["*"]` -- exactly the behaviour the server had
-// before QWB-42, so local development (the sibling web app on its own port, the probes, curl)
+// Default when the variable is undefined: `["*"]` -- no restriction, so local development
+// (the sibling web app on its own port, the probes, curl)
 // keeps working with zero configuration. A variable that is SET but empty or whitespace-only
 // is a malformed value and throws, like any other malformed entry -- `VAR=$MISSING` shipping
 // an accidentally empty value must not silently widen the server back to `*`.
@@ -38,7 +38,7 @@ export const wildcardDefaultRefusal =
 // request Origin when the array has more than one entry (a one-entry array stamps its
 // constant value on every response, listed origin or not). The function branch is evaluated
 // per request for any list length. The unset `["*"]` default stays an array: Effect stamps
-// the literal `*` constant on every response, which is the pre-QWB-42 behaviour.
+// the literal `*` constant on every response (the unset default, no restriction).
 export const corsOriginMatcher = (
   origins: ReadonlyArray<string>,
 ): ReadonlyArray<string> | ((origin: string) => boolean) =>

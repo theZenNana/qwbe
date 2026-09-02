@@ -1,6 +1,6 @@
 // The batch capability: raw SQL batches, one transaction, the cube's own role.
 //
-// Added for QWB-45 (the `staging` cube). Three things the six-operation CubeStore cannot
+// Three things the six-operation CubeStore cannot
 // express without loading whole tables into JavaScript:
 //
 //   - a multi-row insert that is ONE transaction (100k rows as 100k single-row transactions
@@ -44,7 +44,7 @@ export const batchFor =
         // unqualified name can only ever resolve inside the cube's own schema.
         await c.query(`SELECT set_config('search_path', $1, true)`, [q(schemaName(cube))])
         // The schema name is QUOTED: child cube names contain `--`, and the GUC value is a raw
-        // string, not an identifier (QWB-45 review, item 18).
+        // string, not an identifier.
         const results: Array<ReadonlyArray<Record<string, unknown>>> = []
         for (const s of statements) {
           const r = await c.query(s.text, [...(s.values ?? [])])

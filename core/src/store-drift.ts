@@ -1,4 +1,4 @@
-// Drift between a store shelf and the source it came from (QWB-54 ticket 22). A shelf is
+// Drift between a store shelf and the source it came from. A shelf is
 // trustworthy only while it is provably what its source holds: the provenance file records the
 // fingerprint at staging, and this module re-computes both sides - the source NOW and the shelf
 // NOW - against that record. Any mismatch is a verdict, not a warning: `qwbe drift` turns it
@@ -14,7 +14,7 @@ import { PROVENANCE, type Provenance, packageSourceFingerprint, shelfFingerprint
 export type { Provenance }
 
 /** One shelf's answer: `ok`, or red with the reason spelled out. */
-export type ShelfDrift =
+type ShelfDrift =
   | Readonly<{ name: string; status: "ok"; sourcePath: string; stagedAt: string }>
   | Readonly<{ name: string; status: "no-provenance"; detail: string }>
   | Readonly<{ name: string; status: "source-missing"; sourcePath: string; stagedAt: string; detail: string }>

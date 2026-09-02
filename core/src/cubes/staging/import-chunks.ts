@@ -6,7 +6,7 @@
 // and the set link must live beside the raw record, so the record is nested under `record`;
 // profiling reads `body->'record'`. `type` is `staging.row` for every imported row.
 //
-// Concurrency (QWB-45 review, item 15): the row number base and the malformed sample used to
+// Concurrency: the row number base and the malformed sample used to
 // be read from the set in a SEPARATE transaction before the batch, so two concurrent chunks
 // on one set assigned overlapping rowNums. Now the batch opens with a per-set advisory lock
 // (serialising chunks on one set), the row number base is `count(*)` computed INSIDE the same
@@ -97,7 +97,7 @@ export const tallyStatement = (
   csvHeader?: ReadonlyArray<string>,
 ): SqlStatement => {
   // jsonb does not support array slices, so the cap uses a JSONPath range -- still computed
-  // against the LIVE sample row, inside the batch transaction (QWB-45 review, item 15).
+  // against the LIVE sample row, inside the batch transaction.
   const sample = `coalesce(jsonb_path_query_array(body->'malformedSample' || $4::jsonb, '$[0 to ${MALFORMED_SAMPLE_MAX - 1}]'), '[]'::jsonb)`
   const inner = `jsonb_set(
                  jsonb_set(
@@ -129,7 +129,7 @@ export const applyChunk = (
 } => {
   // CSV: the header lives on the set from the first chunk on. Later chunks hold data rows
   // only -- parsing them with the stored header is what keeps a multi-chunk import from
-  // eating one data row per chunk (QWB-45 review, blocker 1).
+  // eating one data row per chunk.
   const isCsv = set.format === "csv"
   const firstChunk = set.rowCount === 0
   const storedHeader = set.csvHeader

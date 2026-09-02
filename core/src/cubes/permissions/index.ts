@@ -6,14 +6,7 @@ import { sharingHandlers } from "./sharing-handlers.ts"
 import { tables } from "./state.ts"
 import { visibilityHandlers } from "./visibility-handlers.ts"
 
-/**
- * The permission each MUTATING route requires, declared once (QWB-54, 14c): the mount wrapper
- * enforces exactly this before the handler runs. Every sharing/visibility endpoint authorizes
- * per request through the entity permission service -- the actor's grants on THAT entity -- so
- * its entry is an explicit `null`; a fixed name would be a lie. `permissionAudit` is the one
- * endpoint whose handler checks a fixed permission inline. The read endpoints authorize the
- * same way -- they list what the actor may see -- so they are nulls too (QWB-54, 14c).
- */
+// Route permissions, published by the metadata and checked by the handlers (see metadata/declarations.ts).
 const ROUTES = {
   permissionAudit: "permissions:read",
   createPermissionGroup: null,

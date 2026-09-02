@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-// The SQLite-to-Postgres migration tool, observed doing its whole job (QWB-44).
+// The SQLite-to-Postgres migration tool, observed doing its whole job.
 //
 //   node probes/store-migration.mjs
 //

@@ -1,29 +1,23 @@
-// The custom-value ROW READER for the one cube declaring `providesCustomFields` (QWB-46).
+// The custom-value ROW READER for the one cube declaring `providesCustomFields`.
 //
-// Split out of pg/store.ts on 30 Aug 2026 (size cap -- the rule is "split the file, never raise
-// the cap"), and rewritten over SQL for review fix 10: the first version loaded EVERY live row
-// of the target cube into memory and filtered in JavaScript -- per form render, against a
-// ~74k-row cube. The work belongs to Postgres: `body ? 'custom'` under the GIN index, paged.
+// The work belongs to Postgres: `body ? 'custom'` under the GIN index, paged -- loading every
+// live row of the target cube into memory to filter in JavaScript would scan the whole table
+// per form render.
 //
-// Review fix 11: soft-deleted rows are READ TOO. A value sitting on a soft-deleted row is still
+// Soft-deleted rows are READ TOO. A value sitting on a soft-deleted row is still
 // stored data; hiding it would make the orphan report's promise ("values stay and are
 // reportable") quietly false. Each row carries its `deleted` flag so the report can say which.
 
 import { Effect } from "effect"
+import type { CustomRowView } from "../custom-defs-reader.ts"
 import { ensureCubeSchema, ensureTable, q, schemaName, withRole } from "./setup.ts"
-
-export type CustomRow = {
-  readonly id: string
-  readonly custom: Record<string, unknown>
-  readonly deleted: boolean
-}
 
 /** Page size for the scan: bounded memory per step, few round trips. */
 const PAGE = 500
 
-export const customRows = (cube: string, tables: ReadonlyArray<string>): Effect.Effect<ReadonlyArray<CustomRow>> =>
+export const customRows = (cube: string, tables: ReadonlyArray<string>): Effect.Effect<ReadonlyArray<CustomRowView>> =>
   Effect.promise(async () => {
-    const out: Array<CustomRow> = []
+    const out: Array<CustomRowView> = []
     for (const t of tables) {
       await ensureCubeSchema(cube)
       await ensureTable(schemaName(cube), t)
@@ -48,7 +42,7 @@ export const customRows = (cube: string, tables: ReadonlyArray<string>): Effect.
   })
 
 /**
- * ONE row's custom values, read with `WHERE id = $1` (QWB-54 ticket 05, defect 5).
+ * ONE row's custom values, read with `WHERE id = $1`.
  *
  * The full walk above exists for the ORPHAN report, which genuinely must see every row. A
  * form render asking for one row's values used to ride that same walk -- a paged scan of the
@@ -60,7 +54,7 @@ export const customRowById = (
   cube: string,
   tables: ReadonlyArray<string>,
   id: string,
-): Effect.Effect<CustomRow | undefined> =>
+): Effect.Effect<CustomRowView | undefined> =>
   Effect.promise(async () => {
     for (const t of tables) {
       await ensureCubeSchema(cube)

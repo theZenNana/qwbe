@@ -36,11 +36,7 @@ const group = HttpApiGroup.make("cli")
   )
   .middleware(Authorization)
 
-/**
- * The permission each route requires, declared ONCE (QWB-54, ticket 10): the manifest
- * publishes it through the kernel's metadata and the handlers below check through this same
- * object, so renaming a permission moves enforcement and publication together.
- */
+// Route permissions, published by the metadata and checked by the handlers (see metadata/declarations.ts).
 const ROUTES = {
   commands: "cli:read",
   exec: "cli:exec",

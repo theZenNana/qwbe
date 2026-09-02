@@ -27,7 +27,7 @@ import { IS_TEST, posix, unitDirs, walk } from "./size-lib.mjs"
 
 const here = dirname(fileURLToPath(import.meta.url))
 const root = join(here, "..")
-// Same file the size caps read: core/qwbe.config.json, the qwbe-core package root (QWB-54).
+// Same file the size caps read: core/qwbe.config.json, the qwbe-core package root.
 const configPath = join(root, "core", "qwbe.config.json")
 
 const config = JSON.parse(readFileSync(configPath, "utf8"))
@@ -61,7 +61,7 @@ if (updating) {
     ...config,
     untestedBaseline: {
       _comment:
-        "Units that had no unit tests when the gate was introduced (2 Aug 2026). This is a work queue, not a permission: a NEW cube without tests fails the build regardless. Shrinking this list is the job; growing it requires --update-baseline, which is a visible diff.",
+        "Units that had no unit tests when the gate was introduced. This is a work queue, not a permission: a NEW cube without tests fails the build regardless. Shrinking this list is the job; growing it requires --update-baseline, which is a visible diff.",
       units: [...untested.map((u) => u.id), ...kept].sort(),
     },
   }

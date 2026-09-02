@@ -3,8 +3,7 @@
 //
 // None of this checks anything. It exists so the probe next door can start from a known bench.
 //
-// Until 10 Aug 2026 the bench parked whatever the real store offered (`clearTheBench`,
-// `putBack`) and installed the real crm-pack. The packs left in QWB-13; what remains true is
+// What remains true is
 // that a plugin must install, mount at restart, work, and uninstall cleanly. The one plugin the
 // repo still ships is example-plugin - and it is already mounted from `core/plugins/`, so the
 // probe plants a COPY of it under a different package name in a temp store. The copy is real
@@ -45,7 +44,7 @@ export const fingerprint = () => {
 
 /**
  * A temp store holding a renamed copy of example-plugin's FIRST cube. Only `bookmarks` is
- * copied - the plugin gained a second cube (`tags`) for QWB-14, and copying both would mount a
+ * copied -- copying both would mount a
  * duplicate `tags` and the kernel would refuse to boot. The cube directory and every
  * "bookmarks" mention inside it become `lifebookmarks`, so installing the copy cannot collide
  * with the mounted original.
