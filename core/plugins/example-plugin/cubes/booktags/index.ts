@@ -34,6 +34,9 @@ export const cube = defineCube(group, {
     screen: true,
     requiresAuth: true,
     permissions: [{ name: "booktags:read", roles: ["admin", "reader"] }],
+    // Declared route: the mount wrapper enforces before the handler runs -- the same
+    // permission the children handler below requires.
+    routes: { children: "booktags:read" },
     // The flat cubes this hierarchy replaced: their data files move to the children's files.
     // Declared in the manifest -- never executed by the cube -- and the kernel checks every
     // entry against the mounted set and this package's provenance before touching a byte.
