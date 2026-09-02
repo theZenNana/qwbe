@@ -76,10 +76,11 @@ export const RouteContract = Schema.Struct({
    *  group. Read from the contract, never re-typed here. */
   auth: Schema.Boolean,
   /**
-   * The permission a caller's token must carry, as the cube's manifest declares it. Null when
-   * the cube declares none for the route -- which includes routes whose requirement is decided
-   * per request (e.g. the target cube's own read permission): a fixed name there would be a
-   * lie, so none is published.
+   * The permission a caller's token must carry, as the cube's manifest declares it. Null is
+   * the EXPLICIT opt-out (QWB-54, 14c): the requirement is decided per request in the handler
+   * (e.g. the target cube's own read permission) -- a fixed name there would be a lie, so none
+   * is published. A mutating endpoint behind Authorization may not go undeclared at all: the
+   * mount gate refuses the cube.
    */
   permission: Schema.NullOr(Schema.String),
   /**

@@ -77,6 +77,11 @@ export const cube = defineCube(group, {
     // Declared need. The kernel wires it to whichever cube declares `providesCredentials`.
     usesCredentials: true,
     permissions: [{ name: "auth:session", roles: ["admin", "reader"] }],
+    // Session-level, any authenticated user: logout drops the CALLER's own session (the id the
+    // middleware carries next to the user), so there is no named permission to require. The
+    // explicit null declares that per-request decision (QWB-54, 14c) -- an undeclared mutant
+    // would be refused at boot as "forgotten".
+    routes: { logout: null },
     publishes: ["auth.loggedIn", "auth.loggedOut"],
   },
 

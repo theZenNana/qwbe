@@ -27,10 +27,12 @@
 //     them (QWB-54 ticket 16).
 
 import { HttpApi, HttpApiBuilder, OpenApi } from "@effect/platform"
-import { Layer, Option, Schema } from "effect"
+import { Effect, Layer, Option, Schema } from "effect"
 import * as AST from "effect/SchemaAST"
 import { withCustomFold as withCustomFoldPolicy } from "./custom-fold.ts"
 import { CUSTOM } from "./custom-values.ts"
+import type { Handler } from "./entity-contract.ts"
+import { declaredPermission, requirePermission } from "./kernel/auth-contract.ts"
 import type { MountedCube } from "./kernel/discovery.ts"
 
 /**
@@ -163,7 +165,8 @@ export const buildHandlers = (api: unknown, cubes: ReadonlyArray<MountedCube>): 
     const id = cube.parts.group.identifier
     return HttpApiBuilder.group(api as any, id as never, (handlers: any) =>
       Object.entries(cube.parts.handlers).reduce(
-        (current, [name, implementation]) => current.handle(name, withCustomFold(cube, name, implementation)),
+        (current, [name, implementation]) =>
+          current.handle(name, withDeclaredPermission(cube, name, withCustomFold(cube, name, implementation))),
         handlers,
       ),
     )
@@ -171,6 +174,21 @@ export const buildHandlers = (api: unknown, cubes: ReadonlyArray<MountedCube>): 
   const [first, ...rest] = layers
 
   return (first === undefined ? Layer.empty : Layer.mergeAll(first, ...rest)) as any
+}
+
+/**
+ * The declaration IS the enforcement (QWB-54, 14c): whatever `routes` declares for this
+ * endpoint is required here, before the handler runs, so a handler that forgets
+ * `requirePermission` is still a 403. `null` (explicit or undeclared non-list) leaves the
+ * handler to decide per request. Outermost wrapper on purpose: the permission answer comes
+ * before the entity gate and before the custom fold touch the request.
+ */
+// Exported for runtime-composition.test.ts (QWB-54, 14c): the wrapper's behavior is the contract.
+export const withDeclaredPermission = (cube: MountedCube, name: string, implementation: unknown) => {
+  const permission = declaredPermission(cube.manifest.routes, cube.name, name)
+  if (permission === null) return implementation
+  const handler = implementation as Handler
+  return (request: unknown) => Effect.flatMap(requirePermission(permission), () => handler(request))
 }
 
 /**

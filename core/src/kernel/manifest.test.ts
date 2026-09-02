@@ -10,6 +10,8 @@ import { describe, it } from "node:test"
 import { HttpApiEndpoint, HttpApiGroup } from "@effect/platform"
 import { Effect, Schema } from "effect"
 
+import { Authorization } from "./auth-contract.ts"
+import { Forbidden } from "./errors.ts"
 import type { CommandSpec, Manifest, PermissionSpec } from "./manifest.ts"
 import { InvalidManifestError, validateCommands, validateManifest, validateRoutes } from "./manifest-validation.ts"
 
@@ -158,11 +160,19 @@ describe("validateCommands", () => {
 
 describe("validateRoutes", () => {
   // A real group, the same shape a cube ships: the gate must read the routes that will run.
+  // Behind Authorization with 403 on the schema, exactly what a declared permission demands.
   const group = HttpApiGroup.make("notes")
-    .add(HttpApiEndpoint.get("list")`/notes`.addSuccess(Schema.String))
-    .add(HttpApiEndpoint.get("get")`/notes/id`.addSuccess(Schema.String))
+    .add(HttpApiEndpoint.get("list")`/notes`.addSuccess(Schema.String).addError(Forbidden))
+    .add(HttpApiEndpoint.get("get")`/notes/id`.addSuccess(Schema.String).addError(Forbidden))
+    .middleware(Authorization)
 
-  const withRoutes = (routes: Record<string, string>, permissions = grants("notes:read", "notes:write")) => ({
+  // The mutating half of the surface (QWB-54, 14c): POST behind Authorization, carrying the
+  // 403 the enforcement answers -- the shape every real cube's write endpoint has.
+  const mutatingGroup = HttpApiGroup.make("notes")
+    .add(HttpApiEndpoint.get("list")`/notes`.addSuccess(Schema.String))
+    .add(HttpApiEndpoint.post("create")`/notes`.addSuccess(Schema.String).addError(Forbidden).middleware(Authorization))
+
+  const withRoutes = (routes: Record<string, string | null>, permissions = grants("notes:read", "notes:write")) => ({
     ...manifest({ permissions }),
     routes,
   })
@@ -187,5 +197,32 @@ describe("validateRoutes", () => {
       () => validateRoutes(withRoutes({ list: "notes:admin" }), group),
       /route "list" requires permission "notes:admin", which this cube does not declare/,
     )
+  })
+
+  it("a mutating endpoint behind Authorization without a routes entry is refused at boot", () => {
+    assert.throws(
+      () => validateRoutes(manifest({ permissions: grants("notes:write") }), mutatingGroup),
+      /route "create" \(POST\) is mutating/,
+    )
+  })
+
+  it("an explicit null is the opt-out: the handler decides per request", () => {
+    assert.doesNotThrow(() => validateRoutes(withRoutes({ create: null }), mutatingGroup))
+  })
+
+  it("a routed endpoint whose error schema has no 403 is refused", () => {
+    // Same endpoint, but no Forbidden in the contract: the wrapper's 403 would be a status
+    // the route never answers with, so the declaration is a lie.
+    const no403 = HttpApiGroup.make("notes")
+      .add(HttpApiEndpoint.get("list")`/notes`.addSuccess(Schema.String))
+      .add(HttpApiEndpoint.post("create")`/notes`.addSuccess(Schema.String).middleware(Authorization))
+    assert.throws(
+      () => validateRoutes(withRoutes({ create: "notes:write" }), no403),
+      /route "create" declares permission "notes:write" but its error schema has no 403/,
+    )
+  })
+
+  it("list may not opt out -- the kernel's read convention applies", () => {
+    assert.throws(() => validateRoutes(withRoutes({ list: null }), group), /route "list" may not opt out/)
   })
 })

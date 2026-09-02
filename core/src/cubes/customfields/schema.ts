@@ -34,6 +34,9 @@ export const ROUTES = {
   update: "customfields:write",
   remove: "customfields:write",
   orphans: "customfields:write",
+  // The handler checks `customfields:read` inline first, then the TARGET cube's own read
+  // permission per request (QWB-54 ticket 05, defect 6) -- the fixed half is declared here.
+  setValues: "customfields:read",
 } as const
 
 /**

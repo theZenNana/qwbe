@@ -6,7 +6,7 @@ import assert from "node:assert/strict"
 import { describe, it } from "node:test"
 import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema } from "@effect/platform"
 import { Schema } from "effect"
-import { Authorization } from "../kernel/auth-contract.ts"
+import { Authorization, declaredPermission } from "../kernel/auth-contract.ts"
 import { deriveCubeMetadata } from "./metadata.ts"
 
 const EntityMeta = { id: Schema.String, type: Schema.String, createdAt: Schema.String, deleted: Schema.Boolean }
@@ -271,5 +271,21 @@ describe("deriveCubeMetadata - the routes a frontend may call (QWB-54, ticket 10
       [],
     )
     assert.equal(after!.routes.list!.permission, "things:view")
+  })
+
+  it("publishes an explicit null as null: the opt-out is visible, not guessed (QWB-54, 14c)", () => {
+    const md = deriveCubeMetadata(mountAuthed({ routes: { create: null } }) as never, [], [])
+    assert.ok(md)
+    assert.equal(md.routes.create!.permission, null)
+    assert.equal(md.routes.create!.auth, true)
+  })
+
+  it("publishes exactly what declaredPermission answers, for list with and without routes.list", () => {
+    // One derivation (QWB-54, 14c): the metadata and the kernel's generic list read the same
+    // function, so the published and the served answer cannot drift.
+    const declared = deriveCubeMetadata(mountAuthed({ routes: { list: "things:read" } }) as never, [], [])
+    assert.equal(declared!.routes.list!.permission, declaredPermission({ list: "things:read" }, "things", "list"))
+    const undeclared = deriveCubeMetadata(mountAuthed({}) as never, [], [])
+    assert.equal(undeclared!.routes.list!.permission, declaredPermission(undefined, "things", "list"))
   })
 })
