@@ -51,6 +51,10 @@ const group = HttpApiGroup.make("booktags-settings")
   )
   .middleware(Authorization)
 
+// Declared routes: the mount wrapper enforces before the handler runs -- the same string
+// the set handler below requires. `list` is not declared: the kernel's read convention applies.
+const ROUTES = { set: "booktags/settings:write" } as const
+
 const manifest = {
   name: "settings",
   parent: "booktags",
@@ -61,6 +65,7 @@ const manifest = {
     { name: "booktags/settings:read", roles: ["admin", "reader"] },
     { name: "booktags/settings:write", roles: ["admin"] },
   ],
+  routes: ROUTES,
   publishes: ["booktags/settings.changed"],
 } as const
 

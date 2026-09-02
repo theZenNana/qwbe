@@ -68,6 +68,10 @@ const summary = (b: BookmarkRow): SummaryRow => ({
   details: [{ key: "targetCube", value: b.targetCube ?? "" }],
 })
 
+// Declared routes: the mount wrapper enforces before the handler runs -- the same strings
+// the handlers below require. `list` is not declared: the kernel's read convention applies.
+const ROUTES = { create: "booktags/bookmarks:write" } as const
+
 const manifest = {
   name: "bookmarks",
   // Opts the cube into the metadata drift gate (see src/metadata/schema-drift.ts).
@@ -83,6 +87,7 @@ const manifest = {
     { name: "booktags/bookmarks:read", roles: ["admin", "reader"] },
     { name: "booktags/bookmarks:write", roles: ["admin"] },
   ],
+  routes: ROUTES,
   publishes: ["booktags/bookmarks.created"],
 } as const
 
