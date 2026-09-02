@@ -45,20 +45,6 @@ export const FieldMetadata = Schema.Struct({
 const ListContract = Schema.Struct({
   /** Accepted query parameters, in the spelling this contract owns. */
   params: Schema.Array(Schema.String),
-  /**
-   * How a page is addressed: "offset" today. It is the honest word for what the kernel does --
-   * `page` becomes OFFSET/LIMIT -- and it is published so a frontend does not have to guess
-   * whether it may jump to page 2400. Keyset paging, if it ever lands, arrives as another value
-   * here rather than as a silent change of meaning.
-   */
-  paging: Schema.String,
-  /**
-   * True when `total` is an exact COUNT over the filtered set, which is what the kernel does
-   * today: a paginator may show "page 12 of 240" and jump anywhere. An estimate would make that
-   * a lie, so if the count ever becomes an estimate this turns false and the frontend can fall
-   * back to "next / previous" without being told twice.
-   */
-  totalIsExact: Schema.Boolean,
   /** `pageSize` above this is clamped to it, never refused. */
   maxPageSize: Schema.Int,
   /** What `pageSize` is when the caller says nothing. */

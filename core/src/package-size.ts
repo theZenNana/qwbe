@@ -2,11 +2,7 @@
 //
 // The caps live in the kernel's qwbe.config.json and the kernel measures ITSELF with
 // `probes/sizecaps.mjs`. A pack is measured by the same numbers, never by numbers of its own:
-// that is the whole point of the check command -- a pack cannot write its own rules. This
-// module is therefore deliberately the same walk and the same character count as
-// `probes/size-lib.mjs` (the pack-facing half of it: walk, measure, judge against caps). The
-// two must not drift; opening `qwbe-core/size` as a public subpath is where the copies become
-// one file.
+// that is the whole point of the check command -- a pack cannot write its own rules.
 //
 // One unit is one cube directory: a pack's `cubes/` children, walked recursively. The same
 // exemptions as the kernel's own gate apply: tests do not count, `node_modules` and friends are
@@ -37,11 +33,11 @@ const SKIP_DIR = new Set([
  * Unit tests do not count against a cube's size -- the same rule the kernel holds itself to.
  * A test's measure is whether it exists and passes, which is a different gate.
  */
-const IS_TEST = /\.(test|spec)\.(ts|tsx|mjs|js|jsx)$/
+export const IS_TEST = /\.(test|spec)\.(ts|tsx|mjs|js|jsx)$/
 
-const posix = (p: string): string => p.split(sep).join("/")
+export const posix = (p: string): string => p.split(sep).join("/")
 
-const walk = (dir: string, { includeTests = false, top = true } = {}): string[] => {
+export const walk = (dir: string, { includeTests = false, top = true } = {}): string[] => {
   const found: string[] = []
   let entries: Dirent[]
   try {

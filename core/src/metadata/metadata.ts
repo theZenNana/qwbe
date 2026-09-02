@@ -157,8 +157,6 @@ export const deriveCubeMetadata = (
     list: groupEndpoints(cube.parts.group).list
       ? {
           params: LIST_PARAMS,
-          paging: "offset",
-          totalIsExact: true,
           maxPageSize: MAX_LIMIT,
           defaultPageSize: DEFAULT_LIMIT,
           search: searchFields(m),

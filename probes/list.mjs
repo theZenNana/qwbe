@@ -228,7 +228,6 @@ try {
     "the metadata publishes the list contract the kernel actually serves",
     list?.maxPageSize === 200 &&
       list?.defaultPageSize === 25 &&
-      list?.totalIsExact === true &&
       [...(list?.filters ?? [])].sort().join(",") === "displayName,email,username" &&
       (list?.params ?? []).includes("ids"),
     `list=${JSON.stringify(list)}`,
