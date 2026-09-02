@@ -48,8 +48,9 @@ const summary = (t: TagRow): SummaryRow => ({
 })
 
 // Declared routes: the mount wrapper enforces before the handler runs -- the same strings
-// the handlers below require. `list` is not declared: the kernel's read convention applies.
-const ROUTES = { create: "booktags/tags:write" } as const
+// the get/create handlers below require. `list` is not declared: the kernel's read convention
+// applies.
+const ROUTES = { create: "booktags/tags:write", get: "booktags/tags:read" } as const
 
 const manifest = {
   name: "tags",

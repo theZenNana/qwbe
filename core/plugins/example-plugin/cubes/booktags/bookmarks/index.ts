@@ -69,8 +69,9 @@ const summary = (b: BookmarkRow): SummaryRow => ({
 })
 
 // Declared routes: the mount wrapper enforces before the handler runs -- the same strings
-// the handlers below require. `list` is not declared: the kernel's read convention applies.
-const ROUTES = { create: "booktags/bookmarks:write" } as const
+// the get/create handlers below require. `list` is not declared: the kernel's read convention
+// applies.
+const ROUTES = { create: "booktags/bookmarks:write", get: "booktags/bookmarks:read" } as const
 
 const manifest = {
   name: "bookmarks",

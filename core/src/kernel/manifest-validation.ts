@@ -9,7 +9,7 @@ import { AGENT_SURFACE } from "../agent-contracts.ts"
 import { containsStatus } from "../entity-contract.ts"
 import { groupEndpoints } from "../metadata/ast.ts"
 import type { MetadataDeclarations } from "../metadata/declarations.ts"
-import { Authorization } from "./auth-contract.ts"
+import { Authorization, readPermissionOf } from "./auth-contract.ts"
 import type { CommandSpec, CubeGroup, Manifest } from "./manifest.ts"
 
 /**
@@ -190,10 +190,12 @@ export const validateCommands = (m: Manifest, commands: ReadonlyArray<CommandSpe
  * `requirePermission` passed every gate, and `permission: null` meant both "decided per
  * request" and "forgotten". Three rules keep declaration and enforcement one thing:
  *
- *   1. a MUTATING endpoint (method != GET) behind Authorization of a cube that declares
- *      permissions must have a `routes` entry -- a permission, or an explicit `null`;
+ *   1. EVERY endpoint behind Authorization -- mutating or GET, of any cube whether it
+ *      declares permissions or not -- must have a `routes` entry: a permission, or an
+ *      explicit `null` for a per-request decision. An undeclared `list` is exempt here;
  *   2. a declared permission must sit behind Authorization and publish a 403, the error the
- *      mount wrapper answers at runtime;
+ *      mount wrapper answers at runtime; the same two checks apply to the permission the
+ *      convention derives for an undeclared `list`;
  *   3. `list` may not opt out: the kernel's read convention applies.
  */
 export const validateRoutes = (m: Manifest & MetadataDeclarations, group: CubeGroup): void => {
@@ -238,16 +240,36 @@ export const validateRoutes = (m: Manifest & MetadataDeclarations, group: CubeGr
     }
   }
 
-  // Rule 1 runs even when `routes` is absent -- that IS the "forgot" case the old gate could
-  // not see. Public endpoints are exempt: no Authorization middleware, no CurrentUser, and
-  // `mount.ts` already refuses a public endpoint on any cube but `auth`.
-  if ((m.permissions ?? []).length > 0) {
-    for (const [name, endpoint] of Object.entries(endpoints)) {
-      const method = (endpoint as { method?: unknown }).method
-      if (typeof method !== "string" || method === "GET" || declared.has(name) || !behindAuth(endpoint)) continue
+  // Rule 1 runs for EVERY cube, whether it declares permissions or not, and even when `routes`
+  // is absent -- that IS the "forgot" case the old gate could not see. Public endpoints are
+  // exempt: no Authorization middleware, no CurrentUser, and `mount.ts` already refuses a
+  // public endpoint on any cube but `auth`. The undeclared `list` is exempt too: it serves the
+  // kernel's read convention, checked below like a declared permission.
+  for (const [name, endpoint] of Object.entries(endpoints)) {
+    const method = (endpoint as { method?: unknown }).method
+    if (typeof method !== "string" || declared.has(name) || name === "list" || !behindAuth(endpoint)) continue
+    reasons.push(
+      `route "${name}" (${method}) is behind Authorization but declares no permission -- ` +
+        `add routes.${name}: "${full}:${method === "GET" ? "read" : "write"}", or routes.${name}: null to decide per request`,
+    )
+  }
+
+  // The undeclared `list` serves `<cube>:read` by convention, not by declaration
+  // (`declaredPermission` in auth-contract.ts derives the same name for the generic list and
+  // the mount wrapper). The derived permission gets the same two checks as a declared one, so
+  // a cube that never declared its read permission, or ships a list outside Authorization or
+  // without the 403, is refused at boot instead of failing (or leaking) at runtime.
+  if (served.has("list") && !declared.has("list")) {
+    const derived = readPermissionOf(full)
+    if (!own.has(derived)) {
+      reasons.push(`list serves permission "${derived}" by convention, which this cube does not declare`)
+    }
+    if (!behindAuth(endpoints.list)) {
+      reasons.push(`route "list" serves permission "${derived}" by convention but nothing on it requires Authorization`)
+    }
+    if (!containsStatus((endpoints.list as { errorSchema?: unknown }).errorSchema, 403)) {
       reasons.push(
-        `route "${name}" (${method}) is mutating and behind Authorization but declares no permission -- ` +
-          `add routes.${name}: "${full}:write", or routes.${name}: null to decide per request`,
+        `route "list" serves permission "${derived}" by convention but its error schema has no 403 (Forbidden)`,
       )
     }
   }

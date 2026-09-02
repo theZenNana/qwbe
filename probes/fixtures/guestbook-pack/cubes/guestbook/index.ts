@@ -59,8 +59,8 @@ export const cube = defineCube(group, {
       { name: "guestbook:write", roles: ["admin"] },
     ],
     // Declared routes: the mount wrapper enforces before the handler runs -- the same strings
-    // the patch/create handlers below require. `list` rides the kernel's read convention.
-    routes: { patch: "guestbook:write", create: "guestbook:write" },
+    // the get/patch/create handlers below require. `list` rides the kernel's read convention.
+    routes: { get: "guestbook:read", patch: "guestbook:write", create: "guestbook:write" },
   },
 
   create: ({ store }: CubeTools) => ({
