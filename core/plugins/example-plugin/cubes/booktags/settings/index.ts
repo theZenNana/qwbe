@@ -11,12 +11,12 @@
 
 import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema } from "@effect/platform"
 import { Effect, Schema } from "effect"
-import { type CubeTools, defineCube } from "qwbe-core/cube"
-import { Authorization, requirePermission } from "../../../../../src/kernel/auth-contract.ts"
-import { EntityMeta } from "../../../../../src/kernel/entity.ts"
-import { Forbidden, NotFound } from "../../../../../src/kernel/errors.ts"
-import { decodeCubeEnabled } from "../../../../../src/kernel/manifest.ts"
-import { PageOf, PageParams, pageRequest } from "../../../../../src/kernel/pagination.ts"
+import { Authorization, requirePermission } from "qwbe-core/auth"
+import { type CubeTools, decodeCubeEnabled, defineCube } from "qwbe-core/cube"
+import { EntityMeta } from "qwbe-core/entity"
+import { Forbidden, NotFound } from "qwbe-core/errors"
+import { PageOf } from "qwbe-core/http"
+import { genericList, ListParams } from "qwbe-core/list"
 
 const TABLE = "settings"
 
@@ -38,7 +38,7 @@ const VALUES = new Set(["strict", "relaxed"])
 const group = HttpApiGroup.make("booktags-settings")
   .add(
     HttpApiEndpoint.get("list")`/booktags-settings`
-      .setUrlParams(PageParams)
+      .setUrlParams(ListParams)
       .addSuccess(PageOf(Setting))
       .addError(Forbidden),
   )
@@ -51,19 +51,21 @@ const group = HttpApiGroup.make("booktags-settings")
   )
   .middleware(Authorization)
 
+const manifest = {
+  name: "settings",
+  parent: "booktags",
+  tables: [TABLE],
+  entity: "BooktagsSetting",
+  requiresAuth: true,
+  permissions: [
+    { name: "booktags/settings:read", roles: ["admin", "reader"] },
+    { name: "booktags/settings:write", roles: ["admin"] },
+  ],
+  publishes: ["booktags/settings.changed"],
+} as const
+
 export const cube = defineCube(group, {
-  manifest: {
-    name: "settings",
-    parent: "booktags",
-    tables: [TABLE],
-    entity: "BooktagsSetting",
-    requiresAuth: true,
-    permissions: [
-      { name: "booktags/settings:read", roles: ["admin", "reader"] },
-      { name: "booktags/settings:write", roles: ["admin"] },
-    ],
-    publishes: ["booktags/settings.changed"],
-  },
+  manifest,
 
   create: ({ store, bus }: CubeTools) => ({
     // The kernel announces a re-enabled cube on `qwbe/cube.enabled`. When the bookmarks
@@ -100,11 +102,8 @@ export const cube = defineCube(group, {
     ],
 
     handlers: {
-      list: ({ urlParams }: { urlParams: typeof PageParams.Type }) =>
-        Effect.gen(function* () {
-          yield* requirePermission("booktags/settings:read")
-          return yield* store.page<SettingRow>(TABLE, pageRequest(urlParams))
-        }),
+      // The kernel's list, generated from the manifest above (QWB-54).
+      list: genericList<SettingRow>({ cube: "booktags/settings", table: TABLE, manifest, store }),
 
       set: ({ path, payload }: { path: { key: string }; payload: typeof SettingSet.Type }) =>
         Effect.gen(function* () {

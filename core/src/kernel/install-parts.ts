@@ -18,7 +18,9 @@ import { identitySegments } from "./manifest-validation.ts"
 export const srcDir = resolve(dirname(fileURLToPath(import.meta.url)), "..")
 
 export const cubesDir = resolve(join(srcDir, "cubes"))
-export const pluginsDir = resolve(join(srcDir, "..", "plugins"))
+/** Same override as kernel/scan.ts reads: `qwbe check` points discovery AND the install
+ *  destination at one sandbox, so a check never writes into a real plugins directory. */
+export const pluginsDir = resolve(process.env.QWBE_PLUGINS_DIR ?? join(srcDir, "..", "plugins"))
 
 /** Package and plugin slugs. Cube identities use `isPackageCubeIdentity` in `checkName`. */
 export const NAME = /^[a-z][a-z0-9-]{0,31}$/
@@ -58,6 +60,10 @@ export const toInstallError = (e: unknown): InstallError =>
  */
 export const tried = <A>(run: () => A): Effect.Effect<A, InstallError> =>
   Effect.try({ try: run, catch: toInstallError })
+
+/** Same bridge for the one installer method that awaits an async checker before it stages. */
+export const triedPromise = <A>(run: () => Promise<A>): Effect.Effect<A, InstallError> =>
+  Effect.tryPromise({ try: run, catch: toInstallError })
 
 export const lifecycleInstaller = (): Pick<CubeInstaller, "cubeOnDisk" | "remove" | "restart"> => ({
   cubeOnDisk: (cube: string, plugin: string | null) => {

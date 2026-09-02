@@ -18,6 +18,7 @@ import { requirePermission } from "../../kernel/auth-contract.ts"
 import { BadRequest } from "../../kernel/errors.ts"
 import type { ScanInstaller } from "../../kernel/install-scan.ts"
 import { assignCurrentUserCubeAdmin } from "./permissions.ts"
+import { ROUTES } from "./routes.ts"
 
 type Installer = NonNullable<CubeTools["installer"]>
 type Catalogue = CubeTools["catalogue"]
@@ -29,7 +30,7 @@ type Deps = Readonly<{
   entityPermissions: EntityPermissions
 }>
 
-const requireWrite = () => requirePermission("settings:write")
+const requireWrite = (route: keyof typeof ROUTES) => requirePermission(ROUTES[route])
 
 export const packagesHandlers = ({ catalogue, installer, entityPermissions }: Deps) => {
   if (!("scanDirectory" in installer) || !("forgetShelf" in installer)) {
@@ -40,13 +41,13 @@ export const packagesHandlers = ({ catalogue, installer, entityPermissions }: De
   return {
     packages: () =>
       Effect.gen(function* () {
-        yield* requireWrite()
+        yield* requireWrite("packages")
         return pkgInstaller.available()
       }),
 
     install: ({ path }: { path: { name: string } }) =>
       Effect.gen(function* () {
-        yield* requireWrite()
+        yield* requireWrite("install")
         // Every refusal from the installer already says what was refused and why --
         // unknown package, bad name, destination taken. Rewriting them into a generic
         // message would hide exactly the part the caller needs.
@@ -61,7 +62,7 @@ export const packagesHandlers = ({ catalogue, installer, entityPermissions }: De
 
     installFrom: ({ payload }: { payload: { path: string } }) =>
       Effect.gen(function* () {
-        yield* requireWrite()
+        yield* requireWrite("installFrom")
         // Same pass-through as install: the kernel's refusals name the problem -
         // relative path, symlink in the tree, lying manifest, name clash. The CLI
         // command below calls this same function, so both surfaces speak identically.
@@ -75,7 +76,7 @@ export const packagesHandlers = ({ catalogue, installer, entityPermissions }: De
 
     scanPackages: ({ payload }: { payload: { path: string } }) =>
       Effect.gen(function* () {
-        yield* requireWrite()
+        yield* requireWrite("scanPackages")
         // Read-only reconnaissance: what would install-from accept from this directory,
         // and what does the store already hold against each candidate. The kernel's
         // refusals (relative path, missing directory) pass through unchanged.
@@ -87,7 +88,7 @@ export const packagesHandlers = ({ catalogue, installer, entityPermissions }: De
 
     forgetShelf: ({ path }: { path: { name: string } }) =>
       Effect.gen(function* () {
-        yield* requireWrite()
+        yield* requireWrite("forgetShelf")
         const result = yield* pkgInstaller
           .forgetShelf(path.name)
           .pipe(Effect.catchTag("InstallError", (e) => new BadRequest({ message: e.message })))
@@ -97,7 +98,7 @@ export const packagesHandlers = ({ catalogue, installer, entityPermissions }: De
 
     uninstallPackage: ({ path }: { path: { name: string } }) =>
       Effect.gen(function* () {
-        yield* requireWrite()
+        yield* requireWrite("uninstallPackage")
         // A package from the store cannot BE a required cube -- required ones ship with core
         // and are not in the store. Checked anyway rather than reasoned about, because that
         // sentence is true today and is exactly the kind that stops being true quietly.

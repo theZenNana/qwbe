@@ -18,7 +18,7 @@ import { Schema } from "effect"
 import type { Catalogue, CustomFieldTools, Subscription } from "../catalogue.ts"
 import type { IdentityDirectory, PermissionService } from "../permissions-contracts.ts"
 import type { RelationalPart } from "./entity.ts"
-import type { Page, PageRequest } from "./pagination.ts"
+import type { ListWhere, Page, PageRequest } from "./pagination.ts"
 import type { Registry } from "./registry.ts"
 import type { RequiredCubeError, StateFileError, UnknownCubeError } from "./state.ts"
 
@@ -416,7 +416,9 @@ export type CubeStore = {
   readonly page: <A>(
     table: string,
     page: PageRequest,
-    where?: { readonly field: string; readonly value: string },
+    /** One pair (the pre-QWB-54 shape, still used by `relational.search`) or the full list
+     *  vocabulary the generic list handler speaks. */
+    where?: { readonly field: string; readonly value: string } | ListWhere,
   ) => Effect.Effect<Page<A>, never, never>
   readonly byId: <A>(table: string, id: string) => Effect.Effect<A | undefined, never, never>
   readonly insert: (

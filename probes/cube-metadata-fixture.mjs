@@ -21,8 +21,8 @@ const fixtureSource = (
   version,
 ) => `import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema } from "@effect/platform"
 import { Effect, Schema } from "effect"
-import { Authorization } from "../../../../src/kernel/auth-contract.ts"
-import { Forbidden } from "../../../../src/kernel/errors.ts"
+import { Authorization } from "qwbe-core/auth"
+import { Forbidden } from "qwbe-core/errors"
 
 const Thing = Schema.Struct({
   id: Schema.String,
@@ -58,6 +58,13 @@ export const cube = {
 export const writeFixture = (extraField, version) => {
   rmSync(fixtureRoot, { recursive: true, force: true })
   mkdirSync(fixtureCube, { recursive: true })
+  // The kernel checks the package contract of every plugin it mounts (QWB-54), so the fixture
+  // ships the manifest a real package ships -- otherwise the boot it is testing never happens.
+  writeFileSync(
+    join(fixtureRoot, "qwbe-package.json"),
+    `${JSON.stringify({ name: "meta-drift-fixture", kind: "plugin", cubes: ["metadrift"] }, null, 2)}\n`,
+    "utf8",
+  )
   writeFileSync(join(fixtureCube, "index.ts"), fixtureSource(extraField, version), "utf8")
 }
 

@@ -11,6 +11,7 @@
 // transaction with `SET LOCAL ROLE` -- so a cube's query against another cube's schema dies in
 // Postgres with a permission error. See probes/store-isolation.mjs, which proves both halves.
 
+import { MAX_CUSTOM_BYTES, MAX_CUSTOM_KEYS } from "../custom-values.ts"
 import { getPool, type Pool } from "./db.ts"
 
 /** The same identifier `storeFileName` produced for the file, without the extension. */
@@ -142,6 +143,7 @@ export const ensureTable = async (schema: string, table: string): Promise<void> 
       await client.query(
         `CREATE INDEX IF NOT EXISTS ${q(`${table}_body_gin`)} ON ${q(schema)}.${q(table)} USING GIN (body)`,
       )
+      await ensureCustomCaps(client as unknown as Pool, schema, table)
       await client.query("COMMIT")
     } catch (e) {
       failed = true
@@ -165,6 +167,40 @@ export const ensureTable = async (schema: string, table: string): Promise<void> 
 export const schemaExists = async (schema: string): Promise<boolean> => {
   const r = await getPool().query(`SELECT 1 FROM information_schema.schemata WHERE schema_name = $1`, [schema])
   return (r.rowCount ?? 0) > 0
+}
+
+/*
+ * The custom-value caps as a DATABASE constraint (QWB-54 ticket 05, defect 2). The app checks
+ * the caps on every write; this CHECK holds in Postgres even without the application.
+ *
+ * The key count is exact (0002-custom-caps.sql gives the CHECK its helper function). The byte
+ * cap is the encoding-safe upper bound of the app cap: the app measures JSON.stringify code
+ * units (MAX_CUSTOM_BYTES), a jsonb text rendering costs up to 4 UTF-8 bytes per code unit and
+ * adds one space per key and per comma. Anything the app accepted fits under this number, so
+ * the constraint can never reject a write the app let through, and nothing meaningfully larger
+ * gets in either.
+ */
+const customCapsCheck = (): string => {
+  const byteCap = MAX_CUSTOM_BYTES * 4 + MAX_CUSTOM_KEYS * 2 + 8
+  return `CHECK (jsonb_typeof(body -> 'custom') <> 'object' OR (
+                 qwbe.custom_key_count(body -> 'custom') <= ${MAX_CUSTOM_KEYS} AND
+                 octet_length((body -> 'custom')::text) <= ${byteCap}))`
+}
+
+/**
+ * Add the custom-caps CHECK if the table does not have it yet. Idempotent: tables created
+ * before ticket 05 get the constraint on the next boot, and the lookups above run once per
+ * process per table.
+ */
+const ensureCustomCaps = async (client: Pool, schema: string, table: string): Promise<void> => {
+  const name = `${table}_custom_caps`
+  const exists = await client.query(`SELECT 1 FROM pg_constraint WHERE conname = $1 AND conrelid = $2::regclass`, [
+    name,
+    `${q(schema)}.${q(table)}`,
+  ])
+  if ((exists.rowCount ?? 0) === 0) {
+    await client.query(`ALTER TABLE ${q(schema)}.${q(table)} ADD CONSTRAINT ${q(name)} ${customCapsCheck()}`)
+  }
 }
 
 /**

@@ -23,8 +23,38 @@ export default tseslint.config(
   // .mjs is out of scope: the probes are plain node scripts with no tsconfig behind them, so a
   // type-aware rule cannot run on them at all. web/ is excluded until it gets its own project
   // service — its tsconfig is Next's, and pulling it in here would typecheck the whole app twice.
+  //
+  // `core/plugins/*` and `core/store/*` hold INSTALLED and STAGED packages -- artifacts, not
+  // kernel source. Walking them made the repo-wide lint red exactly when the system was in use:
+  // every file of an installed pack belongs to no kernel tsconfig project, so the type-aware
+  // parser refuses it ("was not found by the project service"), 18 errors on one installed pack
+  // and none of them about this repository's code. A gate that is green only while nothing is
+  // installed is not a gate.
+  //
+  // Those files are not going unchecked. A pack is linted where it lives (its own repository
+  // mirrors these rules), and the kernel lints it again AT INSTALL: `install-contract.ts` copies
+  // the package into `core/src/qwbe-contract-*` and runs this same config over it with
+  // `--no-ignore`, which is the path that refused three real findings on 2026-08-31. `--no-ignore`
+  // means the exclusion below cannot blind that gate -- verified by installing a pack with a
+  // deliberate violation after this line was written.
+  //
+  // `example-plugin` is the exception because it is not an artifact: it is committed kernel
+  // source, the in-tree demo pack, and it must stay linted.
   {
-    ignores: ["**/*.mjs", "**/*.cjs", "web/**", "**/node_modules/**", "**/.next/**", "**/dist/**", "**/generated/**"],
+    ignores: [
+      "**/*.mjs",
+      "**/*.cjs",
+      "web/**",
+      "**/node_modules/**",
+      "**/.next/**",
+      "**/dist/**",
+      "**/generated/**",
+      "core/store/**",
+      // Every installed package EXCEPT the in-tree demo. A plain `core/plugins/**` plus a
+      // negation does not work: once ESLint ignores a directory it does not descend into it, so
+      // the re-include never fires. The extglob names the packs to skip in one pattern instead.
+      "core/plugins/!(example-plugin)/**",
+    ],
   },
   {
     files: ["core/**/*.ts"],

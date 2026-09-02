@@ -6,7 +6,8 @@ import { Effect, Schema } from "effect"
 import { type CubeTools, defineCube } from "qwbe-core/cube"
 import { Authorization, requirePermission } from "../../kernel/auth-contract.ts"
 import { Forbidden, NotFound } from "../../kernel/errors.ts"
-import { PageOf, PageParams, pageRequest } from "../../kernel/pagination.ts"
+import { genericList, ListParams } from "../../kernel/list.ts"
+import { PageOf } from "../../kernel/pagination.ts"
 import { identityDirectory } from "./identity.ts"
 import { Account, type AccountRow, publicShape, summary } from "./model.ts"
 import { constantTimeEquals, hashPassword, verifyPassword } from "./password.ts"
@@ -26,7 +27,7 @@ const AccountCreate = Schema.Struct({
 }).annotations({ identifier: "AccountCreate" })
 
 const group = HttpApiGroup.make("account")
-  .add(HttpApiEndpoint.get("list")`/account`.setUrlParams(PageParams).addSuccess(PageOf(Account)).addError(Forbidden))
+  .add(HttpApiEndpoint.get("list")`/account`.setUrlParams(ListParams).addSuccess(PageOf(Account)).addError(Forbidden))
   .add(
     HttpApiEndpoint.get("get")`/account/${HttpApiSchema.param("id", Schema.String)}`
       .addSuccess(Account)
@@ -36,28 +37,49 @@ const group = HttpApiGroup.make("account")
   .add(HttpApiEndpoint.post("create")`/account`.setPayload(AccountCreate).addSuccess(Account).addError(Forbidden))
   .middleware(Authorization)
 
+/**
+ * The permission each route requires, declared ONCE (QWB-54, ticket 10): the manifest
+ * publishes it through the kernel's metadata and the handlers below check through this same
+ * object, so renaming a permission moves enforcement and publication together.
+ */
+const ROUTES = {
+  list: "account:read",
+  get: "account:read",
+  create: "account:write",
+} as const
+
+// Named, because the generic list handler reads its `searchable` and `relations` to build the
+// query it serves (QWB-54): the manifest is the contract, so the handler must see it.
+const manifest = {
+  name: "account",
+  // Opts the cube into the metadata drift gate (see src/metadata/schema-drift.ts). 1.1.0 is
+  // the bump the gate asked for when `searchable` below made three fields filterable.
+  version: "1.1.0",
+  tables: [TABLE],
+  entity: ENTITY,
+  // Deliberately NOT `passwordHash`. Ordering by it returned 200 to an ordinary reader and
+  // leaked information about a value that never appears in any response.
+  sortable: ["username", "displayName", "email"],
+  // QWB-54: the same three fields answer `?q=` and `?username=` on the list. Same reasoning as
+  // `sortable` -- a hash is never among them. Declaring this changed the published field
+  // metadata, which is why `version` went to 1.1.0 above.
+  searchable: ["username", "displayName", "email"],
+  requiresAuth: true,
+  required: true,
+  // This cube stores credentials, so it is the one that checks them. Declared here, in the
+  // open: `grep -r providesCredentials src/cubes/ plugins/` shows every cube that can.
+  providesCredentials: true,
+  providesIdentityDirectory: true,
+  permissions: [
+    { name: "account:read", roles: ["admin", "reader"] },
+    { name: "account:write", roles: ["admin"] },
+  ],
+  routes: ROUTES,
+  publishes: ["account.created"],
+} as const
+
 export const cube = defineCube(group, {
-  manifest: {
-    name: "account",
-    // Opts the cube into the metadata drift gate (see src/metadata/schema-drift.ts).
-    version: "1.0.0",
-    tables: [TABLE],
-    entity: ENTITY,
-    // Deliberately NOT `passwordHash`. Ordering by it returned 200 to an ordinary reader and
-    // leaked information about a value that never appears in any response.
-    sortable: ["username", "displayName", "email"],
-    requiresAuth: true,
-    required: true,
-    // This cube stores credentials, so it is the one that checks them. Declared here, in the
-    // open: `grep -r providesCredentials src/cubes/ plugins/` shows every cube that can.
-    providesCredentials: true,
-    providesIdentityDirectory: true,
-    permissions: [
-      { name: "account:read", roles: ["admin", "reader"] },
-      { name: "account:write", roles: ["admin"] },
-    ],
-    publishes: ["account.created"],
-  },
+  manifest,
 
   create: ({ store, bus }: CubeTools) => {
     /** Seed once. A generated bootstrap password is printed once when no external secret exists. */
@@ -127,23 +149,22 @@ export const cube = defineCube(group, {
       ],
 
       handlers: {
-        list: ({ urlParams }: { urlParams: typeof PageParams.Type }) =>
-          Effect.gen(function* () {
-            yield* requirePermission("account:read")
-            yield* seed
-            const p = yield* store.page<AccountRow>(TABLE, pageRequest(urlParams))
-            return {
-              rows: p.rows.map(publicShape),
-              total: p.total,
-              offset: p.offset,
-              limit: p.limit,
-              sortedBy: p.sortedBy,
-            }
-          }),
+        // The kernel's list, not this cube's (QWB-54). Every parameter in the contract works
+        // here because none of them is implemented here.
+        list: genericList<AccountRow, ReturnType<typeof publicShape>>({
+          cube: "account",
+          table: TABLE,
+          manifest,
+          store,
+          map: publicShape,
+          // `auth` looks a user up through the registry before any HTTP handler has necessarily
+          // run, so the very first list must still find the seeded admin.
+          before: seed,
+        }),
 
         get: ({ path }: { path: { id: string } }) =>
           Effect.gen(function* () {
-            yield* requirePermission("account:read")
+            yield* requirePermission(ROUTES.get)
             const a = yield* store.byId<AccountRow>(TABLE, path.id)
             if (!a) return yield* Effect.fail(new NotFound({ message: `account ${path.id} does not exist` }))
             return publicShape(a)
@@ -151,7 +172,7 @@ export const cube = defineCube(group, {
 
         create: ({ payload }: { payload: typeof AccountCreate.Type }) =>
           Effect.gen(function* () {
-            yield* requirePermission("account:write")
+            yield* requirePermission(ROUTES.create)
             const { password, ...rest } = payload
             const a = (yield* store.insert(TABLE, ENTITY, "acc", {
               ...rest,

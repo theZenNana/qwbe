@@ -57,10 +57,12 @@ const before = {
     units: {},
   },
 }
-writeFileSync(join(tree, "qwbe.config.json"), `${JSON.stringify(before, null, 2)}\n`, "utf8")
+// The gate reads its config from core/ (the qwbe-core package root) -- same layout as the repo.
+mkdirSync(join(tree, "core"), { recursive: true })
+writeFileSync(join(tree, "core", "qwbe.config.json"), `${JSON.stringify(before, null, 2)}\n`, "utf8")
 
 const output = execFileSync("node", [join(tree, "probes", "sizecaps.mjs"), "--update-baseline"], { encoding: "utf8" })
-const after = JSON.parse(readFileSync(join(tree, "qwbe.config.json"), "utf8")).baseline.files
+const after = JSON.parse(readFileSync(join(tree, "core", "qwbe.config.json"), "utf8")).baseline.files
 
 console.log("\n`--update-baseline` run in a checkout that is missing one of the recorded files\n")
 
@@ -97,7 +99,8 @@ const repo = mkdtempSync(join(tmpdir(), "sizecaps-guards-"))
 mkdirSync(join(repo, "probes"), { recursive: true })
 for (const f of GATE_FILES) copyFileSync(join(root, "probes", f), join(repo, "probes", f))
 writeFileSync(join(repo, "probes", "big.mjs"), filler(9000), "utf8")
-writeFileSync(join(repo, "qwbe.config.json"), `${JSON.stringify(before, null, 2)}\n`, "utf8")
+mkdirSync(join(repo, "core"), { recursive: true })
+writeFileSync(join(repo, "core", "qwbe.config.json"), `${JSON.stringify(before, null, 2)}\n`, "utf8")
 git(repo, "init", "-q")
 git(repo, "add", "-A")
 git(repo, "-c", "user.name=probe", "-c", "user.email=probe@local", "commit", "-qm", "fixture")
@@ -109,7 +112,7 @@ const run = (cwd, ...argv) => {
     return { code: err.status, out: `${err.stdout ?? ""}${err.stderr ?? ""}` }
   }
 }
-const configOf = (cwd) => readFileSync(join(cwd, "qwbe.config.json"), "utf8")
+const configOf = (cwd) => readFileSync(join(cwd, "core", "qwbe.config.json"), "utf8")
 
 console.log("\nthe two refusals, on real git trees\n")
 

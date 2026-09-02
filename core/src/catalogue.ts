@@ -74,6 +74,9 @@ export type CustomFieldProvider = (cube: string) => ReadonlyArray<CustomFieldDef
 
 const customFieldProviders: Array<CustomFieldProvider> = []
 
+// The per-request defs reader and the one-row value view moved to custom-defs-reader.ts
+// (QWB-54 ticket 05); the tool TYPE below keeps pointing at them.
+
 /**
  * The narrow tool the kernel lends a cube declaring `providesCustomFields` (QWB-46).
  *
@@ -85,13 +88,19 @@ const customFieldProviders: Array<CustomFieldProvider> = []
  */
 export type CustomFieldTools = {
   readonly register: (provide: (cube: string) => ReadonlyArray<CustomFieldDefinition>) => void
+  /**
+   * QWB-54 ticket 05 (defect 4): register where the ACTIVE definitions come from at request
+   * time -- the fold reads through this, per request, from the provider's own store.
+   */
+  readonly registerDefsReader: (read: import("./custom-defs-reader.ts").CustomFieldDefsReader) => void
   readonly rows: (
     cube: string,
-  ) => Effect.Effect<
-    ReadonlyArray<{ readonly id: string; readonly custom: Record<string, unknown>; readonly deleted: boolean }>,
-    never,
-    never
-  >
+  ) => Effect.Effect<ReadonlyArray<import("./custom-defs-reader.ts").CustomRowView>, never, never>
+  /** ONE row's custom values, read with `WHERE id = $1` (ticket 05, defect 5). */
+  readonly row: (
+    cube: string,
+    rowId: string,
+  ) => Effect.Effect<import("./custom-defs-reader.ts").CustomRowView | undefined, never, never>
 }
 
 /** Called by the kernel at mount, once per cube declaring `providesCustomFields`. */

@@ -36,7 +36,7 @@ const restore = () => {
 
 const BROKEN_CUBE = `import { HttpApiEndpoint, HttpApiGroup } from "@effect/platform"
 import { defineCube } from "qwbe-core/cube"
-import { Authorization } from "../../../../src/kernel/auth-contract.ts"
+import { Authorization } from "qwbe-core/auth"
 
 const group = HttpApiGroup.make("fakeagent")
   .add(HttpApiEndpoint.get("health")\`/fakeagent/health\`)
@@ -52,7 +52,7 @@ const GENERIC_HANDLERS = `import { HttpApiEndpoint, HttpApiGroup } from "@effect
 import { Effect } from "effect"
 import { AgentContext, AgentGoalPayload, AgentGoalResult, AgentHealth, AgentTrace } from "qwbe-core/agent"
 import { defineCube } from "qwbe-core/cube"
-import { Authorization } from "../../../../src/kernel/auth-contract.ts"
+import { Authorization } from "qwbe-core/auth"
 
 const group = HttpApiGroup.make("fakeagent")
   .add(HttpApiEndpoint.get("health")\`/fakeagent/health\`.addSuccess(AgentHealth))

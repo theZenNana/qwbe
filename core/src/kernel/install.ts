@@ -41,8 +41,9 @@
 // install/stage/uninstall engine.
 
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs"
-import { dirname, join, resolve, sep } from "node:path"
-import { InstallError, PROVENANCE, stageAndInstall as stageAndInstallFor } from "./install-from.ts"
+import { dirname, join, resolve } from "node:path"
+import { includePackageSourcePath, isBookkeeping, MANIFEST } from "../package-source.ts"
+import { InstallError, stageAndInstall as stageAndInstallFor } from "./install-from.ts"
 import {
   checkName,
   cubesDir,
@@ -52,6 +53,7 @@ import {
   pluginsDir,
   srcDir,
   tried,
+  triedPromise,
   under,
 } from "./install-parts.ts"
 import { forgetShelfFor, type ScanInstaller, scanFor } from "./install-scan.ts"
@@ -63,7 +65,6 @@ export { InstallError }
 const storeDir = resolve(process.env.QWBE_STORE_DIR ?? join(srcDir, "..", "store"))
 
 /** The metadata file that makes a directory in the store a package rather than scratch. */
-const MANIFEST = "qwbe-package.json"
 
 const sizeOf = (dir: string): number => {
   let total = 0
@@ -98,9 +99,6 @@ const cubesOnDisk = (): ReadonlyArray<{ cube: string; from: string }> => {
   }
   return found
 }
-
-/** Store bookkeeping files that are not part of the cube and never reach the destination. */
-const isBookkeeping = (src: string): boolean => src.endsWith(sep + MANIFEST) || src.endsWith(sep + PROVENANCE)
 
 /**
  * Install a package the store already holds, by name. Shared by the store flow and by
@@ -141,7 +139,13 @@ const installExisting = (name: string): CubePackage => {
   // this operation created it, so removing it is the rollback, not a deletion of anyone
   // else's work.
   try {
-    cpSync(from, to, { recursive: true, filter: (src) => !isBookkeeping(src) })
+    // The one content rule (package-source.ts): what staging ships, minus bookkeeping. The
+    // `qwbe check` sandbox copy uses the same two predicates -- install-filters.test.ts
+    // fails the day the two copies diverge again.
+    cpSync(from, to, {
+      recursive: true,
+      filter: (src) => includePackageSourcePath(from, src) && !isBookkeeping(src),
+    })
   } catch (e) {
     rmSync(to, { recursive: true, force: true })
     throw e
@@ -212,7 +216,7 @@ const readPackageAt = (name: string, dir: string): CubePackage => {
 const readPackage = (name: string): CubePackage => readPackageAt(name, under(storeDir, join(storeDir, name)))
 
 export const installerFor = (): ScanInstaller => {
-  const stageAndInstallSync = stageAndInstallFor({ storeDir, readPackageAt, installExisting })
+  const stageAndInstallFrom = stageAndInstallFor({ storeDir, readPackageAt, installExisting })
   const scanContext = { storeDir, readPackageAt }
 
   return {
@@ -247,7 +251,7 @@ export const installerFor = (): ScanInstaller => {
 
     install: (name: string) => tried(() => installExisting(name)),
 
-    stageAndInstall: (sourceDirectory: string) => tried(() => stageAndInstallSync(sourceDirectory)),
+    stageAndInstall: (sourceDirectory: string) => triedPromise(() => stageAndInstallFrom(sourceDirectory)),
 
     scanDirectory: (directory: string) => tried(() => scanFor(scanContext)(directory)),
 

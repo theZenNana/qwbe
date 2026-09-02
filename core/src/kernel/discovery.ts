@@ -14,10 +14,13 @@
 // Severity is deliberate: a broken manifest stops startup rather than being skipped. Skipping
 // would mean starting with half the cubes and nobody noticing until production.
 
+import { dirname, resolve } from "node:path"
+import { fileURLToPath, pathToFileURL } from "node:url"
 import { Effect } from "effect"
 import { capabilityRuntime } from "../capability-runtime.ts"
 import { buildCatalogue } from "../catalogue.ts"
 import { type CubeDefinition, decodeCubeExport, validateCubeParts } from "../cube-contract.ts"
+import { assertPackageContracts } from "../package-contract.ts"
 import { busFrom } from "./bus.ts"
 import { installerFor } from "./install.ts"
 
@@ -36,6 +39,7 @@ import {
   validateAgentSurface,
   validateCommands,
   validateManifest,
+  validateRoutes,
 } from "./manifest-validation.ts"
 import { activeLinks, type SpaceDefinition } from "./space.ts"
 import { type Switches, switchesFrom } from "./state.ts"
@@ -85,13 +89,24 @@ export const loadDefinitions = async (): Promise<
     const p = parentOf(name)
     if (p && !expanded.has(p)) expanded.add(p)
   }
-  const finalRequested = [...expanded]
+  const mounting = onDisk.filter((c) => expanded.has(c.name))
+  // The package contract, enforced by the kernel rather than by the pack (QWB-54). Runs before
+  // the first plugin import below, so a package that breaks it never executes.
+  await assertPackageContracts(mounting)
 
   const out: Array<{ name: string; plugin: string | null; definition: CubeDefinition }> = []
-  for (const entry of onDisk.filter((c) => finalRequested.includes(c.name))) {
+  for (const entry of mounting) {
     let mod: unknown
     try {
-      mod = await import(entry.specifier)
+      // The specifier is resolved HERE, against this module's own directory, and imported as a
+      // file URL. Two reasons, one per shape of the kernel. In a checkout nothing changes: the
+      // specifier is relative and lands on the same file the bare import reached. In the
+      // compiled kernel the TypeScript emit wraps relative dynamic imports in a helper that
+      // rewrites a trailing .ts to .js at runtime -- which would miss every pack cube, because
+      // a pack ships TypeScript sources and is never compiled. A file URL pins the exact file
+      // and is left untouched by that rewrite, so dist/index.js loads for core cubes and the
+      // pack's own index.ts loads (type-stripped, outside node_modules) for plugins.
+      mod = await import(pathToFileURL(resolve(dirname(fileURLToPath(import.meta.url)), entry.specifier)).href)
     } catch (e) {
       throw new BrokenCubeError(entry.name, e instanceof Error ? e.message : String(e))
     }
@@ -305,6 +320,10 @@ export const mount = (
     const own = parts.commands ?? []
     validateCommands(m, own)
     allCommands.push(...own)
+    // Route permissions, like commands: the declaration may not name a route that does not
+    // exist nor a permission the cube does not declare. Run here so the gate covers every
+    // mounted cube -- a pack's included, since this is the pass a pack is mounted through.
+    validateRoutes(m, parts.group)
 
     return { manifest: m, name: full, parts, plugin, commands: own }
   })

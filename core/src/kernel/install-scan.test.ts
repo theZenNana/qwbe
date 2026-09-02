@@ -70,6 +70,22 @@ describe("scanDirectory", () => {
     found = await Effect.runPromise(installerFor().scanDirectory(root))
     assert.equal(found.find((p) => p.name === "beta")!.shelf, "different")
   })
+
+  it("a shelf that grew authoring tooling reads different, not identical", async () => {
+    // Review 14b finding 6: the scanner was the one reader still hashing shelves with the lax
+    // source rule, so a shelf poisoned with node_modules/ showed "identical" in the UI while
+    // installFrom refused it as different content. Shelf hashing is strict (shelfFingerprint,
+    // package-source.ts); the call-site pin in package-source.test.ts keeps the next reader
+    // from re-deriving a lax variant.
+    const dir = plantCubePackage("poisoned", join(root, "poisoned"))
+    const shelf = join(store, "poisoned")
+    cpSync(dir, shelf, { recursive: true })
+    mkdirSync(join(shelf, "node_modules", "shadow"), { recursive: true })
+    writeFileSync(join(shelf, "node_modules", "shadow", "index.js"), "module.exports = 1\n")
+    writeFileSync(join(shelf, ".pi"), "scratch\n")
+    const found = await Effect.runPromise(installerFor().scanDirectory(root))
+    assert.equal(found.find((p) => p.name === "poisoned")!.shelf, "different")
+  })
 })
 
 describe("forgetShelf", () => {

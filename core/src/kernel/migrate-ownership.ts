@@ -4,11 +4,20 @@
 // number"). The checks here are the wall between a package's CLAIM and the kernel's RECORD.
 //
 // Since QWB-44 the data lives in one Postgres schema per cube, so "does the legacy file
-// exist" became "does the legacy schema exist" -- answered by Postgres, not the filesystem,
-// which is why the check is async and the caller (main.ts) awaits it before mount.
+// exist" became "does the legacy schema exist" -- answered by Postgres, not the filesystem.
+//
+// QWB-54 ticket 08 closed the last hole. Until then a source with NO schema in the database
+// was treated as "inert this boot" and its provenance was never questioned -- which let a
+// package declare a migration from a cube that NEVER existed, purely to satisfy a hierarchy
+// gate. The declaration sat silent until some other package mounted a cube under that name:
+// the schema then existed, the provenance checks woke up, found no ledger record, and stopped
+// an innocent boot. Now every declared source must be attributable on EVERY boot, schema or
+// no schema. The kernel's registry of cubes that have existed is the LEDGER (written by the
+// kernel at mount, extended with each completed migration's source by main.ts) -- so a
+// completed migration stays attributable after its source schema is gone, and a source the
+// kernel has never recorded is refused unless the OPERATOR authorizes it
+// (QWBE_LEGACY_MIGRATIONS). The manifest does not get a vote; neither does a fresh database.
 
-import { getPool } from "../pg/db.ts"
-import { schemaName } from "../pg/setup.ts"
 import type { Ledger } from "./ledger.ts"
 import type { DataMigration, Manifest } from "./manifest.ts"
 
@@ -19,12 +28,12 @@ export class MigrationOwnershipError extends Error {
   }
 }
 
-const schemaExists = async (cube: string): Promise<boolean> => {
-  const r = await getPool().query(`SELECT 1 FROM information_schema.schemata WHERE schema_name = $1`, [
-    schemaName(cube),
-  ])
-  return (r.rowCount ?? 0) > 0
-}
+/**
+ * A validated migration plus the package that declared it -- `declaredBy` is what main.ts
+ * records in the ledger for `fromCube`, so a source whose schema already moved (a completed
+ * migration) is still attributable on the next boot.
+ */
+export type ValidatedMigration = DataMigration & { readonly declaredBy: string | null }
 
 /**
  * Validate every declared migration against the mounted set AND the ledger snapshot.
@@ -33,15 +42,18 @@ const schemaExists = async (cube: string): Promise<boolean> => {
  *   - `fromCube` must NOT be a currently-mounted cube of another package -- a live cube's
  *     schema is not legacy data;
  *   - `fromPlugin` is REQUIRED, and must match the ledger's record for `fromCube`;
- *   - a source with NO ledger record is refused by default. The one exception is pre-ledger
- *     history, and the manifest does not get to claim it: an administrator authorizes the
- *     legacy claim with QWBE_LEGACY_MIGRATIONS="bookmarks:example-plugin,tags:example-plugin"
- *     -- a decision from the operator's side, not from the package being checked.
+ *   - a source with NO ledger record is refused -- schema or no schema (QWB-54 ticket 08:
+ *     a source the kernel has never seen is an invention, and an invented source becomes a
+ *     boot-breaking landmine the day another package mounts a cube under that name). The one
+ *     exception is pre-ledger history, and the manifest does not get to claim it: an
+ *     administrator authorizes the legacy claim with
+ *     QWBE_LEGACY_MIGRATIONS="bookmarks:example-plugin,tags:example-plugin" -- a decision
+ *     from the operator's side, not from the package being checked.
  */
 export const checkMigrationOwnership = async (
   definitions: ReadonlyArray<{ name: string; plugin: string | null; definition: { manifest: Manifest } }>,
   ledger: Ledger,
-): Promise<Array<DataMigration>> => {
+): Promise<Array<ValidatedMigration>> => {
   const mounted = new Map(definitions.map((d) => [d.name, d.plugin]))
   const legacyAuthorized = new Map(
     (process.env.QWBE_LEGACY_MIGRATIONS ?? "")
@@ -54,7 +66,7 @@ export const checkMigrationOwnership = async (
       }),
   )
   const pkg = (p: string | null) => (p === null ? "core" : `plugin "${p}"`)
-  const migrations: Array<DataMigration> = []
+  const migrations: Array<ValidatedMigration> = []
   for (const { name, plugin, definition } of definitions) {
     for (const m of definition.manifest.dataMigration ?? []) {
       const toPlugin = mounted.get(m.toCube)
@@ -77,15 +89,10 @@ export const checkMigrationOwnership = async (
             `${pkg(fromMounted)} -- its schema is live, not legacy. A package can only migrate its OWN history.`,
         )
       }
-      // No source schema, nothing to migrate: the declaration is inert this boot. The package
-      // checks above still ran (a half-mounted package is a defect regardless); the
-      // provenance checks below only matter when there is a schema to move.
-      if (!(await schemaExists(m.fromCube))) {
-        migrations.push(m)
-        continue
-      }
       // Runtime-required too: the TYPE says fromPlugin is mandatory, but a cube's index.ts
-      // is imported code -- a plain JS cube can omit it and the type never runs.
+      // is imported code -- a plain JS cube can omit it and the type never runs. Checked on
+      // every boot since ticket 08: an unattributable source is refused, not shelved until
+      // a schema happens to appear under its name.
       if (m.fromPlugin === undefined) {
         throw new MigrationOwnershipError(
           `"${name}" declares ${m.fromCube} -> ${m.toCube} without naming the source package. ` +
@@ -118,7 +125,7 @@ export const checkMigrationOwnership = async (
             `"${m.toCube}" belongs to ${pkg(toPlugin)}. The claimed provenance is not this package's.`,
         )
       }
-      migrations.push(m)
+      migrations.push({ ...m, declaredBy: plugin })
     }
   }
   return migrations

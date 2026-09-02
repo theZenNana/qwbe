@@ -8,17 +8,10 @@ import { join, relative, sep } from "node:path"
 // a pack's whole `frontend/`, walked into `frontend/node_modules/.bin` and refused the install on
 // the first symlink it found - so a pack whose frontend had ever been installed could not be
 // installed at all. `dist` and `build` follow the scanner for the same reason.
-const LOCAL_SOURCE_DIRECTORIES = new Set([
-  "node_modules",
-  ".venv",
-  ".git",
-  "docs",
-  "probes",
-  "test",
-  "frontend",
-  "dist",
-  "build",
-])
+// Hidden entries (`.pi`, `.claude`, `.githooks`, ...) are the authoring checkout's agent and git
+// tool state - the same family as `node_modules`, never package content. They are skipped by the
+// leading-dot rule below rather than by name, so the next tool's directory ships no surprises.
+const LOCAL_SOURCE_DIRECTORIES = new Set(["node_modules", "docs", "probes", "test", "frontend", "dist", "build"])
 const LOCAL_SOURCE_FILES = new Set(["package.json", "package-lock.json", "tsconfig.json"])
 const LOCAL_SOURCE_FILE_PATTERN = /\.(test|spec)\.(mjs|js|jsx)$/
 const PACKAGE_NAME = /^[a-z][a-z0-9-]{0,31}$/
@@ -30,19 +23,51 @@ export const isPackageCubeIdentity = (name: string): boolean => {
 }
 
 /** Local tooling belongs to the authoring checkout, never to the installable package. */
-export const isLocalSourceDirectory = (name: string): boolean => LOCAL_SOURCE_DIRECTORIES.has(name)
+export const isLocalSourceDirectory = (name: string): boolean =>
+  name.startsWith(".") || LOCAL_SOURCE_DIRECTORIES.has(name)
 
 const isLocalSourceEntry = (name: string): boolean =>
-  isLocalSourceDirectory(name) || LOCAL_SOURCE_FILES.has(name) || LOCAL_SOURCE_FILE_PATTERN.test(name)
+  name.startsWith(".") ||
+  isLocalSourceDirectory(name) ||
+  LOCAL_SOURCE_FILES.has(name) ||
+  LOCAL_SOURCE_FILE_PATTERN.test(name)
 
 export const includePackageSourcePath = (root: string, path: string): boolean =>
   path === root || !isLocalSourceEntry(relative(root, path).split(sep)[0] ?? "")
 
-export const packageSourceFingerprint = (dir: string, exclude: readonly string[] = []): string => {
+/** The provenance file every staged shelf carries: where it came from and when (QWB-54 ticket 22). */
+export const PROVENANCE = "qwbe-source.json"
+
+/** The package manifest: what makes a directory a package (and what stays bookkeeping). */
+export const MANIFEST = "qwbe-package.json"
+
+/** Store bookkeeping files that are not part of the cube and never reach the destination:
+ * one definition, shared by the install copy and the `qwbe check` sandbox copy. */
+export const isBookkeeping = (src: string): boolean => src.endsWith(sep + MANIFEST) || src.endsWith(sep + PROVENANCE)
+
+/** What a shelf's provenance records: the source directory, the content fingerprint at staging,
+ * and the moment. Written by the staging flow, re-checked by store-drift against both sides. */
+export type Provenance = Readonly<{
+  sourcePath: string
+  fingerprint: string
+  stagedAt: string
+}>
+
+/** The hash of every file under `dir` (path + sha256 of the bytes). Top-level `exclude`d names
+ * (bookkeeping) never count. `skipLocalTooling` (the default) also skips top-level authoring
+ * tooling (`isLocalSourceEntry`) -- the right rule for a SOURCE checkout. A shelf passes
+ * `false`: staging never writes tooling into a shelf, so any foreign byte there is a manual
+ * change and must change the hash -- that is the drift `qwbe drift` exists to catch. */
+export const packageSourceFingerprint = (
+  dir: string,
+  exclude: readonly string[] = [],
+  skipLocalTooling = true,
+): string => {
   const entries: string[] = []
   const walk = (current: string) => {
     for (const entry of readdirSync(current, { withFileTypes: true })) {
-      if (current === dir && (exclude.includes(entry.name) || isLocalSourceEntry(entry.name))) continue
+      if (current === dir && (exclude.includes(entry.name) || (skipLocalTooling && isLocalSourceEntry(entry.name))))
+        continue
       const path = join(current, entry.name)
       if (entry.isDirectory()) walk(path)
       else entries.push(`${relative(dir, path)}:${createHash("sha256").update(readFileSync(path)).digest("hex")}`)
@@ -51,6 +76,14 @@ export const packageSourceFingerprint = (dir: string, exclude: readonly string[]
   walk(dir)
   return createHash("sha256").update(entries.sort().join("\n")).digest("hex")
 }
+
+/** The shelf rule as ONE function: every reader that judges a store shelf copy (the drift
+ * check, install-from reuse, the install scanner) hashes it through here -- strictly, nothing
+ * skipped beyond the provenance file, because staging never writes tooling into a shelf. The
+ * source side stays on `packageSourceFingerprint(dir)`: a live checkout legitimately carries
+ * its tooling. package-source.test.ts pins every call site, so a reader re-deriving a shelf
+ * hash by hand -- the lax regression review 14b found in the scanner -- fails there. */
+export const shelfFingerprint = (dir: string): string => packageSourceFingerprint(dir, [PROVENANCE], false)
 
 export const validatePackageSourceTree = (root: string): string | undefined => {
   const walk = (current: string): string | undefined => {

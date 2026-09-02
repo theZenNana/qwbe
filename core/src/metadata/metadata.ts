@@ -18,13 +18,15 @@
 
 import { createHash } from "node:crypto"
 import type { PropertySignature } from "effect/SchemaAST"
+import { Authorization, readPermissionOf } from "../kernel/auth-contract.ts"
 import { EntityMeta } from "../kernel/entity.ts"
+import { DEFAULT_LIMIT, MAX_LIMIT } from "../kernel/pagination.ts"
 import { classify, encodedLiteralOf, entityStructOf, groupEndpoints } from "./ast.ts"
-import type { MetadataDeclarations } from "./declarations.ts"
-import type { CubeMetadata, FieldMetadata } from "./schemas.ts"
+import { filterFields, type MetadataDeclarations, searchFields } from "./declarations.ts"
+import type { CubeMetadata, FieldMetadata, RouteContract } from "./schemas.ts"
 
 export type { MetadataDeclarations } from "./declarations.ts"
-export { CubeMetadata, FieldMetadata, RelationMetadata } from "./schemas.ts"
+export { CubeMetadata, FieldMetadata, RelationMetadata, RouteContract } from "./schemas.ts"
 
 export type MetadataCube = {
   readonly name: string
@@ -39,6 +41,34 @@ export type MetadataCube = {
 }
 
 type DeclaredManifest = MetadataCube["manifest"]
+
+/**
+ * What each route of the cube demands, read from its real contract: `auth` from the
+ * Authorization middleware the endpoint or its group carries, `permission` from the manifest's
+ * one declaration (`routes`). The `list` route falls back to the kernel's read convention --
+ * the exact fallback the generic list handler itself enforces (kernel/list.ts), so the
+ * published and the served name are one derivation, not two literals kept in step by hand.
+ * An undeclared route other than `list` publishes null: the requirement is either absent or
+ * decided per request, and a guessed name would be a lie.
+ */
+const routeContracts = (cubeName: string, group: unknown, m: DeclaredManifest): Record<string, RouteContract> => {
+  const groupAuth = ((group as { middlewares?: ReadonlySet<unknown> }).middlewares ?? new Set()).has(Authorization)
+  const out: Record<string, RouteContract> = {}
+  for (const [name, endpoint] of Object.entries(groupEndpoints(group))) {
+    const own = ((endpoint as { middlewares?: ReadonlySet<unknown> }).middlewares ?? new Set()).has(Authorization)
+    const shaped = endpoint as { method?: unknown; path?: unknown }
+    out[name] = {
+      auth: groupAuth || own,
+      permission: name === "list" ? (m.routes?.list ?? readPermissionOf(cubeName)) : (m.routes?.[name] ?? null),
+      // Read from the endpoint's own contract (QWB-54, ticket 08): what a route demands and
+      // WHERE it lives are one published fact, not two -- a probe or a frontend derived from
+      // metadata can call the route without guessing its spelling.
+      method: typeof shaped.method === "string" ? shaped.method : "",
+      path: typeof shaped.path === "string" ? shaped.path : "",
+    }
+  }
+  return out
+}
 
 // Sortable defaults to the meta columns a caller may order by; `deleted` is a filter, not an
 // ordering, so it stays out -- but it is still derived, not re-typed.
@@ -120,7 +150,24 @@ export const deriveCubeMetadata = (
   return {
     cube: cube.name,
     entity: m.entity ?? null,
+    // QWB-54. Derived, never declared: a cube that publishes a `list` endpoint gets the whole
+    // contract the kernel's generic handler serves, out of the same manifest declarations.
+    // `schemaHash` deliberately does NOT cover it -- the hash is about the row's SHAPE, which is
+    // what a cached form would be wrong about, and the query contract changes nothing there.
+    list: groupEndpoints(cube.parts.group).list
+      ? {
+          params: ["page", "pageSize", "sort", "q", "ids"],
+          paging: "offset",
+          totalIsExact: true,
+          maxPageSize: MAX_LIMIT,
+          defaultPageSize: DEFAULT_LIMIT,
+          search: searchFields(m),
+          filters: filterFields(m),
+          sort: [...sortableSet],
+        }
+      : null,
     version: m.version ?? null,
+    routes: routeContracts(cube.name, cube.parts.group, m),
     schemaHash: metadataHash(cube.name, m.entity ?? null, m.version ?? null, fields),
     fields,
   }

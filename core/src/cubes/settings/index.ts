@@ -19,6 +19,7 @@ import { settingsCommands } from "./commands.ts"
 import { CubeState, InstallFromPayload, InstallFromResult, PackageState, ScanPayload, ScanResult } from "./contract.ts"
 import { packagesHandlers } from "./packages.ts"
 import { assignCurrentUserCubeAdmin } from "./permissions.ts"
+import { ROUTES } from "./routes.ts"
 import { cubeState } from "./state-view.ts"
 
 const Toggle = Schema.Struct({ enabled: Schema.Boolean }).annotations({ identifier: "Toggle" })
@@ -112,6 +113,7 @@ export const cube = defineCube(group, {
       { name: "settings:read", roles: ["admin", "reader"] },
       { name: "settings:write", roles: ["admin"] },
     ],
+    routes: ROUTES,
   },
 
   create: ({ catalogue, switches, installer, entityPermissions }: CubeTools) => {
@@ -132,7 +134,7 @@ export const cube = defineCube(group, {
 
         cubes: () =>
           Effect.gen(function* () {
-            yield* requirePermission("settings:read")
+            yield* requirePermission(ROUTES.cubes)
             // A function, not a value: the list reflects the state of NOW. The frontend draws
             // its tabs from this response.
             return catalogue().map((c) => state(c.name)!)
@@ -140,7 +142,7 @@ export const cube = defineCube(group, {
 
         toggle: ({ path, payload }: { path: { name: string }; payload: { enabled: boolean } }) =>
           Effect.gen(function* () {
-            yield* requirePermission("settings:write")
+            yield* requirePermission(ROUTES.toggle)
             if (!state(path.name)) {
               return yield* Effect.fail(new NotFound({ message: `cube ${path.name} is not mounted` }))
             }
@@ -166,7 +168,7 @@ export const cube = defineCube(group, {
 
         uninstall: ({ path }: { path: { name: string } }) =>
           Effect.gen(function* () {
-            yield* requirePermission("settings:write")
+            yield* requirePermission(ROUTES.uninstall)
             const current = state(path.name)
             if (!current) {
               return yield* Effect.fail(new NotFound({ message: `cube ${path.name} is not mounted` }))
@@ -190,7 +192,7 @@ export const cube = defineCube(group, {
 
         restart: () =>
           Effect.gen(function* () {
-            yield* requirePermission("settings:write")
+            yield* requirePermission(ROUTES.restart)
             // The spawning lives in the kernel, borrowed through `installer` -- a cube may not
             // touch `node:child_process`, and this was the repository's last such violation.
             installer.restart()

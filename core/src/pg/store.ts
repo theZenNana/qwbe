@@ -20,13 +20,25 @@
 
 import { Effect } from "effect"
 import type { CubeStore } from "../kernel/manifest.ts"
-import type { Page, PageRequest } from "../kernel/pagination.ts"
+import type { ListWhere, Page, PageRequest } from "../kernel/pagination.ts"
 import { type BatchStore, batchFor } from "./batch.ts"
 import { ForeignTableError } from "./errors.ts"
 import { decode, mergeCustom, newId, orderClause, outboxInsert, renumber, whereClause } from "./rows.ts"
 import { ensureCubeSchema, ensureTable, q, schemaName, withRole } from "./setup.ts"
 
 export { ForeignTableError } from "./errors.ts"
+
+/**
+ * The row a handler returns IS the response body, and it must equal what was stored: the
+ * `body` column is written with JSON.stringify, which drops keys whose value is undefined,
+ * while a spread keeps them present-but-undefined. The published row contract (QWB-46) reads
+ * `custom` as an optional sub-object, so a row carrying `custom: undefined` -- a handler
+ * passing "no custom values" the natural way -- fails response encoding. The generic probes
+ * (QWB-54 ticket 08) were the first client to create a row with no custom values at all and
+ * hit this. Drop such keys where every row return routes through.
+ */
+const asStored = <A extends Record<string, unknown>>(row: A): A =>
+  Object.fromEntries(Object.entries(row).filter(([, v]) => v !== undefined)) as A
 
 export const storeFor = (
   cube: string,
@@ -58,7 +70,11 @@ export const storeFor = (
         })
       }),
 
-    page: <A>(table: string, page: PageRequest, where?: { field: string; value: string }) =>
+    page: <A>(
+      table: string,
+      page: PageRequest,
+      where?: { readonly field: string; readonly value: string } | ListWhere,
+    ) =>
       Effect.promise(async (): Promise<Page<A>> => {
         const t = check(table)
         await ensureCubeSchema(cube)
@@ -109,13 +125,13 @@ export const storeFor = (
         await ensureCubeSchema(cube)
         await ensureTable(schemaName(cube), t)
         return withRole(cube, async (c) => {
-          const row = {
+          const row = asStored({
             id: newId(prefix),
             type: entityType,
             createdAt: new Date().toISOString(),
             deleted: false,
             ...values,
-          }
+          })
           const { id, type, createdAt, deleted, ...body } = row
           await c.query(
             `INSERT INTO ${q(schemaName(cube))}.${q(t)} (id, type, created_at, deleted, version, body)
@@ -150,7 +166,7 @@ export const storeFor = (
           await c.query(outboxInsert(cube, t, id, deleted === true ? "delete" : "update", version))
           // Review fix 6 (QWB-46): the row stores the MERGE, so the response must too -- a
           // PATCH response reporting `custom` as only the patched keys would lie about the row.
-          return { ...withCustom, id }
+          return asStored({ ...withCustom, id })
         })
       }),
 

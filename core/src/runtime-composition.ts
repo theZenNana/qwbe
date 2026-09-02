@@ -21,18 +21,17 @@
 //   - the SUCCESS schema is widened with one DECLARED `custom` property, not an open index
 //     signature: responses emit undeclared keys only under `custom`, so the reserved-sub-object
 //     invariant holds on the read side too and the response stripping `publicShape` backs up
-//     stays in place system-wide.
+//     stays in place system-wide. On a LIST endpoint the success is the envelope `{rows, ...}`,
+//     so the widening also reaches the row schema inside `rows` -- declared only on the
+//     envelope, Effect strips the values from every row and the list answer would never carry
+//     them (QWB-54 ticket 16).
 
 import { HttpApi, HttpApiBuilder, OpenApi } from "@effect/platform"
-import { Effect, Layer, Option, Schema } from "effect"
+import { Layer, Option, Schema } from "effect"
 import * as AST from "effect/SchemaAST"
-import { activeCustomFields } from "./catalogue.ts"
-import { CUSTOM, foldCustom } from "./custom-values.ts"
+import { withCustomFold as withCustomFoldPolicy } from "./custom-fold.ts"
+import { CUSTOM } from "./custom-values.ts"
 import type { MountedCube } from "./kernel/discovery.ts"
-import { BadRequest } from "./kernel/errors.ts"
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null && !Array.isArray(value)
 
 /**
  * Widen a struct schema. `payload` schemas get a string-keyed index signature over `unknown`,
@@ -54,7 +53,7 @@ export const widenStruct = (schema: unknown, mode: "payload" | "success"): unkno
   if (ast instanceof AST.Transformation) {
     const from = widenTypeLiteral(ast.from as AST.TypeLiteral, mode)
     const to = widenTypeLiteral(ast.to as AST.TypeLiteral, mode)
-    return Schema.make(new AST.Transformation(from, to, ast.transformation))
+    return Schema.make(new AST.Transformation(from, to, ast.transformation, ast.annotations))
   }
   return schema
 }
@@ -64,7 +63,7 @@ const widenTypeLiteral = (ast: AST.TypeLiteral, mode: "payload" | "success"): AS
   if (ast.propertySignatures.some((p) => p.name === CUSTOM)) return ast
   if (mode === "payload") {
     const idx = new AST.IndexSignature(new AST.StringKeyword(), new AST.UnknownKeyword(), true)
-    return new AST.TypeLiteral(ast.propertySignatures, [...ast.indexSignatures, idx])
+    return new AST.TypeLiteral(ast.propertySignatures, [...ast.indexSignatures, idx], ast.annotations)
   }
   const custom = new AST.PropertySignature(
     CUSTOM,
@@ -72,7 +71,34 @@ const widenTypeLiteral = (ast: AST.TypeLiteral, mode: "payload" | "success"): AS
     true,
     true,
   )
-  return new AST.TypeLiteral([...ast.propertySignatures, custom], ast.indexSignatures)
+  // The envelope's own `custom` AND the rows' -- a list response is the envelope, and the
+  // values ride on the rows inside it.
+  const properties = ast.propertySignatures.map(widenRowsProperty)
+  return new AST.TypeLiteral([...properties, custom], ast.indexSignatures, ast.annotations)
+}
+
+/**
+ * Widen the element schema of the rows array in a success envelope -- the `{rows, ...}` shape
+ * `PageOf` publishes. The row rides the property as `Schema.Array(row)`: a TupleType with no
+ * positional elements and one rest element wrapping the row AST. Any other property (scalars,
+ * unions, tuples, refs to non-structs) passes through untouched, so only list rows are
+ * affected and no other nested struct gains the declaration.
+ */
+const widenRowsProperty = (p: AST.PropertySignature): AST.PropertySignature => {
+  if (p.name !== "rows") return p
+  const array = p.type
+  if (!(array instanceof AST.TupleType) || array.elements.length > 0 || array.rest.length !== 1) return p
+  const element = array.rest[0]
+  if (!element) return p
+  const widened = widenStruct(Schema.make(element.type), "success") as { readonly ast: AST.AST }
+  if (widened.ast === element.type) return p
+  const widenedArray = new AST.TupleType(
+    array.elements,
+    [new AST.Type(widened.ast)],
+    array.isReadonly,
+    array.annotations,
+  )
+  return new AST.PropertySignature(p.name, widenedArray, p.isOptional, p.isReadonly, p.annotations)
 }
 
 const isSchemaLike = (schema: unknown): schema is { readonly ast: AST.AST } =>
@@ -153,11 +179,16 @@ export const buildHandlers = (api: unknown, cubes: ReadonlyArray<MountedCube>): 
  * time. A cube with no defined custom fields keeps exactly its old behavior: undeclared keys
  * are stripped and nothing is stored, so a plain `<cube>:write` permission buys nothing until
  * an administrator defines a field (which is gated on `customfields:write`).
+ *
+ * The policy itself lives in custom-fold.ts (QWB-54 ticket 05): per-request definitions from
+ * the provider's store (defect 4), create-vs-patch mode on the HTTP method (defect 1), and the
+ * merged-cap CustomCapError answered as a 400 (defect 2). This side only decides WHICH handlers
+ * are wrapped and with what.
  */
 const withCustomFold = (cube: MountedCube, name: string, implementation: unknown) => {
   const endpoints = (
     cube.parts.group as {
-      endpoints?: Record<string, { payloadSchema?: Option.Option<unknown> }>
+      endpoints?: Record<string, { payloadSchema?: Option.Option<unknown>; method?: string }>
     }
   ).endpoints
   const payloadSchema = endpoints?.[name]?.payloadSchema
@@ -167,13 +198,8 @@ const withCustomFold = (cube: MountedCube, name: string, implementation: unknown
     return implementation
   }
   const declared = declaredKeys(payloadSchema.value)
-  const impl = implementation as (request: unknown) => unknown
-  return (request: unknown) => {
-    if (isRecord(request) && "payload" in request) {
-      const folded = foldCustom(request.payload, declared, activeCustomFields(cube.name))
-      if (!folded.ok) return Effect.fail(new BadRequest({ message: folded.message })) as unknown
-      return impl({ ...request, payload: folded.payload })
-    }
-    return impl(request)
-  }
+  // The method is the one honest signal that a payload CREATES a row: only POST demands the
+  // required definitions outright. PATCH and PUT keep the present-and-empty semantics.
+  const mode = endpoints?.[name]?.method === "POST" ? ("create" as const) : ("patch" as const)
+  return withCustomFoldPolicy(cube.name, declared, mode, implementation)
 }

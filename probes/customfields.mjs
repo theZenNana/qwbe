@@ -1,13 +1,14 @@
-// The CUSTOMFIELDS probe -- the plugin at plugins/customfields-pack, exercised over HTTP.
+// The CUSTOMFIELDS probe -- the SYSTEM cube in core/src/cubes/customfields, over HTTP (QWB-54
+// ticket 04: the former customfields-pack moved into the kernel, next to auth and account).
 //
 //   node probes/customfields.mjs        (with `npm run db:up` first: Postgres on :5433)
 //
 // QWB-46 acceptance, end to end: values live in the TARGET row's own body under the reserved
 // `custom` sub-object, not in a sidecar table. The walk itself lives in customfields-walk.mjs
 // (phase 1) and customfields-orphan.mjs (phase 2) -- split out because the file passed the size
-// cap. This driver owns the environment: it installs the fixture cube and the pack, restarts so
-// they mount, and leaves the tree exactly as it was found. The database is created and dropped
-// by this probe, so the restart proves persistence.
+// cap. This driver owns the environment: it installs the fixture cube the fields are defined
+// on, restarts so it mounts, and leaves the tree exactly as it was found. The database is
+// created and dropped by this probe, so the restart proves persistence.
 //
 // The TARGET is a fixture cube shipped under probes/fixtures/ (review fix 20): the walk used to
 // refuse unless an untracked crm-pack install existed, so the acceptance criterion could not
@@ -30,19 +31,10 @@ import {
   stopServer,
 } from "./lib.mjs"
 
-// Overridable with CUSTOMFIELDS_PACK; the default is the sibling checkout, never a literal
-// home path (the secretlint rule in .secretlintrc.json exists to keep those out).
-const SOURCE = process.env.CUSTOMFIELDS_PACK ?? join(root, "..", "plugins", "customfields-pack")
-const PACK = "customfields-pack"
 const FIXTURE = join(root, "probes", "fixtures", "guestbook-pack")
 const FIXTURE_PACK = "guestbook-pack"
 const score = makeScore()
 
-if (!existsSync(SOURCE)) {
-  console.error(`refused: the pack source directory does not exist: ${SOURCE}`)
-  console.error("set CUSTOMFIELDS_PACK to the customfields-pack checkout and retry.")
-  process.exit(1)
-}
 if (!existsSync(FIXTURE)) {
   console.error(`refused: the fixture pack does not exist: ${FIXTURE}`)
   process.exit(1)
@@ -50,8 +42,9 @@ if (!existsSync(FIXTURE)) {
 
 // A leftover copy from an earlier run would make the install below a silent no-op (or a
 // refusal), so the probe refuses to guess whose it is - the same rule install-from uses.
-for (const name of [PACK, FIXTURE_PACK]) {
-  const liveAt = join(root, "core", "plugins", name)
+// customfields itself is NOT installed here: as a system cube it ships with the kernel.
+{
+  const liveAt = join(root, "core", "plugins", FIXTURE_PACK)
   if (existsSync(liveAt)) {
     console.error(`refused: ${liveAt} already exists. Remove it first (it should not be committed).`)
     process.exit(1)
@@ -108,9 +101,8 @@ try {
   const first = await client(port).login()
   const asAdmin = (path, options = {}) => client(port).call(path, { ...options, headers: first.headers })
 
-  // ---- install the fixture cube and the pack, restart, confirm both mount -------------------
+  // ---- install the fixture cube, restart, confirm it mounts ---------------------------------
   await install(asAdmin, FIXTURE, "the fixture cube")
-  await install(asAdmin, SOURCE, "the pack")
 
   await asAdmin("/settings/restart", { method: "POST", body: "{}" })
   await reboot()
@@ -121,19 +113,15 @@ try {
   // Postgres and survive. Use what the phase that did the restart returned.
   await walkPhase2({ score, asAdmin2: phase1.asAdmin2, entryId: phase1.entryId, cube: "guestbook" })
 
-  // ---- leave as found: the installs go, so the next run installs from scratch ---------------
-  for (const name of [PACK, FIXTURE_PACK]) {
-    const undo = await phase1.asAdmin2(`/settings/packages/${name}`, { method: "DELETE" })
-    score.check(`${name} uninstalls cleanly at the end`, undo.status === 200, `http=${undo.status}`)
-  }
+  // ---- leave as found: the install goes, so the next run installs from scratch --------------
+  const undo = await phase1.asAdmin2(`/settings/packages/${FIXTURE_PACK}`, { method: "DELETE" })
+  score.check(`${FIXTURE_PACK} uninstalls cleanly at the end`, undo.status === 200, `http=${undo.status}`)
 } catch (e) {
   console.error(e.message)
   score.check("probe ran to completion", false, e.message)
 } finally {
   await stopServer(server).catch(() => {})
-  for (const name of [PACK, FIXTURE_PACK]) {
-    rmSync(join(root, "core", "plugins", name), { recursive: true, force: true })
-  }
+  rmSync(join(root, "core", "plugins", FIXTURE_PACK), { recursive: true, force: true })
   dropScratch(dataDir)
   await dropDatabase(dbUrl)
 }

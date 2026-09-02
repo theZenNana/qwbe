@@ -11,7 +11,7 @@ const permissions = {
       source: ref.entityId === "mine" ? ("owner" as const) : ("none" as const),
     }),
 }
-const user = { id: "bob", username: "bob", roles: ["reader"], permissions: [] }
+const user = { id: "bob", username: "bob", roles: ["reader"], permissions: [], sessionId: "ses-test" }
 
 describe("permission-mediated relational registry", () => {
   it("denies summary and field access before protected cube callbacks run", async () => {

@@ -7,10 +7,11 @@
 import assert from "node:assert/strict"
 import { describe, it } from "node:test"
 
-import { Effect } from "effect"
+import { HttpApiEndpoint, HttpApiGroup } from "@effect/platform"
+import { Effect, Schema } from "effect"
 
 import type { CommandSpec, Manifest, PermissionSpec } from "./manifest.ts"
-import { InvalidManifestError, validateCommands, validateManifest } from "./manifest-validation.ts"
+import { InvalidManifestError, validateCommands, validateManifest, validateRoutes } from "./manifest-validation.ts"
 
 const manifest = (over: Partial<Manifest> = {}): Manifest => ({
   name: "notes",
@@ -152,5 +153,39 @@ describe("validateCommands", () => {
   // The gate looks commands up with `Array.find`, so a duplicate used to be swallowed whole.
   it("refuses a command declared twice, which would otherwise be silently ignored", () => {
     assert.throws(() => validateCommands(own, [command(), command()]), /declared twice/)
+  })
+})
+
+describe("validateRoutes", () => {
+  // A real group, the same shape a cube ships: the gate must read the routes that will run.
+  const group = HttpApiGroup.make("notes")
+    .add(HttpApiEndpoint.get("list")`/notes`.addSuccess(Schema.String))
+    .add(HttpApiEndpoint.get("get")`/notes/id`.addSuccess(Schema.String))
+
+  const withRoutes = (routes: Record<string, string>, permissions = grants("notes:read", "notes:write")) => ({
+    ...manifest({ permissions }),
+    routes,
+  })
+
+  it("accepts routes that exist, backed by declared permissions", () => {
+    assert.doesNotThrow(() => validateRoutes(withRoutes({ list: "notes:read", get: "notes:read" }), group))
+  })
+
+  it("accepts a cube that declares no routes", () => {
+    assert.doesNotThrow(() => validateRoutes(manifest({ permissions: grants("notes:read") }), group))
+  })
+
+  it("refuses a route the cube does not serve -- the metadata would publish a route that runs nowhere", () => {
+    assert.throws(
+      () => validateRoutes(withRoutes({ backdoor: "notes:read" }), group),
+      /route "backdoor" is not an endpoint/,
+    )
+  })
+
+  it("refuses a permission the cube never declares -- a rename in `permissions` without this gate would mount a cube publishing a name no token can hold", () => {
+    assert.throws(
+      () => validateRoutes(withRoutes({ list: "notes:admin" }), group),
+      /route "list" requires permission "notes:admin", which this cube does not declare/,
+    )
   })
 })

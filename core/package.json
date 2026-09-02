@@ -4,16 +4,66 @@
   "private": true,
   "license": "MIT",
   "type": "module",
+  "bin": {
+    "qwbe": "./bin/qwbe.mjs"
+  },
+  "files": [
+    "bin",
+    "dist",
+    "src",
+    "qwbe.config.json"
+  ],
+  "_exportsComment": "Two shapes, one manifest. A checkout resolves qwbe-core/* to the TypeScript sources (default) -- node strips types there, and the kernel itself boots from src. An install cannot: node refuses type stripping under node_modules, so `qwbe check` boots the kernel from dist/ and spawns it with --conditions=qwbe-dist, which flips every subpath to the compiled file. Same code, compiled once by `npm run build` (also run by prepack, before npm pack tars the package).",
   "exports": {
-    "./cube": "./src/cube-contract.ts",
-    "./agent": "./src/agent-contracts.ts",
-    "./http": "./src/http-contracts.ts",
-    "./auth": "./src/auth-contracts.ts",
-    "./entity": "./src/entity-contracts.ts",
-    "./errors": "./src/error-contracts.ts",
-    "./pagination": "./src/pagination-contracts.ts",
-    "./permissions": "./src/permissions-contracts.ts",
-    "./package": "./src/package-contract.ts"
+    ".": {
+      "qwbe-dist": "./dist/cube-contract.js",
+      "default": "./src/cube-contract.ts"
+    },
+    "./package.json": "./package.json",
+    "./cube": {
+      "qwbe-dist": "./dist/cube-contract.js",
+      "default": "./src/cube-contract.ts"
+    },
+    "./agent": {
+      "qwbe-dist": "./dist/agent-contracts.js",
+      "default": "./src/agent-contracts.ts"
+    },
+    "./http": {
+      "qwbe-dist": "./dist/http-contracts.js",
+      "default": "./src/http-contracts.ts"
+    },
+    "./auth": {
+      "qwbe-dist": "./dist/auth-contracts.js",
+      "default": "./src/auth-contracts.ts"
+    },
+    "./entity": {
+      "qwbe-dist": "./dist/entity-contracts.js",
+      "default": "./src/entity-contracts.ts"
+    },
+    "./errors": {
+      "qwbe-dist": "./dist/error-contracts.js",
+      "default": "./src/error-contracts.ts"
+    },
+    "./pagination": {
+      "qwbe-dist": "./dist/pagination-contracts.js",
+      "default": "./src/pagination-contracts.ts"
+    },
+    "./list": {
+      "qwbe-dist": "./dist/list-contracts.js",
+      "default": "./src/list-contracts.ts"
+    },
+    "./permissions": {
+      "qwbe-dist": "./dist/permissions-contracts.js",
+      "default": "./src/permissions-contracts.ts"
+    },
+    "./package": {
+      "qwbe-dist": "./dist/package-contract.js",
+      "default": "./src/package-contract.ts"
+    },
+    "./custom-values": {
+      "qwbe-dist": "./dist/custom-values.js",
+      "default": "./src/custom-values.ts"
+    }
   },
   "description": "Qwbe — kernel that discovers cubes from disk. Knows no cube by name.",
   "engines": {
@@ -21,6 +71,8 @@
   },
   "scripts": {
     "start": "node src/main.ts",
+    "build": "tsc -p tsconfig.build.json && node scripts/build-assets.mjs",
+    "prepack": "npm run build",
     "boundaries": "depcruise src plugins --config .dependency-cruiser.cjs"
   },
   "dependencies": {

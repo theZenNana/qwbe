@@ -25,6 +25,7 @@ import { Authorization } from "./kernel/auth-contract.ts"
 import { loadDefinitions, mount } from "./kernel/discovery.ts"
 import { readLedger, verifyLedgerUnchanged, writeLedger } from "./kernel/ledger.ts"
 import { buildApi, buildHandlers, checkCubes, rejectDisabled } from "./kernel/mount.ts"
+import { logRefusals } from "./kernel/refusal-log.ts"
 import type { Registry, RegistryEntry } from "./kernel/registry.ts"
 import { loadSpaces } from "./kernel/space.ts"
 import { checkSchemaDrift } from "./metadata/schema-drift.ts"
@@ -63,7 +64,7 @@ const spaces = await loadSpaces().catch((e: Error) => failAfterSnapshot(e, 2))
 verifyLedgerUnchanged(ledgerRead)
 
 // --- 2. storage and declared data migrations (ADR-0001), split into boot-storage.ts ---
-await bootStorage(definitions, ledgerSnapshot, fail, failAfterSnapshot)
+const migrations = await bootStorage(definitions, ledgerSnapshot, fail, failAfterSnapshot)
 
 // --- 2. mount: unique tables, single privilege, switches, per-cube tools ---
 
@@ -111,10 +112,13 @@ const api = buildApi(system!.cubes)
 // The provenance ledger is written only after a mount that passed every life rule -- the
 // record must always describe a system that really ran, and a manifest cannot write it.
 verifyLedgerUnchanged(ledgerRead)
-writeLedger(
-  ledgerRead,
-  system!.cubes.map((c) => ({ name: c.name, plugin: c.plugin })),
-)
+writeLedger(ledgerRead, [
+  ...system!.cubes.map((c) => ({ name: c.name, plugin: c.plugin })),
+  // Each completed migration's source stays attributable (QWB-54 ticket 08): the ledger
+  // records it under the declaring package, so the next boot -- its source schema now
+  // renamed away -- still passes the ownership rules without the operator's env.
+  ...migrations.map((m) => ({ name: m.fromCube, plugin: m.declaredBy })),
+])
 
 const bySource = system!.cubes.map((c) => (c.plugin ? `${c.name}(${c.plugin})` : c.name))
 console.log(
@@ -200,7 +204,9 @@ const GatedOpenApi = HttpApiBuilder.Router.use((router) =>
 )
 
 const ServerLive = HttpApiBuilder.serve((app) =>
-  HttpMiddleware.logger(rejectDisabled(system!.cubes, system!.isEnabled)(app)),
+  // Owner, 2026-08-31: no refusal leaves this server silently. `logRefusals` sits OUTSIDE
+  // the disabled-cube filter, so it sees the final status of every request, whoever produced it.
+  HttpMiddleware.logger(logRefusals(rejectDisabled(system!.cubes, system!.isEnabled)(app))),
 ).pipe(
   // QWB-42: browser origins come from QWBE_ALLOWED_ORIGINS. Unset means ["*"], the
   // pre-QWB-42 behaviour, so local development needs no configuration. With the variable

@@ -21,6 +21,12 @@ export class CurrentUser extends Context.Tag("cubes/CurrentUser")<
     readonly username: string
     readonly roles: ReadonlyArray<string>
     readonly permissions: ReadonlyArray<string>
+    /**
+     * Which session made this request. The middleware carries it next to the user (QWB-54,
+     * ticket 21) so `auth:logout` can drop exactly that session instead of every session of
+     * the account -- logging out on the phone must not log the laptop out.
+     */
+    readonly sessionId: string
   }
 >() {}
 
@@ -46,3 +52,11 @@ export const requirePermission = (permission: string) =>
     }
     return user
   })
+
+/**
+ * The read permission of a cube is its full name plus `:read` -- the convention every cube
+ * follows. The kernel uses it as the list route's permission when a cube's manifest declares
+ * none (`list.ts`, `metadata.ts`), so the enforced and the published name are the same
+ * derivation, not two literals kept in step by hand.
+ */
+export const readPermissionOf = (cube: string): string => `${cube}:read`

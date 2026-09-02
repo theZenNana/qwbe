@@ -1,0 +1,16 @@
+{
+  "_comment": "The emit half of the checker tsconfig. core/tsconfig.json only CHECKS (noEmit): node runs the .ts sources directly by stripping types, so a checkout never needs compiled output. An INSTALL does -- node refuses to strip types for any file under node_modules, so everything the tarball must execute (bin, the check command, the kernel itself, its cubes and spaces) is compiled here to dist/ before npm pack. The one knob that makes .ts-relative imports legal with emit is rewriteRelativeImportExtensions: it rewrites every './x.ts' specifier to './x.js' in the output instead of forbidding the extension.",
+  "_includeComment": "src only. plugins/ and store/ hold installed artifacts (a checkout runs them in place; an installed pack's TypeScript is loaded from its own directory, outside node_modules), and *.test.ts are the checkout's unit gates -- none of it executes from dist.",
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "rewriteRelativeImportExtensions": true,
+    "outDir": "dist",
+    "rootDir": "src",
+    "declaration": false,
+    "declarationMap": false,
+    "sourceMap": false
+  },
+  "include": ["src/**/*.ts"],
+  "exclude": ["node_modules", "src/**/*.test.ts"]
+}

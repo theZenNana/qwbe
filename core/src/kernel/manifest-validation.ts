@@ -6,6 +6,8 @@
 // cannot lie, against the real artefacts (directory names, endpoint lists).
 
 import { AGENT_SURFACE } from "../agent-contracts.ts"
+import { groupEndpoints } from "../metadata/ast.ts"
+import type { MetadataDeclarations } from "../metadata/declarations.ts"
 import type { CommandSpec, CubeGroup, Manifest } from "./manifest.ts"
 
 /**
@@ -172,6 +174,37 @@ export const validateCommands = (m: Manifest, commands: ReadonlyArray<CommandSpe
     }
     if (!own.has(c.permission)) {
       reasons.push(`command "${c.name}" requires permission "${c.permission}", which this cube does not declare`)
+    }
+  }
+  if (reasons.length > 0) throw new InvalidManifestError(full, reasons)
+}
+
+/**
+ * Route permissions are validated like commands: the declaration may not name a route the
+ * cube does not serve, nor a permission the cube does not declare (QWB-54, ticket 10).
+ *
+ * The point of the gate is the rename story the metadata publishes for: renaming a permission
+ * in the manifest's `permissions` list without renaming it here stops the cube from mounting
+ * -- loudly, at boot -- instead of publishing a name no token can ever hold again while the
+ * handler silently keeps checking the old one.
+ */
+export const validateRoutes = (m: Manifest & MetadataDeclarations, group: CubeGroup): void => {
+  const routes = m.routes
+  if (!routes) return
+  const reasons: Array<string> = []
+  const full = fullName(m)
+  const endpoints = new Set(Object.keys(groupEndpoints(group)))
+  const own = new Set((m.permissions ?? []).map((p) => p.name))
+
+  for (const [name, permission] of Object.entries(routes)) {
+    if (!endpoints.has(name)) {
+      reasons.push(
+        `route "${name}" is not an endpoint of this cube -- served endpoints: ` +
+          `${[...endpoints].sort().join(", ") || "none"}`,
+      )
+    }
+    if (!own.has(permission)) {
+      reasons.push(`route "${name}" requires permission "${permission}", which this cube does not declare`)
     }
   }
   if (reasons.length > 0) throw new InvalidManifestError(full, reasons)

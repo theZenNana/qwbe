@@ -33,7 +33,7 @@ const group = HttpApiGroup.make("hostile")
       .addError(Forbidden),
   )
 
-const actor = { id: "bob", username: "bob", roles: ["reader"], permissions: [] }
+const actor = { id: "bob", username: "bob", roles: ["reader"], permissions: [], sessionId: "ses-test" }
 const run = <A, E>(effect: Effect.Effect<A, E, CurrentUser>) =>
   Effect.runPromise(effect.pipe(Effect.provideService(CurrentUser, actor)))
 

@@ -14,8 +14,7 @@
 import { existsSync, readdirSync, realpathSync, rmSync, statSync } from "node:fs"
 import { isAbsolute, join } from "node:path"
 import type { Effect } from "effect"
-import { packageSourceFingerprint } from "../package-source.ts"
-import { PROVENANCE } from "./install-from.ts"
+import { packageSourceFingerprint, shelfFingerprint } from "../package-source.ts"
 import { checkName, destinationOf, under } from "./install-parts.ts"
 import type { CubeInstaller, CubePackage } from "./manifest.ts"
 import { InstallError } from "./manifest.ts"
@@ -46,7 +45,9 @@ export type ScanContext = Readonly<{
  *
  * For each candidate the shelf state is decided by FINGERPRINT, never by path: identical
  * bytes mean install-from will reuse the copy, different bytes mean it will refuse until the
- * shelf is forgotten. That is the fact the UI needs to show before the user clicks.
+ * shelf is forgotten. That is the fact the UI needs to show before the user clicks. The shelf
+ * side hashes through `shelfFingerprint` -- the exact rule install-from and `qwbe drift`
+ * apply -- so all three readers answer a poisoned shelf the same way.
  */
 export const scanFor =
   (ctx: ScanContext) =>
@@ -68,7 +69,7 @@ export const scanFor =
         const shelfDir = join(ctx.storeDir, entry.name)
         const shelf: ShelfState = !existsSync(shelfDir)
           ? "absent"
-          : packageSourceFingerprint(shelfDir, [PROVENANCE]) === packageSourceFingerprint(dir)
+          : shelfFingerprint(shelfDir) === packageSourceFingerprint(dir)
             ? "identical"
             : "different"
         found.push({ ...pkg, path: dir, shelf })

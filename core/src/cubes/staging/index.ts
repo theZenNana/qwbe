@@ -12,7 +12,7 @@
 
 import { type CubeTools, defineCube } from "qwbe-core/cube"
 import { asBatchStore } from "./batch.ts"
-import { TABLES } from "./contract.ts"
+import { ROUTES, TABLES } from "./contract.ts"
 import { stagingGroup } from "./group.ts"
 import { stagingHandlers } from "./handlers.ts"
 
@@ -25,6 +25,7 @@ export const cube = defineCube(stagingGroup, {
       { name: "staging:read", roles: ["admin", "reader"] },
       { name: "staging:write", roles: ["admin"] },
     ],
+    routes: ROUTES,
     publishes: ["staging.set.created"],
     // DECLARED CAPABILITY: staging is the one cube whose store carries the raw SQL batch
     // (`grep -r usesBatch` returns the complete list). Why it needs it: profiling in SQL, a

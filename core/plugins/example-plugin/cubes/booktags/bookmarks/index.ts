@@ -12,11 +12,12 @@
 
 import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema } from "@effect/platform"
 import { Effect, Schema } from "effect"
+import { Authorization, requirePermission } from "qwbe-core/auth"
 import { type CubeTools, defineCube } from "qwbe-core/cube"
-import { Authorization, requirePermission } from "../../../../../src/kernel/auth-contract.ts"
-import { EntityMeta, type SummaryRow } from "../../../../../src/kernel/entity.ts"
-import { BadRequest, Forbidden, NotFound } from "../../../../../src/kernel/errors.ts"
-import { PageOf, PageParams, pageRequest } from "../../../../../src/kernel/pagination.ts"
+import { EntityMeta, type SummaryRow } from "qwbe-core/entity"
+import { BadRequest, Forbidden, NotFound } from "qwbe-core/errors"
+import { PageOf } from "qwbe-core/http"
+import { genericList, ListParams } from "qwbe-core/list"
 import { decodeBooktagsSettingChanged } from "../events.ts"
 
 const TABLE = "bookmarks"
@@ -44,7 +45,7 @@ type BookmarkRow = typeof Bookmark.Type
 
 const group = HttpApiGroup.make("bookmarks")
   .add(
-    HttpApiEndpoint.get("list")`/bookmarks`.setUrlParams(PageParams).addSuccess(PageOf(Bookmark)).addError(Forbidden),
+    HttpApiEndpoint.get("list")`/bookmarks`.setUrlParams(ListParams).addSuccess(PageOf(Bookmark)).addError(Forbidden),
   )
   .add(
     HttpApiEndpoint.get("get")`/bookmarks/${HttpApiSchema.param("id", Schema.String)}`
@@ -67,24 +68,26 @@ const summary = (b: BookmarkRow): SummaryRow => ({
   details: [{ key: "targetCube", value: b.targetCube ?? "" }],
 })
 
+const manifest = {
+  name: "bookmarks",
+  // Opts the cube into the metadata drift gate (see src/metadata/schema-drift.ts).
+  version: "1.0.0",
+  parent: "booktags",
+  // `settings-cache` holds the sibling's published configuration -- written by this cube's
+  // own subscription, never touched by the settings cube. Owned here like any other table.
+  tables: [TABLE, CACHE],
+  entity: ENTITY,
+  sortable: ["label", "targetCube"],
+  requiresAuth: true,
+  permissions: [
+    { name: "booktags/bookmarks:read", roles: ["admin", "reader"] },
+    { name: "booktags/bookmarks:write", roles: ["admin"] },
+  ],
+  publishes: ["booktags/bookmarks.created"],
+} as const
+
 export const cube = defineCube(group, {
-  manifest: {
-    name: "bookmarks",
-    // Opts the cube into the metadata drift gate (see src/metadata/schema-drift.ts).
-    version: "1.0.0",
-    parent: "booktags",
-    // `settings-cache` holds the sibling's published configuration -- written by this cube's
-    // own subscription, never touched by the settings cube. Owned here like any other table.
-    tables: [TABLE, CACHE],
-    entity: ENTITY,
-    sortable: ["label", "targetCube"],
-    requiresAuth: true,
-    permissions: [
-      { name: "booktags/bookmarks:read", roles: ["admin", "reader"] },
-      { name: "booktags/bookmarks:write", roles: ["admin"] },
-    ],
-    publishes: ["booktags/bookmarks.created"],
-  },
+  manifest,
 
   create: ({ store, bus, catalogue }: CubeTools) => ({
     commands: [
@@ -117,11 +120,8 @@ export const cube = defineCube(group, {
     ],
 
     handlers: {
-      list: ({ urlParams }: { urlParams: typeof PageParams.Type }) =>
-        Effect.gen(function* () {
-          yield* requirePermission("booktags/bookmarks:read")
-          return yield* store.page<BookmarkRow>(TABLE, pageRequest(urlParams))
-        }),
+      // The kernel's list, generated from the manifest above (QWB-54).
+      list: genericList<BookmarkRow>({ cube: "booktags/bookmarks", table: TABLE, manifest, store }),
 
       get: ({ path }: { path: { id: string } }) =>
         Effect.gen(function* () {

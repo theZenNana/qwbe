@@ -114,17 +114,29 @@ module.exports = {
       // in docs/package-contract.md instead of pretended away. What CAN be pinned here is who
       // may reach the module: nobody in the kernel graph but its own test. A future kernel
       // module importing it must argue its case here, in the open.
+      //
+      // QWB-54 argues that case for `src/kernel/discovery.ts`: the contract stopped being a
+      // test a pack chooses to run and became the kernel's own gate, so the one function that
+      // loads packages calls `assertPackageContracts` before importing any of them. It uses
+      // the checker WITHOUT the `hierarchy` option, so this importer runs no foreign code --
+      // it reads the pack's source as text, precisely so that nothing foreign runs before the
+      // verdict. Nobody else in the kernel graph may reach the module.
       name: "package-contract-is-the-pack-door",
       comment:
-        "Only the checker's own test may import package-contract. It executes pack cube modules; " +
-        "widening its importers widens who may run foreign top-level code.",
+        "Only the checker's own test, the boot gate in discovery.ts, and the qwbe check command may import " +
+        "package-contract. It executes pack cube modules; widening its importers widens who may run foreign top-level code.",
       severity: "error",
       from: {
         path: ".",
         pathNot: [
+          "^src/kernel/discovery\\.ts$",
           "^src/package-contract\\.test\\.ts$",
           "^src/package-contract\\.ts$",
           "^src/package-contract-scan\\.ts$",
+          // `qwbe check` (QWB-54 ticket 03) re-runs the same checker as stage 1 of the command a
+          // pack is judged by. Without `hierarchy`, so text only -- the foreign execution the
+          // command does is the kernel boot in a sandbox, a separate process, never an import.
+          "^src/check-package\\.ts$",
         ],
       },
       to: { path: "^src/package-contract.*\\.ts$" },

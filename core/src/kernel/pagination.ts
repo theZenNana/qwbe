@@ -29,6 +29,22 @@ export type PageRequest = {
   readonly descending?: boolean | undefined
 }
 
+/**
+ * What a list query filters by, all of it turned into SQL by the store (QWB-54).
+ *
+ * The store's `page` used to take a single `{field, value}` pair, which is why every cube that
+ * wanted more wrote its own handler and no two agreed. This is the whole vocabulary of the one
+ * generic list handler (`kernel/list.ts`): exact matches, a batch of ids, and a prefix search
+ * over the fields the cube declares searchable.
+ */
+export type ListWhere = {
+  readonly equals?: ReadonlyArray<{ readonly field: string; readonly value: string }>
+  /** `ids=a,b,c` -- exactly these rows, in one query. */
+  readonly ids?: ReadonlyArray<string>
+  /** `q=` -- prefix match, ORed across `fields`. */
+  readonly q?: { readonly text: string; readonly fields: ReadonlyArray<string> }
+}
+
 export type Page<A> = {
   readonly rows: ReadonlyArray<A>
   readonly total: number
@@ -61,7 +77,7 @@ export type Page<A> = {
  * contract and visible in the emitted OpenAPI — rather than being dropped silently, which is
  * the failure mode criticised elsewhere in this prototype.
  */
-const SortField = Schema.String.pipe(
+export const SortField = Schema.String.pipe(
   Schema.pattern(/^[A-Za-z_][A-Za-z0-9_]*$/, {
     message: () => "sortBy must be a field name: a letter or underscore, then letters, digits or underscores",
   }),
@@ -100,11 +116,21 @@ const finiteInt = (value: number | undefined, fallback: number): number =>
     ? Math.min(Number.MAX_SAFE_INTEGER, Math.max(-Number.MAX_SAFE_INTEGER, Math.trunc(value as number)))
     : fallback
 
-export const pageRequest = (p: Partial<PageRequest> = {}): PageRequest => ({
-  offset: Math.max(0, finiteInt(p.offset, 0)),
-  limit: Math.min(MAX_LIMIT, Math.max(1, finiteInt(p.limit, DEFAULT_LIMIT))),
-  // Belt and braces: the schema already rejects a malformed field, but this function is also
-  // called from cube code, where nothing forces the value through the schema first.
-  sortBy: p.sortBy && SAFE_FIELD.test(p.sortBy) ? p.sortBy : undefined,
-  descending: p.descending ?? false,
-})
+type PageRequestParams = { [K in keyof PageRequest]?: PageRequest[K] | undefined }
+
+export const pageRequest = (p: PageRequestParams & { page?: number | undefined } = {}): PageRequest => {
+  const limit = Math.min(MAX_LIMIT, Math.max(1, finiteInt(p.limit, DEFAULT_LIMIT)))
+  // `page` is derived from the CAPPED limit, here and nowhere else: if the caller derived the
+  // offset from the asked limit, ?page=2&pageSize=1000 would start at row 1000 while serving
+  // 200 -- rows 200..999 unreachable through `page`, silently (list.test.ts pins this).
+  const offset =
+    p.page !== undefined ? (Math.max(1, finiteInt(p.page, 1)) - 1) * limit : Math.max(0, finiteInt(p.offset, 0))
+  return {
+    offset,
+    limit,
+    // Belt and braces: the schema already rejects a malformed field, but this function is also
+    // called from cube code, where nothing forces the value through the schema first.
+    sortBy: p.sortBy && SAFE_FIELD.test(p.sortBy) ? p.sortBy : undefined,
+    descending: p.descending ?? false,
+  }
+}

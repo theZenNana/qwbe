@@ -50,6 +50,17 @@ const group = HttpApiGroup.make("links")
   )
   .middleware(Authorization)
 
+/**
+ * The permission each route requires, declared ONCE (QWB-54, ticket 10): the manifest
+ * publishes it through the kernel's metadata and the handlers below check through this same
+ * object, so renaming a permission moves enforcement and publication together.
+ */
+const ROUTES = {
+  entities: "links:read",
+  for: "links:read",
+  group: "links:read",
+} as const
+
 /** We do not want the rows, only `total`. Limit 1 because 0 is meaningless and would be capped. */
 const COUNT_ONLY = pageRequest({ offset: 0, limit: 1 })
 
@@ -61,20 +72,21 @@ export const cube = defineCube(group, {
     tables: [],
     requiresAuth: true,
     permissions: [{ name: "links:read", roles: ["admin", "reader"] }],
+    routes: ROUTES,
   },
 
   create: () => ({
     handlers: {
       entities: () =>
         Effect.gen(function* () {
-          yield* requirePermission("links:read")
+          yield* requirePermission(ROUTES.entities)
           const registry = yield* Registry
           return registry.entities()
         }),
 
       for: ({ path }: { path: { entity: string; id: string } }) =>
         Effect.gen(function* () {
-          yield* requirePermission("links:read")
+          yield* requirePermission(ROUTES.for)
           const registry = yield* Registry
           const user = yield* CurrentUser
 
@@ -112,7 +124,7 @@ export const cube = defineCube(group, {
         urlParams: typeof PageParams.Type
       }) =>
         Effect.gen(function* () {
-          yield* requirePermission("links:read")
+          yield* requirePermission(ROUTES.group)
           const registry = yield* Registry
 
           const g = registry.linksTo(path.entity).find((x) => x.cube === path.cube)

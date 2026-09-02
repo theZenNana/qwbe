@@ -10,6 +10,12 @@ import type { MetadataDeclarations } from "./metadata/declarations.ts"
 export type CubeManifest = Manifest & MetadataDeclarations
 
 export type { CommandSpec, CubeTools } from "./kernel/manifest.ts"
+// Two manifest-shaped things a pack needs and could otherwise only reach by importing kernel
+// internals (QWB-54, when the contract started refusing that at boot): the decoder for the
+// `qwbe/cube.enabled` payload a subscriber receives, and the kernel's own manifest validation,
+// so a pack can hold its manifest to the same rule in its own test.
+export { decodeCubeEnabled } from "./kernel/manifest.ts"
+export { validateManifest } from "./kernel/manifest-validation.ts"
 export type { IdentityDirectory } from "./permissions-contracts.ts"
 
 export type CubeDefinition<Group extends CubeGroup = CubeGroup, Provided = never> = {

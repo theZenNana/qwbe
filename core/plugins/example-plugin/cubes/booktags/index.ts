@@ -11,9 +11,9 @@
 
 import { HttpApiEndpoint, HttpApiGroup } from "@effect/platform"
 import { Effect, Schema } from "effect"
+import { Authorization, requirePermission } from "qwbe-core/auth"
 import { type CubeTools, defineCube } from "qwbe-core/cube"
-import { Authorization, requirePermission } from "../../../../src/kernel/auth-contract.ts"
-import { Forbidden } from "../../../../src/kernel/errors.ts"
+import { Forbidden } from "qwbe-core/errors"
 
 const ChildInfo = Schema.Struct({
   name: Schema.String,

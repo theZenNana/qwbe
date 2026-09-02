@@ -7,10 +7,11 @@
 import assert from "node:assert/strict"
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { basename, join } from "node:path"
 import { after, describe, it } from "node:test"
 
-import { checkPackageSource } from "./package-contract.ts"
+import { pluginsDir } from "./kernel/scan.ts"
+import { assertPackageContracts, checkPackageSource } from "./package-contract.ts"
 
 const makePackage = (mutate?: (root: string) => void): string => {
   const root = mkdtempSync(join(tmpdir(), "qwbe-package-contract-"))
@@ -247,7 +248,7 @@ describe("package contract checker", () => {
     assert.deepEqual(pairs(findings), [["readonly-write", "source.ts"]])
   })
 
-  it("hierarchy: a child without parent or dataMigration fails", async () => {
+  it("hierarchy: a child without a parent fails -- and an absent dataMigration is honest (ticket 08)", async () => {
     const root = build((r) => {
       writeFileSync(
         join(r, "cubes", "demo", "kid", "index.ts"),
@@ -255,10 +256,10 @@ describe("package contract checker", () => {
       )
     })
     const findings = await checkPackageSource(root, { hierarchy: true })
-    assert.deepEqual(pairs(findings), [
-      ["hierarchy", "cubes/demo/kid/index.ts"],
-      ["hierarchy", "cubes/demo/kid/index.ts"],
-    ])
+    // One finding only: the missing parent. A child with NO dataMigration declares honestly
+    // that it has no predecessor -- the old "must declare dataMigration" rule is what forced
+    // the invented migration ticket 08 killed (QWB-54).
+    assert.deepEqual(pairs(findings), [["hierarchy", "cubes/demo/kid/index.ts"]])
   })
 
   it("hierarchy: a parent without screen fails", async () => {
@@ -289,5 +290,60 @@ describe("package contract checker", () => {
     })
     const findings = await checkPackageSource(root, { hierarchy: true })
     assert.deepEqual(pairs(findings), [["hierarchy", "cubes/demo/index.ts"]])
+  })
+})
+
+// The boot gate (QWB-54). The checker resolves a package by NAME under core/plugins, so its
+// fixture has to live there rather than in a temp directory. The name starts with a dot, which
+// discovery skips: a boot running beside this test cannot mount the broken package.
+describe("the boot gate", () => {
+  it("refuses a package whose cube imports a built-in from a SUBDIRECTORY", async () => {
+    const dir = mkdtempSync(join(pluginsDir, ".contract-gate-"))
+    tmpRoots.push(dir)
+    mkdirSync(join(dir, "cubes", "bad", "lib"), { recursive: true })
+    writeFileSync(join(dir, "qwbe-package.json"), JSON.stringify({ name: "bad", kind: "plugin", cubes: ["bad"] }))
+    writeFileSync(join(dir, "cubes", "bad", "index.ts"), `export const cube = { manifest: { name: "bad" } }\n`)
+    writeFileSync(
+      join(dir, "cubes", "bad", "lib", "deep.ts"),
+      `import { readFileSync } from "node:fs"\nexport const peek = readFileSync\n`,
+    )
+    await assert.rejects(
+      () => assertPackageContracts([{ plugin: basename(dir) }]),
+      /cube-builtins: cubes\/bad\/lib\/deep\.ts -- node:fs imported by the cube/,
+    )
+  })
+
+  it("says nothing about the packages that keep the contract", async () => {
+    await assertPackageContracts([{ plugin: null }, { plugin: "example-plugin" }])
+  })
+
+  // An INSTALLED package keeps its manifest in the store, not next to its cubes. A probe that
+  // plants a store of its own (`QWBE_STORE_DIR`) must not make the real store invisible: the
+  // first time one did, the boot refused with "package manifest is missing" about a package
+  // that was fine, and every probe after it in the chain never ran.
+  it("finds an installed package's manifest in the real store even when the override is empty", async () => {
+    const dir = mkdtempSync(join(pluginsDir, ".contract-store-"))
+    tmpRoots.push(dir)
+    const plugin = basename(dir)
+    mkdirSync(join(dir, "cubes", "shelved"), { recursive: true })
+    writeFileSync(join(dir, "cubes", "shelved", "index.ts"), 'export const cube = { manifest: { name: "shelved" } }\n')
+    const store = join(pluginsDir, "..", "store", plugin)
+    mkdirSync(store, { recursive: true })
+    tmpRoots.push(store)
+    writeFileSync(
+      join(store, "qwbe-package.json"),
+      JSON.stringify({ name: plugin, kind: "plugin", cubes: ["shelved"] }),
+    )
+
+    const empty = mkdtempSync(join(tmpdir(), "qwbe-empty-store-"))
+    tmpRoots.push(empty)
+    const previous = process.env.QWBE_STORE_DIR
+    process.env.QWBE_STORE_DIR = empty
+    try {
+      await assertPackageContracts([{ plugin }])
+    } finally {
+      if (previous === undefined) delete process.env.QWBE_STORE_DIR
+      else process.env.QWBE_STORE_DIR = previous
+    }
   })
 })
