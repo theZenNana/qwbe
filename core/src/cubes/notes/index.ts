@@ -23,12 +23,7 @@ import { migrateLegacyNotes, visibleNotesPage } from "./permissions.ts"
 const TABLE = "notes"
 const ENTITY = "Note"
 
-/**
- * The permission each route requires, declared ONCE: the manifest publishes it through the
- * kernel's metadata and the handlers below check through this same object (QWB-54, ticket
- * 10). Renaming a permission is editing this object and the `permissions` list -- nothing
- * else in the system holds the name, so nothing can be left behind.
- */
+// Route permissions, published by the metadata and checked by the handlers (see metadata/declarations.ts).
 const ROUTES = {
   list: "notes:read",
   get: "notes:read",

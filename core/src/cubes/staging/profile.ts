@@ -33,14 +33,14 @@ export const totalRowsStatement = (setId: string): SqlStatement => ({
 
 /** Example values are truncated to this length IN SQL (`left`) AND again in JS. A profile is
  *  a shape summary, not a data export: whole raw values -- names, addresses, note bodies --
- *  must never reach a `staging:read` caller (QWB-45 review, blocker 3). */
+ *  must never reach a `staging:read` caller. */
 export const TOP_MAX_CHARS = 40
 
 /** ONE pass over the set for ONE field: fill, distinct, and the shape buckets.
  *  The empty string is NOT a filled value (it must not inflate fillRate to 100% nor land in
- *  the value buckets -- QWB-45 review, item 7), and `other_distinct` counts distinct values
+ *  the value buckets), and `other_distinct` counts distinct values
  *  restricted to the leftover (non-number/date/email/phone) bucket, which is what the
- *  enum-vs-text decision actually reads (QWB-45 review, item 17). */
+ *  enum-vs-text decision actually reads. */
 export const fieldStats = (field: string, setId: string): SqlStatement => ({
   text: `SELECT count(v) FILTER (WHERE v <> '')::int AS filled,
            count(DISTINCT v) FILTER (WHERE v <> '')::int AS distinct_values,

@@ -22,8 +22,8 @@ export class CurrentUser extends Context.Tag("cubes/CurrentUser")<
     readonly roles: ReadonlyArray<string>
     readonly permissions: ReadonlyArray<string>
     /**
-     * Which session made this request. The middleware carries it next to the user (QWB-54,
-     * ticket 21) so `auth:logout` can drop exactly that session instead of every session of
+     * Which session made this request. The middleware carries it next to the user
+     * so `auth:logout` can drop exactly that session instead of every session of
      * the account -- logging out on the phone must not log the laptop out.
      */
     readonly sessionId: string
@@ -65,7 +65,7 @@ export const readPermissionOf = (cube: string): string => `${cube}:read`
  * The permission a route demands, from the manifest's one declaration. `list` falls back to
  * the kernel's read convention. `null` means, explicitly, "decided per request in the handler"
  * (catalog's per-cube read, auth's session-level logout). This is the ONE derivation the
- * metadata publishes, the generic list enforces and the mount wrapper enforces (QWB-54, 14c).
+ * metadata publishes, the generic list enforces and the mount wrapper enforces.
  */
 export const declaredPermission = (
   routes: Readonly<Record<string, string | null>> | undefined,

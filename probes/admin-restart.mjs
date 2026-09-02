@@ -49,7 +49,7 @@ child.on("exit", (code, signal) => (exited = { code, signal }))
 
 const answers = async (url) => {
   try {
-    // The API spec is behind authentication (QWB-41); 401 still means "listening".
+    // The API spec is behind authentication; 401 still means "listening".
     const r = await fetch(url)
     return r.ok || r.status === 401
   } catch {

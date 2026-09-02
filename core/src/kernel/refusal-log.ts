@@ -1,20 +1,8 @@
-// Every refused request says so, once, at the point it leaves the kernel.
-//
-// Until 2026-08-31 a 401 or a 403 left no trace at all. The owner was thrown out of a frontend
-// seconds after logging in and nothing in the kernel's output said that a token had been
-// refused, which token, or where it came from. (The cause was a session cookie shared between
-// two stacks on localhost -- browsers do not scope cookies by port -- so the kernel kept being
-// handed a token it had never issued. Refusing was right; refusing silently was not.)
-//
-// One middleware rather than an edit at each refusal site. Every 401 and 403 in the system
-// leaves through a response, so this sees all of them -- the auth middleware's, the permission
-// check's, an entity-sharing refusal inside a cube, and any that gets written next year. There
-// is no way to add a silent one. The reason travels in the error body the cube already
-// produces, so no cube has to learn that logging exists.
-//
-// The token is NEVER logged, not even truncated: a truncated token is still a secret, just a
-// shorter one. What is logged is `sha256(token)` cut to 12 hex characters -- stable, so two
-// attempts carrying the same token correlate in the log, and worthless to whoever reads it.
+// Every refused request says so, once, at the point it leaves the kernel. One middleware,
+// not an edit at each refusal site: every 401 and 403 in the system leaves through a
+// response, so this sees all of them. The token is NEVER logged, not even truncated (a
+// truncated token is still a secret); what is logged is sha256(token) cut to 12 hex
+// characters -- stable across attempts, worthless to whoever reads it.
 
 import { createHash } from "node:crypto"
 import { HttpMiddleware, HttpServerRequest, type HttpServerResponse } from "@effect/platform"

@@ -1,7 +1,7 @@
-// The request fold, split out of runtime-composition.ts (QWB-54 ticket 05: the file was at its
-// cap). This is the one wrapper that owns the custom-value POLICY at request time:
+// The request fold, split out of runtime-composition.ts. This is the one wrapper that owns
+// the custom-value POLICY at request time:
 //
-//   - defect 4: the definitions come from the provider's OWN STORE, read per request through
+//   - the definitions come from the provider's OWN STORE, read per request through
 //     the registered reader (custom-defs-reader.ts). An in-process snapshot is stale the moment
 //     a second API instance on the same database defines a field, and its silent failure used
 //     to skip validation. A failed read dies here -- the request answers 500, it does not

@@ -8,7 +8,7 @@
 // what it held before. And a sub-directory without an index.ts next to the children must be
 // ignored, not imported.
 //
-// Since QWB-44 the data lives in one Postgres schema per cube, so the planted history is a
+// The data lives in one Postgres schema per cube, so the planted history is a
 // set of schemas in a scratch database, and a mid-batch rollback is no longer reachable from
 // the outside (a schema rename has no filesystem permission to deny) -- that path is covered
 // by the unit test in core/src/kernel/migrate.test.ts, which injects a failing renamer.

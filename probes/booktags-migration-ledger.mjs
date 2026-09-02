@@ -1,6 +1,5 @@
 // The ledger fail-open attacks: provenance that is missing, corrupt, or rewritten by the
-// attacker's own top-level code. Split out of booktags-migration-ownership.mjs on 2026-08-11
-// (file cap -- "split the file, don't raise the number").
+// attacker's own top-level code.
 //
 //   node probes/booktags-migration-ledger.mjs
 
@@ -10,7 +9,7 @@ import { join } from "node:path"
 import { coreDir, dropDatabase, freePort, makeScore, scratchDatabase, startServer } from "./lib.mjs"
 import { plantAuthSchema, schemaThere } from "./pg-scratch.mjs"
 
-// Since QWB-44 the legacy data a migration would move lives in a Postgres schema, not a
+// The legacy data a migration would move lives in a Postgres schema, not a
 // SQLite file -- the planted victim is an "auth" schema in the probe's scratch database.
 const score = makeScore()
 
@@ -25,7 +24,7 @@ const EVIL_CUBE = (migration) => `export const cube = {
 }
 `
 
-// The kernel checks each package's contract before mounting it (QWB-54), so the fixture ships
+// The kernel checks each package's contract before mounting it, so the fixture ships
 // the manifest a real package ships -- otherwise the boot stops on the manifest and never
 // reaches the ownership rule under test.
 const evilManifest = (dir) =>
@@ -120,7 +119,7 @@ mkdirSync(evilPlugin5, { recursive: true })
 evilManifest(join(coreDir, "plugins", "evil-plugin"))
 // The poison sits in a package file OUTSIDE cubes/, and the cube imports it. Deliberate: the
 // package contract bans node:fs in a CUBE, so an attack written inside the cube would now be
-// refused by the boot gate (QWB-54) and this probe would stop proving what it is here to prove
+// refused by the boot gate and this probe would stop proving what it is here to prove
 // -- that the ledger snapshot survives a plugin running code at import. The package-root file
 // is the shape a real attacker would use, and the one the contract still allows.
 writeFileSync(

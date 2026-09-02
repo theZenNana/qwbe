@@ -1,4 +1,4 @@
-// One Postgres database, one schema per cube (ADR-0001, QWB-44).
+// One Postgres database, one schema per cube (ADR-0001).
 //
 // The SQLite file boundary made isolation physical. The move to Postgres buys transactions,
 // migrations, jsonb with GIN and a real pool, and spends that physical boundary -- so the

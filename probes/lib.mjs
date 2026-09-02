@@ -88,9 +88,8 @@ export const freePort = () =>
 /**
  * A throwaway Postgres database for one server run.
  *
- * What was here before: QWBE_DATA_DIR pointed the server at a scratch DIRECTORY of SQLite
- * files. Since QWB-44 the store is one Postgres database (ADR-0001), so the equivalent
- * isolation is a fresh database, created here and dropped when the server stops. A probe that
+ * The store is one Postgres database (ADR-0001), so the isolation is a fresh
+ * database, created here and dropped when the server stops. A probe that
  * needs to inspect or plant state in the database itself sets QWBE_DATABASE_URL itself and
  * startServer leaves it alone.
  */
@@ -161,7 +160,7 @@ export const startServer = async (port, env = {}) => {
         },
       }
     try {
-      // The spec is behind authentication (QWB-41), so 401 counts as "listening" too.
+      // The spec is behind authentication, so 401 counts as "listening" too.
       const r = await fetch(`http://127.0.0.1:${port}/openapi.json`)
       if (r.status === 200 || r.status === 401) {
         return {

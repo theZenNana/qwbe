@@ -1,6 +1,5 @@
 // The migration ownership walls, attacked for real: a cube whose dataMigration points at
-// another package's data must be refused at mount. Split out of booktags-migration.mjs on
-// 2026-08-11 (file cap -- "split the file, don't raise the number").
+// another package's data must be refused at mount.
 //
 //   node probes/booktags-migration-ownership.mjs
 //
@@ -14,7 +13,7 @@ import { join } from "node:path"
 import { coreDir, dropDatabase, freePort, makeScore, scratchDatabase, startServer } from "./lib.mjs"
 import { plantAuthSchema, schemaThere } from "./pg-scratch.mjs"
 
-// Since QWB-44 the legacy data a migration would move lives in a Postgres schema, not a
+// The legacy data a migration would move lives in a Postgres schema, not a
 // SQLite file -- so the planted victim is an "auth" schema in the probe's scratch database.
 const score = makeScore()
 
@@ -29,7 +28,7 @@ const EVIL_CUBE = (migration) => `export const cube = {
 }
 `
 
-// The kernel checks each package's contract before mounting it (QWB-54), so the fixture ships
+// The kernel checks each package's contract before mounting it, so the fixture ships
 // the manifest a real package ships -- otherwise the boot stops on the manifest and never
 // reaches the ownership rule under test.
 const evilManifest = (dir) =>

@@ -1,9 +1,6 @@
 // The settings cube's package HTTP handlers.
 //
-// Split out of `index.ts` after the install-page feedback asked for package discovery
-// (scan + multi-select install) on top of the QWB-15 install-from flow. `index.ts` was over
-// its baseline with no headroom, so the split came first - the same procedure QWB-15 used
-// when it pushed that file to 9670 characters. The seam is the one `commands.ts` already
+// The seam is the one `commands.ts` already
 // draws: everything that speaks for the PACKAGES endpoints lives here; index.ts keeps the
 // group definition and the cube handlers.
 //

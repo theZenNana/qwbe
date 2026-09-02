@@ -26,7 +26,7 @@ type Manifest = {
 // was half-open -- `import { readFileSync } from "fs"` slipped through (see the comment at
 // `cubes-may-not-touch-storage-directly` in `core/.dependency-cruiser.cjs`). Depcruise never
 // runs over a pack repo, so for a pack this checker is the only net; it must not be half-open.
-// `net` and `http` joined the list with the boot gate (QWB-54): a cube reaches the network
+// `net` and `http` are in the list: a cube reaches the network
 // through the kernel's HTTP surface, never by opening its own socket or listening server.
 const BUILTIN_ROOTS = ["fs", "fs/promises", "child_process", "worker_threads", "module", "vm", "sqlite", "net", "http"]
 

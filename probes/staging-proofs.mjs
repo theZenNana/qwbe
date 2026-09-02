@@ -1,5 +1,4 @@
-// The two proofs the QWB-45 review required, as their own probe (split from staging-life.mjs
-// for the size cap):
+// Two proofs, as their own probe:
 //
 //   1. a multi-chunk CSV import whose rows come back intact -- split a file mid-way, import it
 //      in two chunks, and assert every row, every field name and a matching parsed counter;

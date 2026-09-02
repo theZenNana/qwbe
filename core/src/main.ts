@@ -39,7 +39,7 @@ const fail = (e: Error, code: number): never => {
   process.exit(code)
 }
 
-// Browser origins for CORS (QWB-42): parse, warn on the unset default, exit on malformed
+// Browser origins for CORS: parse, warn on the unset default, exit on malformed
 // values -- all in origins.ts.
 const ALLOWED_ORIGINS: ReadonlyArray<string> = originsForStartup(process.env.QWBE_ALLOWED_ORIGINS)
 
@@ -114,7 +114,7 @@ const api = buildApi(system!.cubes)
 verifyLedgerUnchanged(ledgerRead)
 writeLedger(ledgerRead, [
   ...system!.cubes.map((c) => ({ name: c.name, plugin: c.plugin })),
-  // Each completed migration's source stays attributable (QWB-54 ticket 08): the ledger
+  // Each completed migration's source stays attributable: the ledger
   // records it under the declaring package, so the next boot -- its source schema now
   // renamed away -- still passes the ownership rules without the operator's env.
   ...migrations.map((m) => ({ name: m.fromCube, plugin: m.declaredBy })),
@@ -151,7 +151,7 @@ const RegistryLive = registryFrom(entries, system!.liveLinks, system!.isEnabled,
 //
 // They get the registry too: the auth cube reads user data the same way any cube would --
 // through the registry, never by opening the account cube's database.
-// The ONE audited type-erasure seam (QWB-19): with runtime discovery kept, the exact union of
+// The ONE audited type-erasure seam: with runtime discovery kept, the exact union of
 // services cube layers provide is unknowable to TypeScript. Providers are checked per cube at
 // `CubeParts.layers` (Provided inferred at defineCube, requirements bounded to `Registry`);
 // this adapter widens the provided side so `mergeAll` accepts a dynamic list. The only cast
@@ -204,12 +204,11 @@ const GatedOpenApi = HttpApiBuilder.Router.use((router) =>
 )
 
 const ServerLive = HttpApiBuilder.serve((app) =>
-  // Owner, 2026-08-31: no refusal leaves this server silently. `logRefusals` sits OUTSIDE
-  // the disabled-cube filter, so it sees the final status of every request, whoever produced it.
+  // logRefusals sits outside the disabled-cube filter so it sees every final status.
   HttpMiddleware.logger(logRefusals(rejectDisabled(system!.cubes, system!.isEnabled)(app))),
 ).pipe(
-  // QWB-42: browser origins come from QWBE_ALLOWED_ORIGINS. Unset means ["*"], the
-  // pre-QWB-42 behaviour, so local development needs no configuration. With the variable
+  // Browser origins come from QWBE_ALLOWED_ORIGINS. Unset means ["*"], no restriction, so
+  // local development needs no configuration. With the variable
   // set, unlisted origins get no access-control-allow-origin header and the browser blocks
   // them. Note: this is CORS, a browser enforcement only -- it is NOT authentication, and
   // non-browser clients never send an Origin at all. The matcher (array vs predicate) is

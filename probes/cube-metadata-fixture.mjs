@@ -58,7 +58,7 @@ export const cube = {
 export const writeFixture = (extraField, version) => {
   rmSync(fixtureRoot, { recursive: true, force: true })
   mkdirSync(fixtureCube, { recursive: true })
-  // The kernel checks the package contract of every plugin it mounts (QWB-54), so the fixture
+  // The kernel checks the package contract of every plugin it mounts, so the fixture
   // ships the manifest a real package ships -- otherwise the boot it is testing never happens.
   writeFileSync(
     join(fixtureRoot, "qwbe-package.json"),

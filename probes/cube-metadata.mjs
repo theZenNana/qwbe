@@ -1,4 +1,4 @@
-// Probe: per-cube field metadata (QWB-41).
+// Probe: per-cube field metadata.
 //
 // Green: the endpoint answers per cube, the response matches the generated OpenAPI, the
 // relation `partyId` on crm/contracts resolves to crm/contacts with its summary mechanism,

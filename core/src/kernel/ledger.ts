@@ -1,7 +1,6 @@
 // The provenance ledger -- who OWNS each store file, recorded by the kernel at mount.
 //
-// Split out of migrate.ts on 2026-08-11 (size cap -- "split the file, don't raise the number").
-// Made fail-closed the same day after review round 4: a ledger that cannot be read is not an
+// Fail-closed: a ledger that cannot be read is not an
 // empty ledger, it is a stopped boot.
 //
 // A manifest can SAY anything. The answer to "whose file is this" must come from somewhere the

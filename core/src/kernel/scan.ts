@@ -1,7 +1,6 @@
 // The disk walk behind `discover`: which cube directories exist, and under which parent.
 //
-// Split out of discovery.ts on 2026-08-11 (size cap -- the rule is "split the file, don't
-// raise the number"). The hierarchy rules live here because they ARE the walk: a cube
+// The hierarchy rules live here because they ARE the walk: a cube
 // directory whose subdirectories are themselves cubes is a PARENT, children are addressed
 // `<parent>/<child>`, and discovery is one level deep only (docs/booktags-hierarchy.md).
 

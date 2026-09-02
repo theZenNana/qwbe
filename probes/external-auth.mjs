@@ -1,10 +1,10 @@
-// Auth for external origins (QWB-42): the token lifecycle over HTTP, and the CORS
+// Auth for external origins: the token lifecycle over HTTP, and the CORS
 // allowlist read from QWBE_ALLOWED_ORIGINS.
 //
 //   node probes/external-auth.mjs
 //
 // Two servers are started, each in its own scratch data directory on its own free port:
-// one with the allowlist set, one with the variable unset (the pre-QWB-42 default, which
+// one with the allowlist set, one with the variable unset (the default, which
 // must keep working). CORS is checked by sending an Origin header like a browser would
 // and reading back `access-control-allow-origin` -- the header the browser enforces on.
 
@@ -62,7 +62,7 @@ try {
   score.check("no token at all -> 401", noToken.status === 401, `http=${noToken.status}`)
 
   // With the variable unset the allowlist is ["*"]: any Origin must get the literal `*`
-  // header, exactly the pre-QWB-42 behaviour.
+  // header.
   const wildcard = await preflightOn(PORT1)("http://evil.example")
   score.check("unset variable, any origin -> allow header is *", wildcard === "*", `header=${wildcard}`)
 } finally {
@@ -187,4 +187,4 @@ for (const [value, message] of [
   dropScratch(dataDir)
 }
 
-process.exit(score.report("external-auth (QWB-42)"))
+process.exit(score.report("external-auth"))

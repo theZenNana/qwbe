@@ -136,8 +136,8 @@ try {
   let errorName = ""
   try {
     // Lazy: the Effect must actually be RUN for the throw to happen. Running it is the point -
-    // otherwise the probe would pass without testing anything. The store is async now (QWB-44),
-    // so the throw surfaces through runPromise as a die whose message names the error.
+    // otherwise the probe would pass without testing anything. The store is async, so the
+    // throw surfaces through runPromise as a die whose message names the error.
     await Effect.runPromise(storeFor("notes", ["notes"]).all("accounts"))
   } catch (e) {
     threw = true

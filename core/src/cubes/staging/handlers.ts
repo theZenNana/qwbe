@@ -87,7 +87,7 @@ export const stagingHandlers = (tools: CubeTools, batched: BatchStore) => {
           const applied = applyChunk(set, payload.text, payload.startLine)
           // A batch that throws must not leave the set `importing` forever: the state flips to
           // `failed` in the SAME breath as the error propagates, so a half-imported set never
-          // reports as importable-or-complete (QWB-45 review, blocker 4). The error itself
+          // reports as importable-or-complete. The error itself
           // still surfaces as a defect -- the caller sees the 500, the set sees the state.
           yield* batched
             .batch(applied.statements)
@@ -100,7 +100,7 @@ export const stagingHandlers = (tools: CubeTools, batched: BatchStore) => {
           yield* requirePermission(ROUTES.finish)
           const set = yield* loadSet(store, path.id)
           // Only an importing set can be finished: `done` on a failed (or already done) set
-          // would stamp completion over a half-import (QWB-45 review, blocker 4).
+          // would stamp completion over a half-import.
           if (set.state !== "importing") {
             return yield* Effect.fail(new BadRequest({ message: `set ${set.id} is ${set.state}, not importing` }))
           }
@@ -122,7 +122,7 @@ export const stagingHandlers = (tools: CubeTools, batched: BatchStore) => {
           const set = yield* loadSet(store, path.id)
           // The rows table is created lazily; profile's batch does not create it, so touch it
           // first or a set with no chunk ever posted 500s with "relation rows does not exist"
-          // (QWB-45 review, item 11).
+          // (a set with no chunk ever posted 500s with "relation rows does not exist" otherwise).
           yield* store.count(TABLES.rows)
           return yield* profileHandler(batched, set)
         }),

@@ -37,11 +37,7 @@ const group = HttpApiGroup.make("account")
   .add(HttpApiEndpoint.post("create")`/account`.setPayload(AccountCreate).addSuccess(Account).addError(Forbidden))
   .middleware(Authorization)
 
-/**
- * The permission each route requires, declared ONCE (QWB-54, ticket 10): the manifest
- * publishes it through the kernel's metadata and the handlers below check through this same
- * object, so renaming a permission moves enforcement and publication together.
- */
+// Route permissions, published by the metadata and checked by the handlers (see metadata/declarations.ts).
 const ROUTES = {
   list: "account:read",
   get: "account:read",
@@ -49,7 +45,7 @@ const ROUTES = {
 } as const
 
 // Named, because the generic list handler reads its `searchable` and `relations` to build the
-// query it serves (QWB-54): the manifest is the contract, so the handler must see it.
+// query it serves: the manifest is the contract, so the handler must see it.
 const manifest = {
   name: "account",
   // Opts the cube into the metadata drift gate (see src/metadata/schema-drift.ts). 1.1.0 is
@@ -60,9 +56,8 @@ const manifest = {
   // Deliberately NOT `passwordHash`. Ordering by it returned 200 to an ordinary reader and
   // leaked information about a value that never appears in any response.
   sortable: ["username", "displayName", "email"],
-  // QWB-54: the same three fields answer `?q=` and `?username=` on the list. Same reasoning as
-  // `sortable` -- a hash is never among them. Declaring this changed the published field
-  // metadata, which is why `version` went to 1.1.0 above.
+  // The same three fields answer `?q=` and `?username=` on the list. Same reasoning as
+  // `sortable` -- a hash is never among them.
   searchable: ["username", "displayName", "email"],
   requiresAuth: true,
   required: true,
@@ -149,7 +144,7 @@ export const cube = defineCube(group, {
       ],
 
       handlers: {
-        // The kernel's list, not this cube's (QWB-54). Every parameter in the contract works
+        // The kernel's list, not this cube's. Every parameter in the contract works
         // here because none of them is implemented here.
         list: genericList<AccountRow, ReturnType<typeof publicShape>>({
           cube: "account",

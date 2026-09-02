@@ -1,5 +1,4 @@
-// Shared context for the customfields handlers, split out (QWB-46: split the file, never raise
-// the cap). The in-memory snapshot exists because the kernel's provider registry is a
+// Shared context for the customfields handlers. The in-memory snapshot exists because the kernel's provider registry is a
 // synchronous read while definitions live in the store; it is refreshed on load and on every
 // write, so the catalogue's custom metadata and the orphan report see current definitions.
 
@@ -13,7 +12,7 @@ type Store = CubeTools["store"]
 
 /** The live in-memory snapshot the kernel's provider reads; refreshed on load and on every write.
  *
- * QWB-54 ticket 05 (defect 4): this snapshot feeds ONLY the catalogue's metadata provider --
+ * this snapshot feeds ONLY the catalogue's metadata provider --
  * a synchronous read that cannot reach the store. VALUE VALIDATION no longer rides on it: the
  * fold reads the definitions from the store per request through the registered defs reader, so
  * a second API instance on the same database sees new definitions immediately, and a failed

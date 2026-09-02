@@ -1,4 +1,4 @@
-// ONE list handler, generated from the manifest, for every cube that lists rows (QWB-54).
+// ONE list handler, generated from the manifest, for every cube that lists rows.
 //
 // What it replaces: the kernel published `searchable` in the metadata, a frontend built a filter
 // box out of it and sent the value to the list route -- but `searchable` described the `/links`
@@ -142,7 +142,7 @@ export const genericList =
   <A, B = A>(config: GenericList<A, B>) =>
   ({ urlParams }: { urlParams: ListParamsType }) =>
     Effect.gen(function* () {
-      // The ONE derivation (QWB-54, 14c): the same `declaredPermission` the metadata publishes
+      // The ONE derivation: the same `declaredPermission` the metadata publishes
       // through. `??` is only for the type -- `validateRoutes` refuses `list: null` at mount.
       yield* requirePermission(
         declaredPermission(config.manifest.routes, config.cube, "list") ?? readPermissionOf(config.cube),

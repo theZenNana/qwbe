@@ -6,8 +6,8 @@
 // makes that visible where a green tick would not.
 //
 // The package under test is a renamed copy of example-plugin, planted in a temp store by
-// lifecycle-bench.mjs. The steps are the ones the crm-pack version walked until QWB-13:
-// install does not mount, restart mounts, the cube works, uninstall does not crash the live
+// lifecycle-bench.mjs. The steps: install does not mount, restart mounts, the cube works,
+// uninstall does not crash the live
 // server, restart removes.
 
 import { existsSync } from "node:fs"

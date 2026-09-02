@@ -31,11 +31,10 @@ export { ForeignTableError } from "./errors.ts"
 /**
  * The row a handler returns IS the response body, and it must equal what was stored: the
  * `body` column is written with JSON.stringify, which drops keys whose value is undefined,
- * while a spread keeps them present-but-undefined. The published row contract (QWB-46) reads
+ * while a spread keeps them present-but-undefined. The published row contract reads
  * `custom` as an optional sub-object, so a row carrying `custom: undefined` -- a handler
- * passing "no custom values" the natural way -- fails response encoding. The generic probes
- * (QWB-54 ticket 08) were the first client to create a row with no custom values at all and
- * hit this. Drop such keys where every row return routes through.
+ * passing "no custom values" the natural way -- fails response encoding. Drop such keys
+ * where every row return routes through.
  */
 const asStored = <A extends Record<string, unknown>>(row: A): A =>
   Object.fromEntries(Object.entries(row).filter(([, v]) => v !== undefined)) as A
@@ -152,7 +151,7 @@ export const storeFor = (
           const current = await c.query(`SELECT * FROM ${q(schemaName(cube))}.${q(t)} WHERE id = $1`, [id])
           if (!current.rows[0]) return undefined
           const merged = { ...decode(current.rows[0] as Record<string, unknown>), ...patch }
-          // QWB-46: `custom` merges (rows.ts), so a partial PATCH cannot wipe sibling values.
+          // `custom` merges (rows.ts), so a partial PATCH cannot wipe sibling values.
           const withCustom = mergeCustom(current.rows[0] as Record<string, unknown>, merged)
           const { id: _i, type, createdAt, deleted, ...body } = withCustom
           const version = ((current.rows[0] as { version: number }).version ?? 1) + 1
@@ -164,7 +163,7 @@ export const storeFor = (
           )
           // ADR-0001 section 5 lists delete as its own op: a soft delete is not an update.
           await c.query(outboxInsert(cube, t, id, deleted === true ? "delete" : "update", version))
-          // Review fix 6 (QWB-46): the row stores the MERGE, so the response must too -- a
+          // The row stores the MERGE, so the response must too -- a
           // PATCH response reporting `custom` as only the patched keys would lie about the row.
           return asStored({ ...withCustom, id })
         })

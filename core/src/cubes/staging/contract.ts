@@ -3,12 +3,7 @@
 
 import { Schema } from "effect"
 
-/**
- * The permission each route requires, declared ONCE (QWB-54, ticket 10): the manifest
- * publishes this object through the kernel's metadata and the handlers in handlers.ts check
- * through the same names, so renaming a permission moves enforcement and publication
- * together.
- */
+// Route permissions, published by the metadata and checked by the handlers (see metadata/declarations.ts).
 export const ROUTES = {
   createSet: "staging:write",
   listSets: "staging:read",
@@ -51,11 +46,11 @@ export const SetCreate = Schema.Struct({
  * CONTRACT: a chunk must end on a LINE BOUNDARY. A client that splits by byte size will get
  * two spurious "invalid JSON" (or wrong-column) entries at wrong line numbers and two silently
  * lost records -- splitting mid-line is a client bug, stated here so the refusal is documented
- * rather than mysterious (QWB-45 review, item 19).
+ * rather than mysterious.
  *
  * The text is capped: one request may not hold a whole file in JS, expand to thousands of
  * INSERT statements and pin a pool connection for the length of the batch -- split the file
- * into more chunks instead (QWB-45 review, item 6). */
+ * into more chunks instead. */
 export const MAX_CHUNK_CHARS = 2_000_000
 
 export const ChunkPayload = Schema.Struct({

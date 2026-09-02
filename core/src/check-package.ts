@@ -1,24 +1,5 @@
-// `qwbe check <dir>` -- the one entry point that says whether a package is done (QWB-54
-// ticket 03). The kernel runs the same four stages, in the same order, for every package:
-//
-//   1. source      -- the boot-time package contract, THE SAME CODE the kernel runs at mount
-//                     (`checkPackageSource`, no options), so a pack cannot pass here and fail
-//                     at boot, or the other way round.
-//   2. caps        -- the size caps read from the INSTALLED kernel's qwbe.config.json. A
-//                     qwbe.config.json inside the package is an error, not an override: the
-//                     numbers belong to the kernel, and a pack that could rewrite them would be
-//                     writing its own rules again.
-//   3. runtime     -- the kernel is booted in a sandbox with the package mounted, and the
-//                     package's own probes/*.mjs run against that kernel. A missing or empty
-//                     probes/ is an error: a package that never runs proves nothing.
-//   4. invocation  -- how the package asked to be checked. `scripts.test` must be exactly
-//                     `qwbe check .`; `dependencies["qwbe-core"]` must not point at a checkout
-//                     (`file:`, `link:`, `github:`); and `require.resolve("qwbe-core")` from the
-//                     package must land on a real install under its own node_modules -- which
-//                     catches `npm link`, whose symlink resolves outside the package.
-//
-// The library returns data; `bin/qwbe.mjs` prints it. The stages fail fast, all findings of the
-// failing stage together, so the first thing a pack author reads is the stage that stopped them.
+// `qwbe check <dir>` -- the one entry point that says whether a package is done. The four
+// stages are listed in bin/qwbe.mjs usage.
 
 import { spawn, spawnSync } from "node:child_process"
 import { randomBytes } from "node:crypto"
@@ -55,7 +36,7 @@ type RuntimeEvidence = {
   readonly booted: boolean
   readonly url: string
   readonly probes: ReadonlyArray<ProbeRun>
-  /** The generic probes (QWB-54, ticket 08): how many assertions ran and how many findings
+  /** The generic probes: how many assertions ran and how many findings
    *  they raised. Absent when the stage stopped before them. */
   readonly generic?: { readonly checks: number; readonly findings: number }
 }
@@ -352,7 +333,7 @@ const runtimeStage = async (dir: string): Promise<CheckReport> => {
     evidence.booted = true
     evidence.url = `http://127.0.0.1:${port}`
 
-    // The generic probes (QWB-54, ticket 08) run FIRST, against the booted kernel, before the
+    // The generic probes run FIRST, against the booted kernel, before the
     // package's own probes: they are derived from the package's own declarations, so a pack
     // cannot skip, weaken or pre-empt them. An invented dataMigration never reaches this
     // point at all -- the ownership rules refuse it at boot. The declarations dump reads the

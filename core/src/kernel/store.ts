@@ -1,4 +1,4 @@
-// The store, over one Postgres database with a schema per cube (ADR-0001, QWB-44).
+// The store, over one Postgres database with a schema per cube (ADR-0001).
 //
 // What was here before was one SQLite file PER CUBE, and the file boundary made the isolation
 // physical rather than polite: another cube's data was not in a table this connection could
@@ -62,7 +62,7 @@ export const checkUniqueTables = (
   }
 }
 
-// --- QWB-46: the tool for the one cube declaring `providesCustomFields` ---
+// --- the tool for the one cube declaring `providesCustomFields` ---
 //
 // `register` feeds the catalogue's provider registry (catalogue.ts); `rows` reads a target
 // cube's rows through the target's OWN store -- its schema, its role, the same trusted

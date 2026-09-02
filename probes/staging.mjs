@@ -3,7 +3,7 @@
 //
 // Starts its own server on a free port against its own throwaway database (see lib.mjs).
 
-// The drift check (QWB-45 review, item 16) imports the REAL detector module: the same source
+// The drift check imports the REAL detector module: the same source
 // file feeds the JS RegExp below and the SQL `~` patterns inside the kernel, so if they ever
 // disagree, this import is the place it shows.
 import { shapeOf } from "../core/src/cubes/staging/shapes.ts"

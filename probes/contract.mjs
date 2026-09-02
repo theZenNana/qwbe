@@ -31,7 +31,7 @@ try {
   score.check("the spec rejects anonymous callers", (await api.call("/openapi.json")).status === 401)
 
   // The inventory below guards the kernel's own API -- core cubes plus the committed
-  // example-plugin fixture. Cubes mounted from an INSTALLED package (QWB-28/29) extend the
+  // example-plugin fixture. Cubes mounted from an INSTALLED package extend the
   // surface at runtime; their contract is the package's own probe, not this inventory. Their
   // routes are filtered out by cube prefix so the gate stays green both ways.
   const catalogue = await api.call("/settings/cubes", { headers: session.headers })

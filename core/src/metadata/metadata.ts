@@ -60,7 +60,7 @@ const routeContracts = (cubeName: string, group: unknown, m: DeclaredManifest): 
     out[name] = {
       auth: groupAuth || own,
       permission: declaredPermission(m.routes, cubeName, name),
-      // Read from the endpoint's own contract (QWB-54, ticket 08): what a route demands and
+      // Read from the endpoint's own contract: what a route demands and
       // WHERE it lives are one published fact, not two -- a probe or a frontend derived from
       // metadata can call the route without guessing its spelling.
       method: typeof shaped.method === "string" ? shaped.method : "",
@@ -150,7 +150,7 @@ export const deriveCubeMetadata = (
   return {
     cube: cube.name,
     entity: m.entity ?? null,
-    // QWB-54. Derived, never declared: a cube that publishes a `list` endpoint gets the whole
+    // Derived, never declared: a cube that publishes a `list` endpoint gets the whole
     // contract the kernel's generic handler serves, out of the same manifest declarations.
     // `schemaHash` deliberately does NOT cover it -- the hash is about the row's SHAPE, which is
     // what a cached form would be wrong about, and the query contract changes nothing there.

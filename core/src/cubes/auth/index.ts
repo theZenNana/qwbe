@@ -80,7 +80,7 @@ export const cube = defineCube(group, {
     // Session-level, any authenticated user, so there is no named permission to require.
     // `logout` drops the CALLER's own session (the id the middleware carries next to the
     // user); `me` answers with the CALLER's own session data. The explicit nulls declare
-    // those per-request decisions (QWB-54, 14c) -- an undeclared route behind Authorization
+    // those per-request decisions -- an undeclared route behind Authorization
     // would be refused at boot as "forgotten".
     routes: { logout: null, me: null },
     publishes: ["auth.loggedIn", "auth.loggedOut"],
@@ -119,9 +119,8 @@ export const cube = defineCube(group, {
      * which does have the registry) keeps working. So the service is resolved ONCE while the
      * layer is being built, and closed over.
      */
-    // Owner, 2026-08-31: a refusal that says only "invalid or expired token" is why an hour was
-    // lost to a session cookie two stacks were sharing. The four ways to fail are now four
-    // different words, and they reach the log through the refusal body (kernel/refusal-log.ts).
+    // The four ways to fail are four different words, and they reach the log through the
+    // refusal body (kernel/refusal-log.ts).
     type Validated = { readonly user: CurrentUser["Type"] } | { readonly reason: string }
 
     const makeValidate =
@@ -154,7 +153,7 @@ export const cube = defineCube(group, {
               roles,
               permissions: permissionsFor(roles),
               // The row's own id travels with the user: it is what makes per-session logout
-              // possible (QWB-54, ticket 21) instead of logout-everywhere.
+              // possible instead of logout-everywhere.
               sessionId: s.id,
             },
           }

@@ -1,12 +1,9 @@
 // Data migrations between cube schemas, DECLARED by packages and executed by the kernel.
 //
-// Split out of discovery.ts on 2026-08-11 when the hierarchy work pushed that file past its
-// size cap. Rewritten the same day after review: no list of cube names lives here any more --
-// a migration is a `dataMigration` entry in a package's manifest, checked at mount against the
+// A migration is a `dataMigration` entry in a package's manifest, checked at mount against the
 // mounted set and the package's provenance.
 //
-// QWB-44 moved the store from one SQLite file per cube to one Postgres schema per cube, and
-// the migration moved with it. What was a file rename is now a schema rename -- and a schema
+// The store is one Postgres schema per cube, so a migration is a schema rename -- and a schema
 // rename in Postgres is metadata, so the rows move byte for byte with no copying at all:
 //
 //   ALTER SCHEMA "old" RENAME TO "new"   (plus the matching role rename)

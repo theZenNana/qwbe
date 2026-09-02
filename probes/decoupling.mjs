@@ -53,7 +53,7 @@ try {
   const pluginCubeDir = join(probePluginDir, "cubes", PROBE_PLUGIN_CUBE)
   mkdirSync(pluginCubeDir, { recursive: true })
   // A plugin is a PACKAGE, and the kernel checks the package contract of every package it
-  // mounts (QWB-54): it declares its cubes in a manifest and reaches qwbe only through the
+  // mounts: it declares its cubes in a manifest and reaches qwbe only through the
   // public subpaths. The core cube above keeps its relative kernel imports - it is core.
   writeFileSync(
     join(probePluginDir, "qwbe-package.json"),

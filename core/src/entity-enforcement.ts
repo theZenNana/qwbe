@@ -91,7 +91,7 @@ export const enforceEntityHandlers = <Handlers extends Readonly<Record<string, u
           const user = yield* CurrentUser
           if (!isRecord(request) || !isRecord(request.urlParams))
             return yield* Effect.die("entity list needs paging params")
-          // The SAME reading of the query the generic list handler does (QWB-54), so `page` and
+          // The SAME reading of the query the generic list handler does, so `page` and
           // `pageSize` mean here what they mean everywhere else. Read once, at the top: the
           // inner calls below are driven with an offset of this wrapper's own choosing.
           const asked = listPageRequest(request.urlParams)

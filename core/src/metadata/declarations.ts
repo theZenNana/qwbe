@@ -22,7 +22,7 @@ export type MetadataDeclarations = {
   readonly relations?: Readonly<Record<string, { readonly target: string }>>
   /**
    * The permission each of this cube's own routes requires, by ENDPOINT NAME (`list`,
-   * `create`, ...). The declaration IS the enforcement (QWB-54, 14c): the mount wrapper in
+   * `create`, ...). The declaration IS the enforcement: the mount wrapper in
    * `runtime-composition.ts` requires exactly what an entry declares before the handler runs,
    * and the metadata publishes the same derivation -- so a handler that forgets
    * `requirePermission` is still a 403, and renaming a permission in the kernel moves
@@ -40,11 +40,9 @@ export type MetadataDeclarations = {
   readonly routes?: Readonly<Record<string, string | null>>
 }
 
-// --- QWB-54: the same two functions answer "what may a caller filter by" for BOTH the served
+// --- The same two functions answer "what may a caller filter by" for BOTH the served
 // list (kernel/list.ts) and the published metadata (metadata.ts). They live here, next to the
-// declarations they read, precisely so the two answers cannot drift apart -- which is what the
-// ticket is about: `searchable` used to describe the /links route while every cube's list
-// handler decided the query string on its own.
+// declarations they read, precisely so the two answers cannot drift apart.
 
 /** A field name that can be an SQL identifier or a jsonb key without quoting games. */
 const SAFE_FIELD = /^[A-Za-z_][A-Za-z0-9_]*$/

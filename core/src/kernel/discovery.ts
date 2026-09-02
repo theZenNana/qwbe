@@ -90,7 +90,7 @@ export const loadDefinitions = async (): Promise<
     if (p && !expanded.has(p)) expanded.add(p)
   }
   const mounting = onDisk.filter((c) => expanded.has(c.name))
-  // The package contract, enforced by the kernel rather than by the pack (QWB-54). Runs before
+  // The package contract, enforced by the kernel rather than by the pack. Runs before
   // the first plugin import below, so a package that breaks it never executes.
   await assertPackageContracts(mounting)
 
@@ -160,10 +160,9 @@ type MountedSystem = {
 export const mount = (
   definitions: ReadonlyArray<{ name: string; plugin: string | null; definition: CubeDefinition }>,
   spaces: ReadonlyArray<SpaceDefinition>,
-  // QWB-44: storage boot (Postgres init plus declared data migrations) moved to main.ts via
-  // bootStorage, and the ledger parameter mount used to swallow with `void ledger` is gone
-  // with it -- the only remaining caller is main.ts, AFTER bootStorage succeeded. Mounting
-  // against an unmigrated database is therefore unreachable from this module.
+  // Storage boot (Postgres init plus declared data migrations) happens in main.ts via
+  // bootStorage; the only remaining caller of mount is main.ts, AFTER bootStorage succeeded.
+  // Mounting against an unmigrated database is therefore unreachable from this module.
 ): MountedSystem => {
   const manifests = definitions.map((d) => d.definition.manifest)
 

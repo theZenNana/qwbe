@@ -1,17 +1,17 @@
-// Measuring a PACKAGE against the kernel's size caps, for `qwbe check` (QWB-54 ticket 03).
+// Measuring a PACKAGE against the kernel's size caps, for `qwbe check`.
 //
 // The caps live in the kernel's qwbe.config.json and the kernel measures ITSELF with
 // `probes/sizecaps.mjs`. A pack is measured by the same numbers, never by numbers of its own:
 // that is the whole point of the check command -- a pack cannot write its own rules. This
 // module is therefore deliberately the same walk and the same character count as
 // `probes/size-lib.mjs` (the pack-facing half of it: walk, measure, judge against caps). The
-// two must not drift; the follow-up ticket that opens `qwbe-core/size` as a public subpath
-// (QWB-54 ticket 25) is where the copies become one file.
+// two must not drift; opening `qwbe-core/size` as a public subpath is where the copies become
+// one file.
 //
 // One unit is one cube directory: a pack's `cubes/` children, walked recursively. The same
 // exemptions as the kernel's own gate apply: tests do not count, `node_modules` and friends are
 // skipped at any depth, and a `frontend/` nested INSIDE a cube counts like any other source --
-// only the pack's TOP-level `frontend/` is outside the contract (QWB-40), and this walk never
+// only the pack's TOP-level `frontend/` is outside the contract, and this walk never
 // starts there.
 
 import { type Dirent, readdirSync, readFileSync } from "node:fs"
@@ -51,7 +51,7 @@ const walk = (dir: string, { includeTests = false, top = true } = {}): string[] 
   }
   for (const e of entries) {
     if (e.name.startsWith(".") || SKIP_DIR.has(e.name)) continue
-    // `frontend` at the TOP of the walk is the pack's UI, outside the cube contract (QWB-40).
+    // `frontend` at the TOP of the walk is the pack's UI, outside the cube contract.
     // Nested `frontend/` counts like any other source -- a one-directory bypass across the
     // whole tree would be exactly the hole the kernel's own gate once had.
     if (top && e.name === "frontend") continue

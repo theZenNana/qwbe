@@ -1,4 +1,4 @@
-// The STORE-DRIFT probe - the store must provably hold what its sources hold (QWB-54 ticket 22).
+// The STORE-DRIFT probe - the store must provably hold what its sources hold.
 //
 //   node probes/store-drift.mjs
 //

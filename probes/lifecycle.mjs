@@ -19,8 +19,7 @@
 //      login works, the catalogue answers. "Gone" must not mean "broken".
 //
 // The package under test is a renamed copy of example-plugin, planted in a temp store by
-// `lifecycle-bench.mjs` (the crm-pack version of this probe ended with QWB-13: the packs left
-// the repo, and the example is the one plugin that remains). The install step writes the copy
+// `lifecycle-bench.mjs`. The install step writes the copy
 // into `core/plugins/lifecycle-plugin/` - a directory the repo never had - and the uninstall
 // step takes it back off. Nothing committed is ever deleted; a SHA-256 fingerprint of the
 // source tree before and after proves the probe left nothing behind.

@@ -1,4 +1,4 @@
-// Drift between a store shelf and the source it came from (QWB-54 ticket 22). A shelf is
+// Drift between a store shelf and the source it came from. A shelf is
 // trustworthy only while it is provably what its source holds: the provenance file records the
 // fingerprint at staging, and this module re-computes both sides - the source NOW and the shelf
 // NOW - against that record. Any mismatch is a verdict, not a warning: `qwbe drift` turns it

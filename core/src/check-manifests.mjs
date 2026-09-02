@@ -1,4 +1,4 @@
-// The declarations dump -- one input of the generic probes (QWB-54, ticket 08).
+// The declarations dump -- one input of the generic probes.
 //
 // Spawned by `qwbe check` (check-package.ts) against the package being judged. Imports each
 // cube's entry module the way discovery does and reports what the cube DECLARED about itself:

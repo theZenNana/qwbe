@@ -1,6 +1,6 @@
 // Route ownership -- what makes prefix-based switching sound.
 //
-// Split out of mount.ts on 2026-08-11 (size cap): the checks that tie a cube's URL prefix
+// The checks that tie a cube's URL prefix
 // to its identity, plus the errors they throw. `rejectDisabled` matches on the first path
 // segment, so that segment must belong to exactly one cube -- these are the gates that make
 // the match exact instead of hopeful.

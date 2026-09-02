@@ -1,9 +1,8 @@
-// The definition-CRUD half of the customfields handlers (QWB-46: split the file, never raise
-// the cap). The values half lives in values.ts.
+// The definition-CRUD half of the customfields handlers. The values half lives in values.ts.
 //
 // Definitions are stored HERE, in this cube's own table. Deleting one is a soft delete of the
 // DEFINITION ONLY: the values live in the target rows' own bodies, are impossible to touch from
-// here by construction, and become orphans that the orphans report surfaces (QWB-46 step 5).
+// here by construction, and become orphans that the orphans report surfaces.
 
 import { Effect } from "effect"
 import { requirePermission } from "qwbe-core/auth"
@@ -50,7 +49,7 @@ export const definitionHandlers = (tools: PackTools, snapshot: Snapshot) => {
         // A field on a cube that is not there would be invisible and unexplained. The
         // catalogue is metadata the kernel hands every cube; nothing is imported to read it.
         // The kernel's catalogue is the authority: a definition for a cube that is not mounted
-        // is refused at the door instead of becoming an orphan no one can see (QWB-46 step 4).
+        // is refused at the door instead of becoming an orphan no one can see.
         const known = catalogue().map((c) => c.name)
         if (!known.includes(p.targetCube)) {
           return yield* Effect.fail(
@@ -62,9 +61,9 @@ export const definitionHandlers = (tools: PackTools, snapshot: Snapshot) => {
         if (p.targetCube === "customfields") {
           return yield* Effect.fail(new BadRequest({ message: "customfields cannot add fields to itself" }))
         }
-        // Review fix 9 (QWB-46): a definition named like a DECLARED field can never hold a
-        // value -- the kernel's fold never touches declared keys -- and publishing it would
-        // advertise two fields under one name. Refused at the door.
+        // A definition named like a DECLARED field can never hold a value -- the kernel's
+        // fold never touches declared keys -- and publishing it would advertise two fields
+        // under one name.
         const published = catalogue().find((c) => c.name === p.targetCube)?.metadata?.fields ?? []
         if (published.some((f) => f.name === p.name)) {
           return yield* Effect.fail(
@@ -121,7 +120,7 @@ export const definitionHandlers = (tools: PackTools, snapshot: Snapshot) => {
         if (!current) {
           return yield* Effect.fail(new NotFound({ message: `no custom field ${path.id}` }))
         }
-        // Soft delete of the DEFINITION ONLY (QWB-46 step 5). The values live in the target
+        // Soft delete of the DEFINITION ONLY. The values live in the target
         // rows' own bodies; touching them from here is impossible by construction and wrong by
         // design -- they become orphans, reported by the orphans report, never silently deleted.
         yield* store.update(DEFS, path.id, { deleted: true })

@@ -1,6 +1,5 @@
 // The CLI gate and the on/off switches -- the two longest stretches of the smoke probe.
 //
-// Split out of `smoke.mjs` on 3 Aug 2026, when it stood at 8418 characters against a 6000 cap.
 // The probe measures a system that has grown; the file measuring it grew with it. Splitting on
 // the section comments that were already there beat inventing a new arrangement.
 //

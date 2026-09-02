@@ -2,7 +2,7 @@
 //
 //   node probes/install-from.mjs
 //
-// QWB-15 added the one door through which a caller hands the system a PATH:
+// The one door through which a caller hands the system a PATH:
 // POST /settings/packages/install-from (and the CLI twin `settings:install-from`). The kernel
 // validates, stages a copy into the store, and installs from there - nothing executes from the
 // source. This probe attacks that door from every side the plan named: relative path, missing

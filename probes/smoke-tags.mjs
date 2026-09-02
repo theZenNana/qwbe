@@ -1,6 +1,6 @@
 // The plugin's second cube, checked over HTTP: same rules as any cube, and the relation the
-// space declares between it and bookmarks answers. Split out of smoke.mjs on 10 Aug 2026 when
-// that file grew past the 6000-char cap - the checks are the plugin half of the smoke run.
+// space declares between it and bookmarks answers. The checks are the plugin half of the
+// smoke run.
 
 export const secondCubeAndRelation = async ({ api, score, H, bookmarkId, cubes }) => {
   const tag = await api.call("/tags", {

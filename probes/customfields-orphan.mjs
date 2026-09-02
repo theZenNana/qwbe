@@ -1,5 +1,4 @@
-// The customfields walk, phase 2 (QWB-46): split out of the probe driver because the file
-// passed the size cap -- the rule is "split the file, never raise the cap".
+// The customfields walk, phase 2: the orphan report and the restart-survival checks.
 //
 // Covers: the values survive a RESTART (still in the row, read through the target's own API),
 // the metadata STILL publishes the definitions after that restart (review fix 19 -- the
@@ -18,8 +17,8 @@ export const walkPhase2 = async ({ score, asAdmin2, entryId, cube }) => {
     `http=${readAfterRestart.status} custom=${JSON.stringify(readAfterRestart.body?.custom)}`,
   )
 
-  // Review fix 19: the metadata check used to live only in phase 1, so a snapshot that came
-  // back empty after a restart was invisible to this probe. Assert it again here.
+  // A snapshot that comes back empty after a restart must be visible to THIS probe too, not
+  // only to phase 1. Assert the metadata here as well.
   let metadataField
   for (let i = 0; i < 10 && !metadataField; i++) {
     const meta = await asAdmin2(`/catalog/${encodeURIComponent(cube)}/metadata`)

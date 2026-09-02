@@ -1,7 +1,7 @@
 // The installer's leaf internals, split out of `install.ts` for the per-file size cap:
 // the path guards and allowed destinations, the package-independent lifecycle methods
 // (cubeOnDisk, remove, restart), and the Effect bridge that turns strict TypeScript throws
-// into `InstallError` on the error channel (QWB-19). Everything here imports from the
+// into `InstallError` on the error channel. Everything here imports from the
 // manifest and the package grammar; nothing imports it back except `install.ts` itself,
 // which keeps the store reader and the install/stage/uninstall engine.
 
@@ -55,7 +55,7 @@ export const toInstallError = (e: unknown): InstallError =>
 
 /**
  * The installer speaks Effect at its face: every refusal travels as `InstallError` in the
- * error channel (QWB-19), while the body stays ordinary strict TypeScript over the filesystem.
+ * error channel, while the body stays ordinary strict TypeScript over the filesystem.
  * One `Effect.try` per public method is the whole bridge -- no throw escapes past this line.
  */
 export const tried = <A>(run: () => A): Effect.Effect<A, InstallError> =>

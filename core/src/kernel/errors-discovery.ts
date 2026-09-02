@@ -1,5 +1,4 @@
 // The discovery-time errors, shared by scan.ts (the walk) and discovery.ts (the mount).
-// Split out of discovery.ts on 2026-08-11, same size-cap split as scan.ts.
 
 export class BrokenCubeError extends Error {
   constructor(name: string, cause: string) {

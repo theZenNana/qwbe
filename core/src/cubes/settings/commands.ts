@@ -1,7 +1,6 @@
 // The settings cube's CLI commands.
 //
-// Split out of `index.ts` on 10 Aug 2026, when QWB-15's `settings:install-from` pushed that
-// file to 9670 code characters against a 6000 cap. The seam is the one the cube contract
+// The seam is the one the cube contract
 // already draws: HTTP handlers stay with the routes, command specs live here. Both receive the
 // same `installer` capability - if the two adapters ever disagree about what the kernel said,
 // that is the bug, not the arrangement.

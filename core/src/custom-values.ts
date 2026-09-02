@@ -1,4 +1,4 @@
-// The custom-field VALUE policy, pure and testable (QWB-46 review fixes 1, 2, 3, 7, 14, 15).
+// The custom-field VALUE policy, pure and testable.
 //
 // Values live in the target row's `custom` sub-object, written through the TARGET cube's own
 // API. That write path is only honest if three things hold, and all three live here:
@@ -32,7 +32,7 @@ export const MAX_CUSTOM_BYTES = 8192
 /**
  * One custom object against BOTH caps -- the key count and the serialized size.
  *
- * This is the one place the caps are written (QWB-54 ticket 05): the request fold uses it on
+ * This is the one place the caps are written: the request fold uses it on
  * what the request carried, and the store's `custom` merge uses it on the MERGED result, so a
  * PATCH that adds a few keys at a time cannot walk a row past the cap one request at a time.
  */
@@ -95,11 +95,11 @@ export const checkCustomValue = (def: CustomFieldDef, value: unknown): string | 
  * Move undeclared payload keys into `payload.custom` -- or refuse the request.
  *
  * `defs` is the cube's ACTIVE custom-field definitions, read at request time: an empty list
- * means the fold is OFF (undeclared keys are stripped, the pre-QWB-46 behavior), and a key
+ * means the fold is OFF (undeclared keys are stripped, the no-custom-fields behavior), and a key
  * with no definition is a 400, not a silent store. Declared keys -- including a field the
  * cube literally named `custom` -- are never touched.
  *
- * `mode` is the one function's two callers (QWB-54 ticket 05, defect 1): "create" iterates
+ * `mode` is the one function's two callers: "create" iterates
  * the DEFINITIONS, so a required field with no value in the request is a 400 before the row
  * exists; "patch" keeps the old semantics, where only a key that is PRESENT and empty is
  * refused -- a partial patch must never demand siblings it does not mention.

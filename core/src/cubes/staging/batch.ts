@@ -5,8 +5,8 @@
 // batched transactions instead of one transaction per row, and a delete must clear two tables
 // in ONE transaction. The six-operation CubeStore cannot express any of the three.
 //
-// HOW it stays safe: the batch is a DECLARED capability (`usesBatch: true` in the manifest --
-// QWB-45 review, item 9): only cubes that ask get a store with `batch` on it, and
+// HOW it stays safe: the batch is a DECLARED capability (`usesBatch: true` in the manifest):
+// only cubes that ask get a store with `batch` on it, and
 // `grep -r usesBatch` returns the complete list of holders. Each batch runs inside one
 // transaction under the cube's OWN role -- a statement aimed at another cube's schema dies in
 // Postgres with a permission error, the same engine-enforced boundary every other operation

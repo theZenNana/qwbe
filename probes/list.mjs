@@ -1,5 +1,5 @@
-// Probe: the generic list, on a table the size of the data this system is being built for
-// (QWB-54). 60,000 rows -- the order of the CRM import (about 60k organizations, 74k contacts).
+// Probe: the generic list, on a table the size of the data this system is being built for.
+// 60,000 rows -- the order of the CRM import (about 60k organizations, 74k contacts).
 //
 // Three rows prove a code path and nothing about the design. At 60k, a filter that runs in
 // JavaScript instead of SQL, a COUNT nobody measured, and an offset deep in the table all show

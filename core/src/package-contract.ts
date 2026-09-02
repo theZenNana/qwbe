@@ -87,11 +87,7 @@ const hierarchyFindings = async (root: string, cubes: readonly string[]): Promis
         message: `child cube must declare parent: "${parentName}"`,
       })
     }
-    // A child WITHOUT a dataMigration declares honestly that it has no predecessor (QWB-54
-    // ticket 08): the old "must declare dataMigration" rule forced exactly that invention --
-    // crm/accounts answered it with a migration from a cube that never existed. The
-    // protection moved where it belongs: the kernel's ownership rules refuse any declared
-    // source the ledger cannot attribute, at boot and in `qwbe check` alike.
+    // No dataMigration rule here: the kernel's ledger judges declared sources at boot.
   }
   // A cube is addressed by its path; its manifest must say the same thing. The old per-pack
   // test copies pinned `manifest.name` by hand; now every pack gets the check for free.
@@ -133,12 +129,8 @@ export const checkPackageSource = async (
 // the same override kernel/install.ts honours, read per call because probes set it per server.
 const manifestRootFor = (root: string, plugin: string): string | undefined => {
   if (existsSync(join(root, "qwbe-package.json"))) return undefined
-  // BOTH stores, override first. The override exists so a probe can plant a store of its own;
-  // it is not a statement that the real store stopped existing. Reading only the override
-  // stopped the whole kernel the first time a probe pointed `QWBE_STORE_DIR` at an empty temp
-  // directory while an ALREADY INSTALLED package kept its manifest in the real one --
-  // `probes/permissions.mjs`, on a machine with crm-pack installed. The boot refused with
-  // "package manifest is missing" about a package that was perfectly fine.
+  // Both stores, override first: QWBE_STORE_DIR is a probe's extra store, not a replacement
+  // of the real one.
   for (const store of [process.env.QWBE_STORE_DIR, join(pluginsDir, "..", "store")]) {
     if (store === undefined) continue
     const candidate = join(store, plugin)
@@ -148,9 +140,7 @@ const manifestRootFor = (root: string, plugin: string): string | undefined => {
 }
 
 /**
- * The boot gate (QWB-54). Until now the contract was a test a pack CHOSE to run from its own
- * repository -- and a pack that chose not to simply wrote weaker rules of its own, which is
- * exactly what happened. The kernel now runs the same checker itself, over every package a
+ * The boot gate: the kernel runs the same checker itself, over every package a
  * mount is about to load, in every mode: a pack cannot skip a check it does not execute.
  *
  * Called from `loadDefinitions` BEFORE the first `import()` of a plugin module, so a package

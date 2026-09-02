@@ -5,7 +5,7 @@ import { detailBehaviour } from "./booktags-detail-fixtures.mjs"
 
 /**
  * Plant one flat, pre-hierarchy bookmarks SCHEMA. What was a SQLite file named
- * bookmarks.sqlite is, since QWB-44, a Postgres schema named "bookmarks" with the same table
+ * bookmarks.sqlite is a Postgres schema named "bookmarks" with the same table
  * -- the exact shape the kernel's data migration (a schema rename) expects to find.
  */
 export const plantLegacyBookmarks = async (dbUrl) => {

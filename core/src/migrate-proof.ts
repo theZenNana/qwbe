@@ -1,6 +1,4 @@
-// Proof helpers for the SQLite-to-Postgres migration tool. Split out of
-// migrate-sqlite-to-pg.ts (QWB-44 review) when the review fixes pushed the file past its
-// recorded cap -- same unit, two files, cap not raised.
+// Proof helpers for the SQLite-to-Postgres migration tool.
 //
 // `canonical` is the one honest caveat of the jsonb column, stated where it is used: jsonb
 // normalises whitespace and key order, so "byte for byte" means byte-for-byte equal AFTER
