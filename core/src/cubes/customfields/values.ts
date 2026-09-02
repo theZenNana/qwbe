@@ -10,13 +10,13 @@ import { Effect } from "effect"
 import { requirePermission } from "qwbe-core/auth"
 import { checkCustomValue } from "qwbe-core/custom-values"
 import { BadRequest } from "qwbe-core/errors"
-import { customFieldsTool, definitionsFor, type PackTools } from "./context.ts"
+import { definitionsFor, type PackTools } from "./context.ts"
 import { displayValue, orphanValues, ROUTES } from "./schema.ts"
 
 /** Definitions plus the row's current values, which is what a form actually needs. */
 export const rowFields = (tools: PackTools, cube: string, rowId: string) =>
   Effect.gen(function* () {
-    const customFields = customFieldsTool(tools)
+    const customFields = tools.customFields
     const defs = yield* definitionsFor(tools.store, cube)
     // ONE row's values are read with `WHERE id = $1`. The full
     // walk exists for the orphan report, which genuinely needs every row -- a form render
@@ -102,7 +102,7 @@ export const valuesHandlers = (tools: PackTools) => ({
       // target cube's own read permission on top of the admin gate.
       yield* requirePermission(`${cube}:read`)
       const defs = yield* definitionsFor(tools.store, cube)
-      const rows = yield* customFieldsTool(tools).rows(cube)
+      const rows = yield* tools.customFields.rows(cube)
       return { cube, orphans: orphanValues(defs, rows) }
     }),
 })

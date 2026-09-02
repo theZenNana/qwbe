@@ -22,42 +22,13 @@
 // does, because its list is filtered per row by entity permissions.
 
 import { HttpServerRequest } from "@effect/platform"
-import { Effect, Option, Schema } from "effect"
-import type { MetadataDeclarations } from "../metadata/declarations.ts"
-import { filterFields, searchFields } from "../metadata/declarations.ts"
+import { Effect, Option } from "effect"
+import { filterFields, type ListParamsType, type MetadataDeclarations, searchFields } from "../metadata/declarations.ts"
 import { declaredPermission, readPermissionOf, requirePermission } from "./auth-contract.ts"
 import type { CubeStore } from "./manifest.ts"
-import { DEFAULT_LIMIT, type ListWhere, MAX_LIMIT, type PageRequest, pageRequest, SortField } from "./pagination.ts"
+import { DEFAULT_LIMIT, type ListWhere, MAX_LIMIT, type PageRequest, pageRequest } from "./pagination.ts"
 
-/** `field` or `field:asc` or `field:desc`. Rejected in the schema, so a bad value is a 400 with
- *  a reason in the emitted OpenAPI -- not a silently ignored parameter. */
-const SORT = /^[A-Za-z_][A-Za-z0-9_]*(:(asc|desc))?$/
-
-/**
- * The fixed half of the list query. The `<field>=<value>` half is NOT declared here on purpose:
- * it differs per cube, and a Schema.Struct built per cube would make every list endpoint's type
- * depend on its manifest at compile time for a gain the metadata already delivers. The handler
- * reads those from the raw query string and accepts only the names `filterFields` allows.
- */
-export const ListParams = Schema.Struct({
-  // The older four, WITHOUT the defaults `PageParams` gives them. A default would make
-  // "the caller asked for 25" and "the caller said nothing" the same value, and the rules
-  // below (the `ids=` batch size, and the entity-permission wrapper driving this handler
-  // with an offset of its own) both need to tell those apart.
-  offset: Schema.optional(Schema.NumberFromString),
-  limit: Schema.optional(Schema.NumberFromString),
-  sortBy: Schema.optional(SortField),
-  descending: Schema.optional(Schema.BooleanFromString),
-  page: Schema.optional(Schema.NumberFromString),
-  pageSize: Schema.optional(Schema.NumberFromString),
-  sort: Schema.optional(
-    Schema.String.pipe(Schema.pattern(SORT, { message: () => "sort must be `field`, `field:asc` or `field:desc`" })),
-  ),
-  q: Schema.optional(Schema.String),
-  ids: Schema.optional(Schema.String),
-})
-
-export type ListParamsType = typeof ListParams.Type
+export { ListParams, type ListParamsType } from "../metadata/declarations.ts"
 
 /** The query string as plain strings. Empty when no request is in context -- a command, a test. */
 export const rawQuery: Effect.Effect<Record<string, string>, never, never> = Effect.map(

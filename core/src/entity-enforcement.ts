@@ -96,7 +96,7 @@ export const enforceEntityHandlers = <Handlers extends Readonly<Record<string, u
           // inner calls below are driven with an offset of this wrapper's own choosing.
           const asked = listPageRequest(request.urlParams)
           const requestedOffset = asked.offset
-          const requestedLimit = Math.min(MAX_LIMIT, Math.max(1, asked.limit))
+          const requestedLimit = asked.limit
           const visible: Array<unknown> = []
           let sourceOffset = 0
           let template: Record<string, unknown> | undefined

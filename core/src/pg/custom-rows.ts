@@ -9,20 +9,15 @@
 // reportable") quietly false. Each row carries its `deleted` flag so the report can say which.
 
 import { Effect } from "effect"
+import type { CustomRowView } from "../custom-defs-reader.ts"
 import { ensureCubeSchema, ensureTable, q, schemaName, withRole } from "./setup.ts"
-
-type CustomRow = {
-  readonly id: string
-  readonly custom: Record<string, unknown>
-  readonly deleted: boolean
-}
 
 /** Page size for the scan: bounded memory per step, few round trips. */
 const PAGE = 500
 
-export const customRows = (cube: string, tables: ReadonlyArray<string>): Effect.Effect<ReadonlyArray<CustomRow>> =>
+export const customRows = (cube: string, tables: ReadonlyArray<string>): Effect.Effect<ReadonlyArray<CustomRowView>> =>
   Effect.promise(async () => {
-    const out: Array<CustomRow> = []
+    const out: Array<CustomRowView> = []
     for (const t of tables) {
       await ensureCubeSchema(cube)
       await ensureTable(schemaName(cube), t)
@@ -59,7 +54,7 @@ export const customRowById = (
   cube: string,
   tables: ReadonlyArray<string>,
   id: string,
-): Effect.Effect<CustomRow | undefined> =>
+): Effect.Effect<CustomRowView | undefined> =>
   Effect.promise(async () => {
     for (const t of tables) {
       await ensureCubeSchema(cube)

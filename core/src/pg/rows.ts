@@ -54,8 +54,7 @@ export const orderClause = (sortBy: string | undefined, descending: boolean, sor
  *
  * The generic list handler's whole vocabulary -- several equalities, a batch of ids, a prefix
  * search -- is built HERE, in SQL, and never by reading rows and filtering them in JavaScript.
- * The single-pair
- * shape still works and means the same thing; `relational.search` still passes it.
+ * One pair or the full ListWhere.
  */
 /** Bind a value and return the placeholder it got. The order of calls IS the parameter order. */
 const bind = (params: Array<unknown>, value: unknown): string => {

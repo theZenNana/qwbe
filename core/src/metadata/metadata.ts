@@ -22,7 +22,7 @@ import { Authorization, declaredPermission } from "../kernel/auth-contract.ts"
 import { EntityMeta } from "../kernel/entity.ts"
 import { DEFAULT_LIMIT, MAX_LIMIT } from "../kernel/pagination.ts"
 import { classify, encodedLiteralOf, entityStructOf, groupEndpoints } from "./ast.ts"
-import { filterFields, type MetadataDeclarations, searchFields } from "./declarations.ts"
+import { filterFields, LIST_PARAMS, type MetadataDeclarations, searchFields } from "./declarations.ts"
 import type { CubeMetadata, FieldMetadata, RouteContract } from "./schemas.ts"
 
 export type { MetadataDeclarations } from "./declarations.ts"
@@ -156,7 +156,7 @@ export const deriveCubeMetadata = (
     // what a cached form would be wrong about, and the query contract changes nothing there.
     list: groupEndpoints(cube.parts.group).list
       ? {
-          params: ["page", "pageSize", "sort", "q", "ids"],
+          params: LIST_PARAMS,
           paging: "offset",
           totalIsExact: true,
           maxPageSize: MAX_LIMIT,

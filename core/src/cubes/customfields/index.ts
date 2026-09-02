@@ -35,7 +35,7 @@ import { Authorization } from "qwbe-core/auth"
 import { type CubeTools, defineCube } from "qwbe-core/cube"
 import { BadRequest, Forbidden, NotFound } from "qwbe-core/errors"
 import { PageOf } from "qwbe-core/http"
-import { customFieldsTool, definitionsFor, type PackTools, refreshSnapshot, type Snapshot } from "./context.ts"
+import { definitionsFor, type PackTools, refreshSnapshot, type Snapshot } from "./context.ts"
 import { definitionHandlers } from "./handlers.ts"
 import {
   byPosition,
@@ -146,7 +146,7 @@ export const cube = defineCube(group, {
     Effect.runFork(refreshSnapshot(store, snapshot))
 
     // The kernel publishes these definitions as custom metadata of each target cube.
-    customFieldsTool(tools).register((cube) =>
+    tools.customFields.register((cube) =>
       snapshot.current
         .filter((d) => d.targetCube === cube)
         .sort(byPosition)
@@ -158,7 +158,7 @@ export const cube = defineCube(group, {
     // above stays only for the catalogue's synchronous metadata read; validation must see
     // definitions defined through ANY instance of the API, and a failed read must fail the
     // request rather than validate on empty.
-    customFieldsTool(tools).registerDefsReader((target) =>
+    tools.customFields.registerDefsReader((target) =>
       Effect.map(definitionsFor(store, target), (rows) => rows.map(toDefinition)),
     )
 
@@ -202,8 +202,7 @@ export const cube = defineCube(group, {
             Effect.gen(function* () {
               const cube = args[0]
               if (!cube) return "usage: customfields:orphans <cube>"
-              const defs = yield* store.all<DefRow>(DEFS)
-              const active = defs.filter((d) => d.deleted === false && d.targetCube === cube).sort(byPosition)
+              const active = yield* definitionsFor(store, cube)
               const rows = yield* customFields.rows(cube)
               const orphans = orphanValues(active, rows)
               return orphans.map((o) => `${o.rowId}\t${o.name}\t${displayValue(o.value)}`).join("\n") || "(no orphans)"

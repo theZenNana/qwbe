@@ -415,8 +415,7 @@ export type CubeStore = {
   readonly page: <A>(
     table: string,
     page: PageRequest,
-    /** One pair (still used by `relational.search`) or the full list
-     *  vocabulary the generic list handler speaks. */
+    /** One pair or the full ListWhere. */
     where?: { readonly field: string; readonly value: string } | ListWhere,
   ) => Effect.Effect<Page<A>, never, never>
   readonly byId: <A>(table: string, id: string) => Effect.Effect<A | undefined, never, never>
