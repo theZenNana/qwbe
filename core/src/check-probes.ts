@@ -27,10 +27,9 @@ import type { PackageFinding } from "./package-contract-scan.ts"
 // --- shapes ---------------------------------------------------------------------------------
 
 /** The raw declarations of one cube, as `check-manifests.mjs` reports them. */
-export type PackDeclarations = {
+type PackDeclarations = {
   readonly searchable?: unknown
   readonly relations?: unknown
-  readonly routes?: unknown
 }
 
 /** What the dump wrote: per-cube declarations, plus per-cube import errors. */
@@ -39,7 +38,7 @@ export type DeclarationsDump = {
   readonly errors?: Readonly<Record<string, string>>
 }
 
-export type GenericProbeReport = {
+type GenericProbeReport = {
   /** Findings are failures only: a check that ran and saw what the contract promises is silence. */
   readonly findings: PackageFinding[]
   /** How many assertions actually ran -- the number the check's output shows. */
@@ -48,7 +47,7 @@ export type GenericProbeReport = {
 
 /** Minimal view of the published CubeMetadata the probes need. Read over HTTP, never derived
  *  here: the probes must judge the metadata the kernel REALLY serves, not a second derivation. */
-export type PublishedMetadata = {
+type PublishedMetadata = {
   readonly cube: string
   readonly fields?: ReadonlyArray<{
     readonly name: string
@@ -154,7 +153,7 @@ const probeRelations = (
   }
 }
 
-export type GenericProbeInput = {
+type GenericProbeInput = {
   /** Kernel base URL, no trailing slash -- the sandbox the check booted. */
   readonly url: string
   readonly adminPassword: string
@@ -428,7 +427,7 @@ export const runGenericProbes = async (input: GenericProbeInput): Promise<Generi
 
 // --- the stage check-package.ts runs -----------------------------------------------------------
 
-export type GenericStageOptions = {
+type GenericStageOptions = {
   readonly dir: string
   readonly cubes: ReadonlyArray<string>
   readonly url: string

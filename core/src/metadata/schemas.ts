@@ -42,7 +42,7 @@ export const FieldMetadata = Schema.Struct({
  * handler reads, by the same two functions (`searchFields`, `filterFields`). What is published
  * and what is served are one thing, not two that have to be kept in step.
  */
-export const ListContract = Schema.Struct({
+const ListContract = Schema.Struct({
   /** Accepted query parameters, in the spelling this contract owns. */
   params: Schema.Array(Schema.String),
   /**

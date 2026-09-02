@@ -134,7 +134,7 @@ export const loadDefinitions = async (): Promise<
   return out
 }
 
-export type MountedSystem = {
+type MountedSystem = {
   readonly cubes: ReadonlyArray<MountedCube>
   readonly switches: Switches
   readonly bus: ReturnType<typeof busFrom>

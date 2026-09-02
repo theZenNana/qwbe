@@ -56,7 +56,7 @@ export { InstallError, PROVENANCE }
  * What stageAndInstall needs from the store flow - handed in, not imported, so this module
  * cannot reach further into the store than the seam allows.
  */
-export type StageContext = Readonly<{
+type StageContext = Readonly<{
   storeDir: string
   readPackageAt: (name: string, dir: string) => CubePackage
   installExisting: (name: string) => CubePackage

@@ -216,7 +216,7 @@ export const cube = defineCube(group, {
         },
       ],
 
-      handlers: { ...definitionHandlers(tools, snapshot), ...valuesHandlers(tools, snapshot) },
+      handlers: { ...definitionHandlers(tools, snapshot), ...valuesHandlers(tools) },
 
       relational: {
         search: (field, value, page) =>

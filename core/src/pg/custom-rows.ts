@@ -12,7 +12,7 @@
 import { Effect } from "effect"
 import { ensureCubeSchema, ensureTable, q, schemaName, withRole } from "./setup.ts"
 
-export type CustomRow = {
+type CustomRow = {
   readonly id: string
   readonly custom: Record<string, unknown>
   readonly deleted: boolean

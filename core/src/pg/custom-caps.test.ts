@@ -23,7 +23,7 @@ const { initStore, closeAll } = await import("../kernel/store.ts")
 const { storeFor } = await import("./store.ts")
 const { mergeCustom } = await import("./rows.ts")
 const { customRowById, customRows } = await import("./custom-rows.ts")
-const { forgetEnsured, withRole } = await import("./setup.ts")
+const { withRole } = await import("./setup.ts")
 const { getPool } = await import("./db.ts")
 const { CustomCapError } = await import("./errors.ts")
 
@@ -62,7 +62,7 @@ const tuplesRead = async (schema: string, table: string): Promise<number> => {
 }
 
 before(async () => {
-  forgetEnsured()
+  await closeAll()
   await initStore()
 })
 

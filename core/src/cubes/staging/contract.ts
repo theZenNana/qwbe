@@ -21,7 +21,7 @@ export const ROUTES = {
 } as const
 
 /** The two import formats. A set is ONE file's worth of rows, so the format is per set. */
-export const StagingFormat = Schema.Literal("jsonl", "csv").annotations({ identifier: "StagingFormat" })
+const StagingFormat = Schema.Literal("jsonl", "csv").annotations({ identifier: "StagingFormat" })
 
 /** A set: one imported source file, its progress and its import tallies. */
 export const StagingSet = Schema.Struct({
@@ -64,7 +64,7 @@ export const ChunkPayload = Schema.Struct({
   startLine: Schema.optionalWith(Schema.Number, { default: () => 1 }),
 }).annotations({ identifier: "ChunkPayload" })
 
-export const MalformedLine = Schema.Struct({ line: Schema.Number, reason: Schema.String }).annotations({
+const MalformedLine = Schema.Struct({ line: Schema.Number, reason: Schema.String }).annotations({
   identifier: "MalformedLine",
 })
 
@@ -92,7 +92,7 @@ export const ShapeCount = Schema.Struct({ shape: Schema.String, count: Schema.Nu
   identifier: "ShapeCount",
 })
 
-export const ValueCount = Schema.Struct({ value: Schema.String, count: Schema.Number }).annotations({
+const ValueCount = Schema.Struct({ value: Schema.String, count: Schema.Number }).annotations({
   identifier: "ValueCount",
 })
 
@@ -120,7 +120,5 @@ export const TABLES = { sets: "sets", rows: "rows" } as const
 
 // The type side of each schema: values at runtime, these at compile time. Same name on purpose.
 export type StagingSet = typeof StagingSet.Type
-export type MalformedLine = typeof MalformedLine.Type
 export type FieldProfile = typeof FieldProfile.Type
 export type ShapeCount = typeof ShapeCount.Type
-export type ValueCount = typeof ValueCount.Type

@@ -19,7 +19,7 @@ export const decode = (row: Record<string, unknown>): Record<string, unknown> =>
 })
 
 /** Only these may be interpolated into SQL. Everything else is a bound parameter. */
-export const META_COLUMNS = new Set(["id", "type", "createdAt", "deleted"])
+const META_COLUMNS = new Set(["id", "type", "createdAt", "deleted"])
 
 export const outboxInsert = (cube: string, table: string, id: string, op: string, version: number) => ({
   text: `INSERT INTO qwbe.outbox (cube, "table", row_id, op, version) VALUES ($1, $2, $3, $4, $5)`,

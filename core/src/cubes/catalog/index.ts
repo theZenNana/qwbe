@@ -17,14 +17,6 @@ import { Authorization, readPermissionOf, requirePermission } from "../../kernel
 import { Forbidden, NotFound } from "../../kernel/errors.ts"
 import { CubeMetadata } from "../../metadata/metadata.ts"
 
-/**
- * The read permission of a cube is its full name plus `:read`. The rule lives in the kernel
- * (`kernel/auth-contract.ts`) next to the permission contract it belongs to, because the
- * kernel itself derives the same name for the generic list route and for the published
- * metadata; re-exported here so the cube's own callers keep one import site.
- */
-export { readPermissionOf }
-
 const group = HttpApiGroup.make("catalog")
   .add(
     HttpApiEndpoint.get("metadata")`/catalog/${HttpApiSchema.param("cube", Schema.String)}/metadata`

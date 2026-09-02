@@ -22,7 +22,7 @@ import { importFindings, manifestFindings, readOnlyFindings, walkSources } from 
 
 export type { PackageFinding }
 
-export type PackageContractOptions = {
+type PackageContractOptions = {
   /** Refuse write-shaped surface: mutating endpoints and file writes. Used by agents-tools. */
   readonly readOnly?: boolean
   /** Enforce parent/child cube hierarchy: parent screen, child parent. Used by crm-pack. */

@@ -37,11 +37,11 @@ const SKIP_DIR = new Set([
  * Unit tests do not count against a cube's size -- the same rule the kernel holds itself to.
  * A test's measure is whether it exists and passes, which is a different gate.
  */
-export const IS_TEST = /\.(test|spec)\.(ts|tsx|mjs|js|jsx)$/
+const IS_TEST = /\.(test|spec)\.(ts|tsx|mjs|js|jsx)$/
 
-export const posix = (p: string): string => p.split(sep).join("/")
+const posix = (p: string): string => p.split(sep).join("/")
 
-export const walk = (dir: string, { includeTests = false, top = true } = {}): string[] => {
+const walk = (dir: string, { includeTests = false, top = true } = {}): string[] => {
   const found: string[] = []
   let entries: Dirent[]
   try {
@@ -121,7 +121,7 @@ export const stripComments = (source: string): string => {
     .join("\n")
 }
 
-export const measure = (file: string): { raw: number; code: number } => {
+const measure = (file: string): { raw: number; code: number } => {
   const source = readFileSync(file, "utf8")
   return { raw: source.length, code: stripComments(source).length }
 }

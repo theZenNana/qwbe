@@ -22,9 +22,9 @@ import { InstallError } from "./manifest.ts"
 const MANIFEST = "qwbe-package.json"
 
 /** What the store knows about a scanned package's shelf copy. */
-export type ShelfState = "absent" | "identical" | "different"
+type ShelfState = "absent" | "identical" | "different"
 
-export type ScannedPackage = CubePackage & Readonly<{ path: string; shelf: ShelfState }>
+type ScannedPackage = CubePackage & Readonly<{ path: string; shelf: ShelfState }>
 
 /** `CubeInstaller` plus the two path-taking operations only settings is allowed to call. */
 export type ScanInstaller = CubeInstaller & {
@@ -33,7 +33,7 @@ export type ScanInstaller = CubeInstaller & {
 }
 
 /** What scan and forget need from the store flow - handed in, not imported. */
-export type ScanContext = Readonly<{
+type ScanContext = Readonly<{
   storeDir: string
   readPackageAt: (name: string, dir: string) => CubePackage
 }>

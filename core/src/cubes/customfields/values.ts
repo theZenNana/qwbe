@@ -10,7 +10,7 @@ import { Effect } from "effect"
 import { requirePermission } from "qwbe-core/auth"
 import { checkCustomValue } from "qwbe-core/custom-values"
 import { BadRequest } from "qwbe-core/errors"
-import { customFieldsTool, definitionsFor, type PackTools, type Snapshot } from "./context.ts"
+import { customFieldsTool, definitionsFor, type PackTools } from "./context.ts"
 import { displayValue, orphanValues, ROUTES } from "./schema.ts"
 
 /** Definitions plus the row's current values, which is what a form actually needs. */
@@ -41,7 +41,7 @@ export const rowFields = (tools: PackTools, cube: string, rowId: string) =>
     }
   })
 
-export const valuesHandlers = (tools: PackTools, _snapshot: Snapshot) => ({
+export const valuesHandlers = (tools: PackTools) => ({
   // READ: the definitions plus the target row's current values, read from the row itself. No
   // 404 for a row that does not exist: an empty field list is the honest answer to "what extra
   // fields does this row have" either way.

@@ -16,7 +16,7 @@
 export const CUSTOM = "custom"
 
 /** A definition, in the vocabulary the kernel's catalogue publishes (catalogue.ts). */
-export type CustomFieldDef = {
+type CustomFieldDef = {
   readonly name: string
   readonly fieldType: "text" | "number" | "date" | "bool" | "select"
   readonly required: boolean
@@ -48,9 +48,7 @@ export const checkCustomObject = (custom: unknown): string | undefined => {
   return undefined
 }
 
-export type FoldResult =
-  | { readonly ok: true; readonly payload: unknown }
-  | { readonly ok: false; readonly message: string }
+type FoldResult = { readonly ok: true; readonly payload: unknown } | { readonly ok: false; readonly message: string }
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value)

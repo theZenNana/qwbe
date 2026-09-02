@@ -20,12 +20,12 @@ process.env.QWBE_DATABASE_URL = db.url
 const { initStore, closeAll } = await import("../kernel/store.ts")
 const { storeFor } = await import("./store.ts")
 const { getPool } = await import("./db.ts")
-const { forgetEnsured, withRole } = await import("./setup.ts")
+const { withRole } = await import("./setup.ts")
 
 const store = storeFor("pgtest", ["items", "logs"], ["name"])
 
 before(async () => {
-  forgetEnsured()
+  await closeAll()
   await initStore()
 })
 
@@ -104,7 +104,6 @@ describe("CubeStore over Postgres", () => {
     // ran the whole DDL block and Postgres refused the duplicate schema creation. The
     // in-flight-promise memoization plus the advisory lock must make every one succeed.
     const burst = storeFor("pgrace", ["things"], [])
-    forgetEnsured()
     const results = await Promise.all(
       Array.from({ length: 8 }, () => Effect_run(burst.insert("things", "thing", "thg", { n: 1 }))),
     )

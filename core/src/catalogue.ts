@@ -109,7 +109,7 @@ export const registerCustomFieldProvider = (provider: CustomFieldProvider): void
 }
 
 /** The active custom-field definitions registered for a target cube. Pure read. */
-export const activeCustomFields = (cube: string): ReadonlyArray<CustomFieldDefinition> =>
+const activeCustomFields = (cube: string): ReadonlyArray<CustomFieldDefinition> =>
   customFieldProviders.flatMap((provider) => provider(cube))
 
 /** A custom field's definition type, in the vocabulary the published metadata speaks. */

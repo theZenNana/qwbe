@@ -14,7 +14,7 @@ import { PROVENANCE, type Provenance, packageSourceFingerprint, shelfFingerprint
 export type { Provenance }
 
 /** One shelf's answer: `ok`, or red with the reason spelled out. */
-export type ShelfDrift =
+type ShelfDrift =
   | Readonly<{ name: string; status: "ok"; sourcePath: string; stagedAt: string }>
   | Readonly<{ name: string; status: "no-provenance"; detail: string }>
   | Readonly<{ name: string; status: "source-missing"; sourcePath: string; stagedAt: string; detail: string }>

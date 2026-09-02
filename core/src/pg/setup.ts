@@ -107,12 +107,6 @@ export const ensureCubeSchema = async (cube: string): Promise<string> => {
   }
 }
 
-/** The kernel forgets its setup cache -- used by tests that create and drop databases. */
-export const forgetEnsured = (): void => {
-  ensuredSchemas.clear()
-  ensuredTables.clear()
-}
-
 /** The one row shape, created on first touch of a table -- the cube writes no migrations yet. */
 /** Created once per process: DDL under concurrency is lock churn for no information. Same
  * in-flight-promise memoization as ensureCubeSchema -- two first touches of one table must

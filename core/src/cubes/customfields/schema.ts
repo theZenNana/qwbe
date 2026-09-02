@@ -49,7 +49,6 @@ export const ROUTES = {
 export const NAME = /^[a-z][a-zA-Z0-9_]{0,31}$/
 
 export const FieldType = Schema.Literal("text", "number", "date", "bool", "select")
-export type FieldTypeName = typeof FieldType.Type
 
 export const CustomField = Schema.Struct({
   ...EntityMeta,

@@ -114,7 +114,6 @@ const dump = (over: Partial<DeclarationsDump> = {}): DeclarationsDump => ({
     gadgets: {
       searchable: ["name"],
       relations: { orgId: { target: "gadgets" } },
-      routes: { list: "gadgets:read", create: "gadgets:write" },
     },
   },
   errors: {},

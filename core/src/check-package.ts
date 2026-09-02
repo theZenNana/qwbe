@@ -47,10 +47,11 @@ import { capsFromConfig, type RawConfig, type SizeCaps, sizeCapsFindings } from 
 import { includePackageSourcePath, isBookkeeping } from "./package-source.ts"
 
 export type { PackageFinding }
-export type CheckStage = "source" | "caps" | "runtime" | "invocation"
 
-export type ProbeRun = { readonly probe: string; readonly exit: number | null }
-export type RuntimeEvidence = {
+type CheckStage = "source" | "caps" | "runtime" | "invocation"
+
+type ProbeRun = { readonly probe: string; readonly exit: number | null }
+type RuntimeEvidence = {
   readonly booted: boolean
   readonly url: string
   readonly probes: ReadonlyArray<ProbeRun>
@@ -59,14 +60,14 @@ export type RuntimeEvidence = {
   readonly generic?: { readonly checks: number; readonly findings: number }
 }
 
-export type CheckReport = {
+type CheckReport = {
   readonly ok: boolean
   readonly failedStage?: CheckStage
   readonly findings: ReadonlyArray<PackageFinding>
   readonly runtime?: RuntimeEvidence
 }
 
-export type CheckOptions = {
+type CheckOptions = {
   /**
    * Boot the real kernel for the runtime stage (default). Unit tests pass false: the stage
    * still checks that probes/ exists and is non-empty, but boots nothing.
@@ -107,7 +108,7 @@ export const kernelRoot = (): string => {
 }
 
 /** The caps of the installed kernel. A config that cannot be parsed or is wrong is a kernel bug. */
-export const kernelCaps = (): SizeCaps => {
+const kernelCaps = (): SizeCaps => {
   const path = join(kernelRoot(), "qwbe.config.json")
   if (!existsSync(path)) {
     throw new TypeError(`the installed kernel has no qwbe.config.json at ${path} -- caps cannot be read`)
@@ -121,13 +122,13 @@ export const kernelCaps = (): SizeCaps => {
  * checkout. An install cannot execute any TypeScript under the package -- node refuses type
  * stripping below node_modules -- so everything an installed check runs must come from dist/.
  */
-export const isInstalledKernel = (): boolean => kernelRoot().split(sep).join("/").includes("/node_modules/")
+const isInstalledKernel = (): boolean => kernelRoot().split(sep).join("/").includes("/node_modules/")
 
 /**
  * The kernel entry the runtime stage boots. A checkout boots src/main.ts -- the same source
  * `npm run api` runs. An install boots dist/main.js, the compiled kernel the tarball carries.
  */
-export const kernelMainEntry = (): string =>
+const kernelMainEntry = (): string =>
   isInstalledKernel() ? join(kernelRoot(), "dist", "main.js") : join(kernelRoot(), "src", "main.ts")
 
 // --- stage 2: caps ---------------------------------------------------------------------------
@@ -263,7 +264,7 @@ const runtimeStageNoBoot = (dir: string): CheckReport => {
  * everything down. The kernel the probes run against is the same qwbe-core this command is --
  * that is the "same binary" property, and it is why the check cannot be faked from outside.
  */
-export const runtimeStage = async (dir: string): Promise<CheckReport> => {
+const runtimeStage = async (dir: string): Promise<CheckReport> => {
   const { findings: probeFindings, probes } = probesFindings(dir)
   if (probeFindings.length > 0) return { ok: false, failedStage: "runtime", findings: probeFindings }
 
@@ -420,7 +421,7 @@ export type ResolveQwbeCore = (dir: string) => string
  * How the pack resolves qwbe-core, anchored at the pack's own package.json. Exported for the
  * same reason the resolution rule exists: to be proved, not assumed.
  */
-export const resolveFromPack: ResolveQwbeCore = (dir: string): string =>
+const resolveFromPack: ResolveQwbeCore = (dir: string): string =>
   createRequire(join(dir, "package.json")).resolve("qwbe-core/package.json")
 
 export const invocationFindings = (dir: string, resolve: ResolveQwbeCore = resolveFromPack): PackageFinding[] => {
