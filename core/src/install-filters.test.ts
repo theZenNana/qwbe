@@ -19,20 +19,21 @@ process.env.QWBE_PLUGINS_DIR = join(bench, "plugins")
 
 const { installerFor } = await import("./kernel/install.ts")
 const { stageSandbox } = await import("./check-package.ts")
+const { writePack } = await import("./test-fixture-pack.ts")
 
 const NAME = "filter-pack"
 
 const buildFixture = (dir: string): void => {
-  mkdirSync(join(dir, "cubes", "x"), { recursive: true })
-  mkdirSync(join(dir, "test"), { recursive: true })
-  mkdirSync(join(dir, ".pi"), { recursive: true })
-  mkdirSync(join(dir, "docs"), { recursive: true })
-  writeFileSync(join(dir, "cubes", "x", "index.ts"), "export const x = 1\n")
-  writeFileSync(join(dir, "cubes", "x", "package.json"), "{}\n")
-  writeFileSync(join(dir, "test", "a.ts"), "export const a = 1\n")
-  writeFileSync(join(dir, ".pi", "x"), "scratch\n")
-  writeFileSync(join(dir, "docs", "r.md"), "# r\n")
-  writeFileSync(join(dir, "qwbe-package.json"), JSON.stringify({ name: NAME, kind: "plugin", cubes: ["x"] }))
+  writePack(dir, {
+    name: NAME,
+    cubes: { x: "export const x = 1\n" },
+    extra: {
+      "cubes/x/package.json": "{}\n",
+      "test/a.ts": "export const a = 1\n",
+      ".pi/x": "scratch\n",
+      "docs/r.md": "# r\n",
+    },
+  })
 }
 
 const filesUnder = (dir: string): Array<string> => {

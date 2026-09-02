@@ -12,28 +12,20 @@ import { after, describe, it } from "node:test"
 
 import { pluginsDir } from "./kernel/scan.ts"
 import { assertPackageContracts, checkPackageSource } from "./package-contract.ts"
+import { writePack } from "./test-fixture-pack.ts"
 
 const makePackage = (mutate?: (root: string) => void): string => {
-  const root = mkdtempSync(join(tmpdir(), "qwbe-package-contract-"))
-  mkdirSync(join(root, "cubes", "demo", "kid"), { recursive: true })
-  mkdirSync(join(root, "frontend"), { recursive: true })
-  writeFileSync(
-    join(root, "qwbe-package.json"),
-    JSON.stringify({ name: "demo-pack", kind: "plugin", cubes: ["demo", "demo/kid"] }),
-  )
-  writeFileSync(
-    join(root, "cubes", "demo", "index.ts"),
-    `export const cubeParent = { manifest: { name: "demo", screen: true, tables: [] } }\n`,
-  )
-  writeFileSync(
-    join(root, "cubes", "demo", "kid", "index.ts"),
-    `export const cubeKid = { manifest: { name: "kid", parent: "demo", tables: [], dataMigration: [{ fromCube: "kid", toCube: "demo/kid", fromPlugin: "demo-pack" }] } }\n`,
-  )
-  writeFileSync(
-    join(root, "frontend", "app.tsx"),
-    `import { readFileSync } from "node:fs"\nimport { post } from "../src/anything"\nexport const ui = readFileSync\n`,
-  )
-  writeFileSync(join(root, "README.md"), "not source\n")
+  const root = writePack(mkdtempSync(join(tmpdir(), "qwbe-package-contract-")), {
+    name: "demo-pack",
+    cubes: {
+      demo: `export const cubeParent = { manifest: { name: "demo", screen: true, tables: [] } }\n`,
+      "demo/kid": `export const cubeKid = { manifest: { name: "kid", parent: "demo", tables: [], dataMigration: [{ fromCube: "kid", toCube: "demo/kid", fromPlugin: "demo-pack" }] } }\n`,
+    },
+    extra: {
+      "frontend/app.tsx": `import { readFileSync } from "node:fs"\nimport { post } from "../src/anything"\nexport const ui = readFileSync\n`,
+      "README.md": "not source\n",
+    },
+  })
   if (mutate) mutate(root)
   return root
 }
