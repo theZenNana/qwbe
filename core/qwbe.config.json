@@ -2,10 +2,11 @@
   "_comment": "Caps for qwbe, ported from software-factory's factory.config.json (ADR-0006: splitting is driven by size, measured in characters). A unit here is one cube directory, one space, or the kernel. Enforced by `npm run probe:sizecaps`.",
   "_countModeComment": "'code' measures characters with comments stripped; 'raw' measures every byte. This repository keeps the reasoning next to the rule, so several files are more comment than code - capping raw would make deleting an explanation the cheapest way to go green. Both numbers are printed either way; only this one is enforced.",
   "countMode": "code",
+  "_capsComment": "Owner approval 2026-09-05 (QWB-63, in the PR body): maxCharsPerFile 6000 -> 50000 and maxCharsPerUnit 40000 -> 50000, together with the kernel baseline allowance below. Raised without a split, against the baseline rule, by explicit owner decision; no further raise is authorized. Inherited per-file debt on main at that date (check-probes.ts and 13 more over the old 6000) is now inside the cap and stays debt: the fix is still to split.",
   "caps": {
-    "maxCharsPerFile": 6000,
+    "maxCharsPerFile": 50000,
     "maxFilesPerUnit": 15,
-    "maxCharsPerUnit": 40000
+    "maxCharsPerUnit": 50000
   },
   "baseline": {
     "_comment": "Violations that existed when the cap was introduced (2 Aug 2026). The gate is red for anything NEW or anything that grew past the number recorded here. Each line is debt: the fix is to split the file or the cube, not to raise the number. Regenerate deliberately with --update-baseline. EXCEPTIE (owner, 10 aug 2026, QWB-15): ownerul poate ridica explicit un numar din baseline DUPA ce spargerea a fost facuta mai intai - staging-ul QWB-15 a fost spart in install-from.ts si abia apoi numerele kernelului au fost ridicate la 10000. Ridicarea fara spargere ramane interzisa; exceptia se noteaza aici si in _kernelComment.",
@@ -23,8 +24,9 @@
     },
     "units": {
       "core/src/kernel": {
-        "chars": 79932,
-        "files": 23
+        "_comment": "Owner exception 2026-09-05: kernel allowance 100000 characters and 30 files.",
+        "chars": 100000,
+        "files": 30
       }
     }
   },

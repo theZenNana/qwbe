@@ -3,6 +3,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { client, dropScratch, freePort, makeScore, root, scratchDataDir, startServer, stopServer } from "./lib.mjs"
 import { exercisePermissionBypass } from "./permissions-bypass-scenario.mjs"
+import { exerciseCapabilities } from "./permissions-capabilities-scenario.mjs"
 import { exerciseVisibility } from "./permissions-visibility-scenario.mjs"
 
 const port = await freePort()
@@ -123,6 +124,18 @@ try {
   )
 
   await exerciseVisibility({ api, post, score, admin, mihai, direct, id, ref, group })
+  // Last on purpose: it creates notes, and the visibility checks above count them.
+  await exerciseCapabilities({
+    api,
+    post,
+    score,
+    admin,
+    reader: doru,
+    readerName: "doru",
+    other: cuby,
+    otherName: "cuby",
+    noteId: id,
+  })
 } finally {
   await stopServer(server)
   rmSync(installedFixture, { recursive: true, force: true })

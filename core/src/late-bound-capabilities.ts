@@ -36,6 +36,14 @@ export const lateBoundPermissionService = (holder: { current?: PermissionService
     holder.current ? holder.current.grantGroup(actor, ref, groupId, actions) : unavailable(),
   revokeGrant: (actor, grantId) => (holder.current ? holder.current.revokeGrant(actor, grantId) : unavailable()),
   listGrants: (actor, ref) => (holder.current ? holder.current.listGrants(actor, ref) : unavailable()),
+  grantCapability: (actor, subject, capability) =>
+    holder.current ? holder.current.grantCapability(actor, subject, capability) : unavailable(),
+  revokeCapabilityGrant: (actor, grantId) =>
+    holder.current ? holder.current.revokeCapabilityGrant(actor, grantId) : unavailable(),
+  listCapabilityGrants: (actor, cube) =>
+    holder.current ? holder.current.listCapabilityGrants(actor, cube) : unavailable(),
+  // No provider, no grants: the auth middleware unions this with the role permissions.
+  capabilitiesFor: (userId) => (holder.current ? holder.current.capabilitiesFor(userId) : Effect.succeed([])),
   listVisible: (actor, cube, view) =>
     holder.current ? holder.current.listVisible(actor, cube, view) : Effect.succeed([]),
   setHidden: (actor, ref, hidden) => (holder.current ? holder.current.setHidden(actor, ref, hidden) : unavailable()),

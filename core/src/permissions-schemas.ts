@@ -70,6 +70,25 @@ export const GroupGrantCreate = Schema.Struct({
 }).annotations({
   identifier: "GroupGrantCreate",
 })
+export const CapabilityGrantSchema = Schema.Struct({
+  id: Schema.String,
+  cube: Schema.String,
+  capability: Schema.String,
+  subject: Schema.Union(
+    Schema.Struct({ kind: Schema.Literal("user"), userId: Schema.String }),
+    Schema.Struct({ kind: Schema.Literal("group"), groupId: Schema.String }),
+  ),
+  createdBy: Schema.String,
+  createdAt: Schema.String,
+}).annotations({ identifier: "CapabilityGrant" })
+export const UserCapabilityGrantCreate = Schema.Struct({
+  capability: Schema.String,
+  username: Schema.String,
+}).annotations({ identifier: "UserCapabilityGrantCreate" })
+export const GroupCapabilityGrantCreate = Schema.Struct({
+  capability: Schema.String,
+  groupId: Schema.String,
+}).annotations({ identifier: "GroupCapabilityGrantCreate" })
 export const VisibilityViewSchema = Schema.Literal(
   "all",
   "owned-by-me",

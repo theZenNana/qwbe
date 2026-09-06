@@ -61,6 +61,19 @@ export type EntityGrant = EntityRef &
     createdBy: string
     createdAt: string
   }>
+/**
+ * A runtime grant of one DECLARED cube permission (`notes:write`) to a user or a group. It
+ * adds to what the static roles give and satisfies only the route gate; entity access still
+ * needs owner, entity grant, cube admin or superadmin.
+ */
+export type CapabilityGrant = Readonly<{
+  id: string
+  cube: string
+  capability: string
+  subject: GrantSubject
+  createdBy: string
+  createdAt: string
+}>
 export type VisibilityView =
   | "all"
   | "owned-by-me"

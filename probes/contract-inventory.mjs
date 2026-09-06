@@ -2,6 +2,10 @@
 // endpoint disappear from both runtime and the document without making the gate fail.
 export const EXPECTED_OPERATIONS = [
   "DELETE /permissions/cube-admins/{cube}/{username}|path:cube!,path:username!|-|200,400,401,403,404,409",
+  "DELETE /permissions/capabilities/{grantId}|path:grantId!|-|200,400,401,403,404,409",
+  "GET /permissions/capabilities|query:cube!|-|200,400,401,403,404,409",
+  "POST /permissions/capabilities/group|-|body|200,400,401,403,404,409",
+  "POST /permissions/capabilities/user|-|body|200,400,401,403,404,409",
   "DELETE /settings/cubes/{name}|path:name!|-|200,400,401,403,404",
   "DELETE /staging/sets/{id}|path:id!|-|200,400,401,403,404",
   "DELETE /settings/packages/{name}|path:name!|-|200,400,401,403",

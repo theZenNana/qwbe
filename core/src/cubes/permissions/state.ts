@@ -20,6 +20,7 @@ export const tables = {
   memberships: "permission_memberships",
   grants: "permission_grants",
   hidden: "permission_hidden",
+  capabilities: "permission_capability_grants",
 } as const
 
 export type StoredOwnership = Ownership & Readonly<{ id: string }>
@@ -30,7 +31,23 @@ export type StoredMembership = GroupMembership & Readonly<{ deleted?: boolean }>
 
 export const refKey = (ref: EntityRef): string => [ref.cube, ref.entityType, ref.entityId].join(":")
 
+/** Page size of `every`: the contract's MAX_LIMIT, so the read stays honest to the store. */
+const PAGE = 200
+
 export const stateFrom = (store: CubeTools["store"]) => {
+  // Every matching row of a table, filtered by the STORE (`body ->> field = value` on
+  // Postgres) rather than read whole and filtered here. Pages until `total` is reached, so
+  // the result is complete whatever the page size. Fixtures may not honour `deleted`, so
+  // callers keep their `deleted !== true` filter.
+  const every = <A>(table: string, field: string, value: string) =>
+    Effect.gen(function* () {
+      const rows: Array<A> = []
+      for (let offset = 0; ; offset += PAGE) {
+        const page = yield* store.page<A>(table, { offset, limit: PAGE }, { field, value })
+        rows.push(...page.rows)
+        if (page.rows.length < PAGE || rows.length >= page.total) return rows
+      }
+    })
   const ownership = (ref: EntityRef) =>
     Effect.map(store.all<StoredOwnership>(tables.ownership), (rows) => rows.find((row) => refKey(row) === refKey(ref)))
   const cubeAdmin = (actor: PermissionActor, cube: string) =>
@@ -46,8 +63,8 @@ export const stateFrom = (store: CubeTools["store"]) => {
     )
   const groupIdsFor = (userId: string) =>
     Effect.map(
-      store.all<StoredMembership>(tables.memberships),
-      (rows) => new Set(rows.filter((row) => row.deleted !== true && row.userId === userId).map((row) => row.groupId)),
+      every<StoredMembership>(tables.memberships, "userId", userId),
+      (rows) => new Set(rows.filter((row) => row.deleted !== true).map((row) => row.groupId)),
     )
   const writeAudit = (
     actor: PermissionActor,
@@ -76,7 +93,7 @@ export const stateFrom = (store: CubeTools["store"]) => {
         after: safeAfter,
       })
     }).pipe(Effect.asVoid)
-  return { store, ownership, cubeAdmin, grantsFor, groupIdsFor, writeAudit }
+  return { store, every, ownership, cubeAdmin, grantsFor, groupIdsFor, writeAudit }
 }
 
 export type PermissionState = ReturnType<typeof stateFrom>

@@ -5,6 +5,7 @@ import { BadRequest, Conflict, Forbidden, NotFound } from "qwbe-core/errors"
 import {
   AuditEventPageSchema,
   AuditQuerySchema,
+  CapabilityGrantSchema,
   CubeAdminAssign,
   CubeAdminSchema,
   EntityGrantListParams,
@@ -12,6 +13,7 @@ import {
   EntityGrantSchema,
   EntityVisibilityPageSchema,
   EntityVisibilitySchema,
+  GroupCapabilityGrantCreate,
   GroupCreate,
   GroupGrantCreate,
   GroupListParams,
@@ -22,6 +24,7 @@ import {
   OwnershipSchema,
   OwnershipTransfer,
   PermissionGroupSchema,
+  UserCapabilityGrantCreate,
   UserGrantCreate,
   VisibilityListParams,
   VisibilityMutationSchema,
@@ -139,6 +142,31 @@ export const group = HttpApiGroup.make("permissions")
     )`/permissions/entities/${HttpApiSchema.param("cube", Schema.String)}/${HttpApiSchema.param("entityType", Schema.String)}/${HttpApiSchema.param("entityId", Schema.String)}/visibility`
       .setPayload(VisibilityMutationSchema)
       .addSuccess(EntityVisibilitySchema)
+      .addError(Forbidden),
+  )
+  .add(
+    HttpApiEndpoint.get("permissionCapabilities")`/permissions/capabilities`
+      .setUrlParams(GroupListParams)
+      .addSuccess(Schema.Array(CapabilityGrantSchema))
+      .addError(Forbidden),
+  )
+  .add(
+    HttpApiEndpoint.post("grantCapabilityUser")`/permissions/capabilities/user`
+      .setPayload(UserCapabilityGrantCreate)
+      .addSuccess(CapabilityGrantSchema)
+      .addError(Forbidden),
+  )
+  .add(
+    HttpApiEndpoint.post("grantCapabilityGroup")`/permissions/capabilities/group`
+      .setPayload(GroupCapabilityGrantCreate)
+      .addSuccess(CapabilityGrantSchema)
+      .addError(Forbidden),
+  )
+  .add(
+    HttpApiEndpoint.del(
+      "revokeCapabilityGrant",
+    )`/permissions/capabilities/${HttpApiSchema.param("grantId", Schema.String)}`
+      .addSuccess(Schema.Struct({ revoked: Schema.String }))
       .addError(Forbidden),
   )
   .addError(NotFound)
