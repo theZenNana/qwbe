@@ -76,6 +76,9 @@ export const cube = defineCube(group, {
     required: true,
     // Declared need. The kernel wires it to whichever cube declares `providesCredentials`.
     usesCredentials: true,
+    // Runtime cube capability grants (QWB-63) live in the permissions cube; the middleware
+    // unions them with the role permissions, so every route gate sees one array.
+    usesEntityPermissions: true,
     permissions: [{ name: "auth:session", roles: ["admin", "reader"] }],
     // Session-level, any authenticated user, so there is no named permission to require.
     // `logout` drops the CALLER's own session (the id the middleware carries next to the
@@ -86,7 +89,7 @@ export const cube = defineCube(group, {
     publishes: ["auth.loggedIn", "auth.loggedOut"],
   },
 
-  create: ({ store, bus, permissions, credentials }: CubeTools) => {
+  create: ({ store, bus, permissions, credentials, entityPermissions }: CubeTools) => {
     /** Drop expired rows. Cheap, and it keeps validation from scanning dead history. */
     const dropExpiredSessions = Effect.gen(function* () {
       const now = Date.now()
@@ -146,12 +149,16 @@ export const cube = defineCube(group, {
             .split(",")
             .map((r) => r.trim())
             .filter(Boolean)
+          // Additive: a runtime grant adds a declared permission, a role keeps its own. Read
+          // per request, so a revoke is effective on the next request of ANY session. No
+          // provider mounted means no grants (late-bound wrapper), never more.
+          const granted = entityPermissions ? yield* entityPermissions.capabilitiesFor(summary.id) : []
           return {
             user: {
               id: summary.id,
               username: summary.title,
               roles,
-              permissions: permissionsFor(roles),
+              permissions: [...new Set([...permissionsFor(roles), ...granted])].sort(),
               // The row's own id travels with the user: it is what makes per-session logout
               // possible instead of logout-everywhere.
               sessionId: s.id,

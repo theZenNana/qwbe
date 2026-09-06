@@ -4,11 +4,13 @@ import type {
   AccessDecision,
   AuditEvent,
   AuditQuery,
+  CapabilityGrant,
   CubeAdmin,
   EntityAction,
   EntityGrant,
   EntityRef,
   EntityVisibility,
+  GrantSubject,
   GroupMembership,
   Ownership,
   PermissionActor,
@@ -79,6 +81,18 @@ export type PermissionService = Readonly<{
     actor: PermissionActor,
     ref: EntityRef,
   ) => Effect.Effect<ReadonlyArray<EntityGrant>, PermissionServiceError>
+  grantCapability: (
+    actor: PermissionActor,
+    subject: GrantSubject,
+    capability: string,
+  ) => Effect.Effect<CapabilityGrant, PermissionServiceError>
+  revokeCapabilityGrant: (actor: PermissionActor, grantId: string) => Effect.Effect<void, PermissionServiceError>
+  listCapabilityGrants: (
+    actor: PermissionActor,
+    cube: string,
+  ) => Effect.Effect<ReadonlyArray<CapabilityGrant>, PermissionServiceError>
+  /** Active capability names of one user (own grants plus group grants). Pure lookup, no actor. */
+  capabilitiesFor: (userId: string) => Effect.Effect<ReadonlyArray<string>>
   listVisible: (
     actor: PermissionActor,
     cube: string,

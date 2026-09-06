@@ -3,6 +3,7 @@ import { CurrentUser } from "qwbe-core/auth"
 import type {
   EntityGrantListParams,
   EntityRef,
+  GroupCapabilityGrantCreate,
   GroupCreate,
   GroupGrantCreate,
   GroupRename,
@@ -10,6 +11,7 @@ import type {
   MemberRemove,
   MembershipCreate,
   PermissionService,
+  UserCapabilityGrantCreate,
   UserGrantCreate,
 } from "qwbe-core/permissions"
 import { actorFrom, mapPermissionError, resolveIdentity } from "./handler-utils.ts"
@@ -74,5 +76,37 @@ export const sharingHandlers = (service: PermissionService, identities: Identity
         limit: urlParams.limit,
         sortedBy: "createdAt",
       }
+    }),
+})
+
+// Runtime cube capability grants (QWB-63); the service side is capabilities.ts.
+const capabilityError = mapPermissionError("permissions:write")
+
+export const capabilityHandlers = (service: PermissionService, identities: IdentityDirectory | undefined) => ({
+  grantCapabilityUser: ({ payload }: { payload: typeof UserCapabilityGrantCreate.Type }) =>
+    Effect.gen(function* () {
+      const user = yield* CurrentUser
+      const identity = yield* resolveIdentity(identities, payload.username)
+      return yield* service
+        .grantCapability(actorFrom(user), { kind: "user", userId: identity.id }, payload.capability)
+        .pipe(capabilityError)
+    }),
+  grantCapabilityGroup: ({ payload }: { payload: typeof GroupCapabilityGrantCreate.Type }) =>
+    Effect.gen(function* () {
+      const user = yield* CurrentUser
+      return yield* service
+        .grantCapability(actorFrom(user), { kind: "group", groupId: payload.groupId }, payload.capability)
+        .pipe(capabilityError)
+    }),
+  revokeCapabilityGrant: ({ path }: { path: { grantId: string } }) =>
+    Effect.gen(function* () {
+      const user = yield* CurrentUser
+      yield* service.revokeCapabilityGrant(actorFrom(user), path.grantId).pipe(capabilityError)
+      return { revoked: path.grantId }
+    }),
+  permissionCapabilities: ({ urlParams }: { urlParams: { cube: string } }) =>
+    Effect.gen(function* () {
+      const user = yield* CurrentUser
+      return yield* service.listCapabilityGrants(actorFrom(user), urlParams.cube).pipe(capabilityError)
     }),
 })

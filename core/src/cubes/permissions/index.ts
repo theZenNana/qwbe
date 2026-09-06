@@ -2,7 +2,7 @@ import { type CubeTools, defineCube } from "qwbe-core/cube"
 import { group } from "./api.ts"
 import { foundationHandlers } from "./foundation-handlers.ts"
 import { serviceFrom } from "./service.ts"
-import { sharingHandlers } from "./sharing-handlers.ts"
+import { capabilityHandlers, sharingHandlers } from "./sharing-handlers.ts"
 import { tables } from "./state.ts"
 import { visibilityHandlers } from "./visibility-handlers.ts"
 
@@ -24,6 +24,10 @@ const ROUTES = {
   permissionCubeAdmins: null,
   permissionGroups: null,
   visibleEntities: null,
+  grantCapabilityUser: null,
+  grantCapabilityGroup: null,
+  revokeCapabilityGrant: null,
+  permissionCapabilities: null,
 } as const
 
 export const cube = defineCube(group, {
@@ -41,13 +45,14 @@ export const cube = defineCube(group, {
     ],
     routes: ROUTES,
   },
-  create: ({ store, identities }: CubeTools) => {
-    const entityPermissions = serviceFrom(store)
+  create: ({ store, identities, permissions }: CubeTools) => {
+    const entityPermissions = serviceFrom(store, permissions)
     return {
       handlers: {
         ...foundationHandlers(entityPermissions, identities),
         ...sharingHandlers(entityPermissions, identities),
         ...visibilityHandlers(entityPermissions),
+        ...capabilityHandlers(entityPermissions, identities),
       },
       entityPermissions,
     }

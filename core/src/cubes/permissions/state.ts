@@ -20,6 +20,7 @@ export const tables = {
   memberships: "permission_memberships",
   grants: "permission_grants",
   hidden: "permission_hidden",
+  capabilities: "permission_capability_grants",
 } as const
 
 export type StoredOwnership = Ownership & Readonly<{ id: string }>
