@@ -47,6 +47,7 @@ export const EXPECTED_OPERATIONS = [
   "GET /permissions/cube-admins|query:cube!|-|200,400,401,403,404,409",
   "GET /permissions/entities/{cube}/{entityType}/{entityId}/grants|path:cube!,path:entityId!,path:entityType!,query:limit,query:offset|-|200,400,401,403,404,409",
   "GET /permissions/entities/{cube}|path:cube!,query:descending,query:limit,query:offset,query:sortBy,query:view|-|200,400,401,403,404,409",
+  "GET /permissions/groups/{groupId}/members|path:groupId!,query:limit,query:offset|-|200,400,401,403,404,409",
   "GET /permissions/groups|query:cube!|-|200,400,401,403,404,409",
   "PATCH /permissions/groups/{groupId}|path:groupId!|body|200,400,401,403,404,409",
   "POST /permissions/entities/{cube}/{entityType}/{entityId}/grants/group|path:cube!,path:entityId!,path:entityType!|body|200,400,401,403,404,409",

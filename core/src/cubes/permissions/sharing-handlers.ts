@@ -1,5 +1,6 @@
 import { Effect } from "effect"
 import { CurrentUser } from "qwbe-core/auth"
+import { pageRequest } from "qwbe-core/pagination"
 import type {
   EntityGrantListParams,
   EntityRef,
@@ -40,6 +41,25 @@ export const sharingHandlers = (service: PermissionService, identities: Identity
       const user = yield* CurrentUser
       const identity = yield* resolveIdentity(identities, payload.username)
       return yield* service.addGroupMember(actorFrom(user), path.groupId, identity.id).pipe(groupError)
+    }),
+  permissionGroupMembers: ({
+    path,
+    urlParams,
+  }: {
+    path: { groupId: string }
+    urlParams: { offset?: number; limit?: number }
+  }) =>
+    Effect.gen(function* () {
+      const user = yield* CurrentUser
+      const requested = pageRequest(urlParams)
+      const rows = yield* service.groupMembers(actorFrom(user), path.groupId).pipe(groupError)
+      return {
+        rows: rows.slice(requested.offset, requested.offset + requested.limit),
+        total: rows.length,
+        offset: requested.offset,
+        limit: requested.limit,
+        sortedBy: "createdAt",
+      }
     }),
   removePermissionGroupMember: ({ path, payload }: { path: { groupId: string }; payload: typeof MemberRemove.Type }) =>
     Effect.gen(function* () {

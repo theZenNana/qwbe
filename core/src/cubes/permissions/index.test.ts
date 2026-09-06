@@ -3,7 +3,7 @@ import { describe, it } from "node:test"
 
 import { Effect } from "effect"
 import type { CubeTools } from "qwbe-core/cube"
-import { PermissionConflict, PermissionInvalid, PermissionNotFound } from "qwbe-core/permissions"
+import { PermissionConflict, PermissionForbidden, PermissionInvalid, PermissionNotFound } from "qwbe-core/permissions"
 import { cube } from "./index.ts"
 
 const memoryStore = (): CubeTools["store"] => {
@@ -54,6 +54,72 @@ const tools = () => ({
   catalogue: () => [],
   permissions: () => new Map(),
   commands: () => [],
+})
+
+describe("permissions group members", () => {
+  const setup = async () => {
+    const service = cube.create(tools()).entityPermissions
+    assert.ok(service)
+    const root = { userId: "root", roles: ["admin"] }
+    const group = await Effect.runPromise(service.createGroup(root, "crm", "sales"))
+    await Effect.runPromise(service.addGroupMember(root, group.id, "ana"))
+    await Effect.runPromise(service.addGroupMember(root, group.id, "mihai"))
+    return { service, root, groupId: group.id }
+  }
+
+  it("lists active members for an authorized actor", async () => {
+    const { service, groupId } = await setup()
+    const members = await Effect.runPromise(service.groupMembers({ userId: "root", roles: ["admin"] }, groupId))
+    assert.deepEqual(members.map((member) => member.userId).sort(), ["ana", "mihai"])
+  })
+
+  it("excludes soft-deleted memberships", async () => {
+    const { service, groupId } = await setup()
+    await Effect.runPromise(service.removeGroupMember({ userId: "root", roles: ["admin"] }, groupId, "ana"))
+    const members = await Effect.runPromise(service.groupMembers({ userId: "root", roles: ["admin"] }, groupId))
+    assert.deepEqual(
+      members.map((member) => member.userId),
+      ["mihai"],
+    )
+  })
+
+  it("denies a user without authority over the group's cube", async () => {
+    const { service, groupId } = await setup()
+    const failure = await Effect.runPromise(
+      Effect.flip(service.groupMembers({ userId: "stranger", roles: ["reader"] }, groupId)),
+    )
+    assert.ok(failure instanceof PermissionForbidden)
+  })
+
+  it("denies an entity owner of a DIFFERENT cube (cross-cube)", async () => {
+    const { service, groupId } = await setup()
+    const ref = { cube: "notes", entityType: "Note", entityId: "note-1" }
+    await Effect.runPromise(service.claim({ userId: "notes-owner", roles: ["reader"] }, ref))
+    const failure = await Effect.runPromise(
+      Effect.flip(service.groupMembers({ userId: "notes-owner", roles: ["reader"] }, groupId)),
+    )
+    assert.ok(failure instanceof PermissionForbidden)
+  })
+
+  it("returns a typed not-found for an unknown group", async () => {
+    const { service } = await setup()
+    const failure = await Effect.runPromise(
+      Effect.flip(service.groupMembers({ userId: "root", roles: ["admin"] }, "grp-missing")),
+    )
+    assert.ok(failure instanceof PermissionNotFound)
+  })
+
+  it("allows a cube admin of the group's cube but not of another cube", async () => {
+    const { service, groupId } = await setup()
+    await Effect.runPromise(service.assignCubeAdmin({ userId: "root", roles: ["admin"] }, "crm", "cube-admin"))
+    const members = await Effect.runPromise(service.groupMembers({ userId: "cube-admin", roles: ["reader"] }, groupId))
+    assert.equal(members.length, 2)
+    await Effect.runPromise(service.assignCubeAdmin({ userId: "root", roles: ["admin"] }, "notes", "notes-admin"))
+    const failure = await Effect.runPromise(
+      Effect.flip(service.groupMembers({ userId: "notes-admin", roles: ["reader"] }, groupId)),
+    )
+    assert.ok(failure instanceof PermissionForbidden)
+  })
 })
 
 describe("permissions public capability", () => {

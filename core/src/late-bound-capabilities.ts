@@ -30,6 +30,7 @@ export const lateBoundPermissionService = (holder: { current?: PermissionService
     holder.current ? holder.current.addGroupMember(actor, groupId, userId) : unavailable(),
   removeGroupMember: (actor, groupId, userId) =>
     holder.current ? holder.current.removeGroupMember(actor, groupId, userId) : unavailable(),
+  groupMembers: (actor, groupId) => (holder.current ? holder.current.groupMembers(actor, groupId) : unavailable()),
   grantUser: (actor, ref, userId, actions) =>
     holder.current ? holder.current.grantUser(actor, ref, userId, actions) : unavailable(),
   grantGroup: (actor, ref, groupId, actions) =>

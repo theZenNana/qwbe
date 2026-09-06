@@ -117,6 +117,20 @@ try {
 
   const group = await post("/permissions/groups", admin.headers, { cube: "notes", name: "Sales" })
   await post(`/permissions/groups/${group.body?.id}/members`, admin.headers, { username: "ioana" })
+  const members = await api.call(`/permissions/groups/${group.body?.id}/members?offset=0&limit=1`, {
+    headers: admin.headers,
+  })
+  score.check(
+    "group member list is server-paged",
+    members.status === 200 &&
+      members.body?.total === 1 &&
+      members.body?.limit === 1 &&
+      members.body?.rows?.length === 1,
+  )
+  score.check(
+    "group member list is denied to a plain member",
+    (await api.call(`/permissions/groups/${group.body?.id}/members`, { headers: ioana.headers })).status === 403,
+  )
   const groupGrant = await post(`${ref}/grants/group`, admin.headers, { groupId: group.body?.id, actions: ["read"] })
   score.check(
     "group READ permits read",

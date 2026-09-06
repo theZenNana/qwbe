@@ -9,7 +9,10 @@ export const groupById = (state: PermissionState, groupId: string) =>
 
 export const groupsFrom = (
   state: PermissionState,
-): Pick<PermissionService, "createGroup" | "renameGroup" | "groups" | "addGroupMember" | "removeGroupMember"> => {
+): Pick<
+  PermissionService,
+  "createGroup" | "renameGroup" | "groups" | "addGroupMember" | "removeGroupMember" | "groupMembers"
+> => {
   const requireCubeAccess = (actor: Parameters<PermissionService["createGroup"]>[0], cube: string) =>
     Effect.gen(function* () {
       if (actor.roles.includes("admin") || (yield* state.cubeAdmin(actor, cube))) return
@@ -122,6 +125,14 @@ export const groupsFrom = (
           membership,
           null,
         )
+      }),
+    groupMembers: (actor, groupId) =>
+      Effect.gen(function* () {
+        yield* administer(actor, groupId)
+        // `every` pages through the store filtered by groupId, so the list is complete
+        // whatever the store page size; soft-deleted memberships are excluded here.
+        const rows = yield* state.every<StoredMembership>(tables.memberships, "groupId", groupId)
+        return rows.filter((item) => item.deleted !== true)
       }),
   }
 }

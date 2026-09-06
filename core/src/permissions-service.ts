@@ -64,6 +64,11 @@ export type PermissionService = Readonly<{
     groupId: string,
     userId: string,
   ) => Effect.Effect<void, PermissionServiceError>
+  /** Active (not soft-deleted) memberships of one group, behind the same authority as add/remove. */
+  groupMembers: (
+    actor: PermissionActor,
+    groupId: string,
+  ) => Effect.Effect<ReadonlyArray<GroupMembership>, PermissionServiceError>
   grantUser: (
     actor: PermissionActor,
     ref: EntityRef,

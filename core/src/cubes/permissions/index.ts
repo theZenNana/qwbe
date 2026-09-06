@@ -16,6 +16,7 @@ const ROUTES = {
   renamePermissionGroup: null,
   addPermissionGroupMember: null,
   removePermissionGroupMember: null,
+  permissionGroupMembers: null,
   grantPermissionUser: null,
   grantPermissionGroup: null,
   revokePermissionGrant: null,
