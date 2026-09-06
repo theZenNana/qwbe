@@ -15,7 +15,7 @@ import type {
   UserCapabilityGrantCreate,
   UserGrantCreate,
 } from "qwbe-core/permissions"
-import { actorFrom, mapPermissionError, resolveIdentity } from "./handler-utils.ts"
+import { actorFrom, mapPermissionError, page, resolveIdentity } from "./handler-utils.ts"
 
 const groupError = mapPermissionError("permissions:group")
 const shareError = mapPermissionError("permissions:share")
@@ -53,13 +53,7 @@ export const sharingHandlers = (service: PermissionService, identities: Identity
       const user = yield* CurrentUser
       const requested = pageRequest(urlParams)
       const rows = yield* service.groupMembers(actorFrom(user), path.groupId).pipe(groupError)
-      return {
-        rows: rows.slice(requested.offset, requested.offset + requested.limit),
-        total: rows.length,
-        offset: requested.offset,
-        limit: requested.limit,
-        sortedBy: "createdAt",
-      }
+      return page(rows, requested.offset, requested.limit, "createdAt")
     }),
   removePermissionGroupMember: ({ path, payload }: { path: { groupId: string }; payload: typeof MemberRemove.Type }) =>
     Effect.gen(function* () {
@@ -89,13 +83,7 @@ export const sharingHandlers = (service: PermissionService, identities: Identity
     Effect.gen(function* () {
       const user = yield* CurrentUser
       const rows = yield* service.listGrants(actorFrom(user), path).pipe(shareError)
-      return {
-        rows: rows.slice(urlParams.offset, urlParams.offset + urlParams.limit),
-        total: rows.length,
-        offset: urlParams.offset,
-        limit: urlParams.limit,
-        sortedBy: "createdAt",
-      }
+      return page(rows, urlParams.offset, urlParams.limit, "createdAt")
     }),
 })
 

@@ -1,6 +1,7 @@
 import { Effect } from "effect"
 import type { CurrentUser } from "qwbe-core/auth"
 import { BadRequest, Conflict, Forbidden, NotFound } from "qwbe-core/errors"
+import type { PageResponse } from "qwbe-core/http"
 import {
   type IdentityDirectory,
   type PermissionActor,
@@ -23,6 +24,13 @@ export const mapPermissionError =
   (needed: string) =>
   <A, R>(effect: Effect.Effect<A, PermissionServiceError, R>) =>
     Effect.mapError(effect, permissionHttpError(needed))
+export const page = <A>(rows: ReadonlyArray<A>, offset: number, limit: number, sortedBy: string): PageResponse<A> => ({
+  rows: rows.slice(offset, offset + limit),
+  total: rows.length,
+  offset,
+  limit,
+  sortedBy,
+})
 export const resolveIdentity = (identities: IdentityDirectory | undefined, username: string) =>
   Effect.gen(function* () {
     const identity = identities ? yield* identities.resolveUsername(username) : undefined
