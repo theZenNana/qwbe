@@ -8,7 +8,7 @@ import type {
   OwnershipTransfer,
   PermissionService,
 } from "qwbe-core/permissions"
-import { actorFrom, mapPermissionError, resolveIdentity } from "./handler-utils.ts"
+import { actorFrom, mapPermissionError, page, resolveIdentity } from "./handler-utils.ts"
 
 const readError = mapPermissionError("permissions:read")
 const transferError = mapPermissionError("permissions:transfer")
@@ -43,15 +43,13 @@ export const foundationHandlers = (service: PermissionService, identities: Ident
   permissionAudit: ({ urlParams }: { urlParams: typeof AuditQuerySchema.Type }) =>
     Effect.gen(function* () {
       yield* requirePermission("permissions:read")
-      const rows = [...(yield* service.audit(urlParams).pipe(readError))].sort((left, right) =>
-        right.timestamp.localeCompare(left.timestamp),
+      return page(
+        [...(yield* service.audit(urlParams).pipe(readError))].sort((left, right) =>
+          right.timestamp.localeCompare(left.timestamp),
+        ),
+        urlParams.offset,
+        urlParams.limit,
+        "timestamp",
       )
-      return {
-        rows: rows.slice(urlParams.offset, urlParams.offset + urlParams.limit),
-        total: rows.length,
-        offset: urlParams.offset,
-        limit: urlParams.limit,
-        sortedBy: "timestamp",
-      }
     }),
 })

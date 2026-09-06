@@ -7,7 +7,7 @@ import type {
   VisibilityListParams,
   VisibilityMutationSchema,
 } from "qwbe-core/permissions"
-import { actorFrom, mapPermissionError } from "./handler-utils.ts"
+import { actorFrom, mapPermissionError, page } from "./handler-utils.ts"
 
 const visibilityError = mapPermissionError("permissions:visibility")
 
@@ -20,13 +20,7 @@ export const visibilityHandlers = (service: PermissionService) => ({
       const field = urlParams.sortBy
       rows.sort((left, right) => String(left[field]).localeCompare(String(right[field])))
       if (urlParams.descending) rows.reverse()
-      return {
-        rows: rows.slice(requested.offset, requested.offset + requested.limit),
-        total: rows.length,
-        offset: requested.offset,
-        limit: requested.limit,
-        sortedBy: field,
-      }
+      return page(rows, requested.offset, requested.limit, field)
     }),
   setEntityVisibility: ({ path, payload }: { path: EntityRef; payload: typeof VisibilityMutationSchema.Type }) =>
     Effect.gen(function* () {
