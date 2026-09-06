@@ -17,14 +17,18 @@ const memoryStore = (): CubeTools["store"] => {
   }
   return {
     all: <A>(table: string) => Effect.succeed(rows(table) as ReadonlyArray<A>),
-    page: <A>(table: string, request: { offset: number; limit: number }) =>
-      Effect.succeed({
-        rows: rows(table).slice(request.offset, request.offset + request.limit) as ReadonlyArray<A>,
-        total: rows(table).length,
+    page: <A>(table: string, request: { offset: number; limit: number }, where?: unknown) => {
+      // One-pair filter only: what the permissions state's `every` reads through.
+      const pair = where as { field: string; value: unknown } | undefined
+      const hit = pair && "field" in pair ? rows(table).filter((row) => row[pair.field] === pair.value) : rows(table)
+      return Effect.succeed({
+        rows: hit.slice(request.offset, request.offset + request.limit) as ReadonlyArray<A>,
+        total: hit.length,
         offset: request.offset,
         limit: request.limit,
         sortedBy: "createdAt",
-      }),
+      })
+    },
     byId: <A>(table: string, id: string) => Effect.succeed(rows(table).find((row) => row.id === id) as A | undefined),
     insert: (table: string, type: string, prefix: string, values: Record<string, unknown>) =>
       Effect.sync(() => {

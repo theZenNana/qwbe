@@ -2,6 +2,7 @@
   "_comment": "Caps for qwbe, ported from software-factory's factory.config.json (ADR-0006: splitting is driven by size, measured in characters). A unit here is one cube directory, one space, or the kernel. Enforced by `npm run probe:sizecaps`.",
   "_countModeComment": "'code' measures characters with comments stripped; 'raw' measures every byte. This repository keeps the reasoning next to the rule, so several files are more comment than code - capping raw would make deleting an explanation the cheapest way to go green. Both numbers are printed either way; only this one is enforced.",
   "countMode": "code",
+  "_capsComment": "Owner approval 2026-09-05 (QWB-63, in the PR body): maxCharsPerFile 6000 -> 50000 and maxCharsPerUnit 40000 -> 50000, together with the kernel baseline allowance below. Raised without a split, against the baseline rule, by explicit owner decision; no further raise is authorized. Inherited per-file debt on main at that date (check-probes.ts and 13 more over the old 6000) is now inside the cap and stays debt: the fix is still to split.",
   "caps": {
     "maxCharsPerFile": 50000,
     "maxFilesPerUnit": 15,

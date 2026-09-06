@@ -10,7 +10,7 @@ import { describe, it } from "node:test"
 import { HttpApiBuilder, HttpApiEndpoint, HttpApiGroup, HttpApiSchema, HttpServer } from "@effect/platform"
 import { Cause, type Context, Effect, Exit, Layer, Logger, LogLevel, Redacted, Schema } from "effect"
 import type { CubeTools } from "qwbe-core/cube"
-import { PermissionForbidden, PermissionInvalid } from "qwbe-core/permissions"
+import { PermissionForbidden, PermissionInvalid, PermissionNotFound } from "qwbe-core/permissions"
 import { cube as authCube } from "./cubes/auth/index.ts"
 import { cube as permissionsCube } from "./cubes/permissions/index.ts"
 import { enforceEntityHandlers } from "./entity-enforcement.ts"
@@ -101,12 +101,13 @@ const fixtureGroup = () =>
     )
     .middleware(Authorization)
 
-const world = () => {
+// `declaredNow` is what the kernel aggregates NOW; a test may hand in a mutable copy to unmount a cube.
+const world = (declaredNow: ReadonlyMap<string, ReadonlyArray<string>> = declared, store = memoryStore()) => {
   const permissionsParts = permissionsCube.create({
-    store: memoryStore(),
+    store,
     bus: { publish: () => Effect.void },
     catalogue: () => [],
-    permissions: () => declared,
+    permissions: () => declaredNow,
     commands: () => [],
     identities: { resolveUsername: (username) => Effect.succeed({ id: username, username }) },
   })
@@ -147,7 +148,7 @@ const world = () => {
     store: memoryStore(),
     bus: { publish: () => Effect.void },
     catalogue: () => [],
-    permissions: () => declared,
+    permissions: () => declaredNow,
     commands: () => [],
     credentials: {
       verify: (username) => Effect.succeed({ id: username, username, roles: rolesOf.get(username) ?? [] }),
@@ -345,6 +346,52 @@ describe("runtime cube capability grants -- route gate and entity gate stay two 
     )
     assert.ok(crossed instanceof PermissionInvalid)
     assert.deepEqual(await Effect.runPromise(w.service.listCapabilityGrants(root, "fixture")), [])
+  })
+
+  it("revoking an unknown grant id is not found; a repeated grant is idempotent and audited", async () => {
+    const w = world()
+    const missing = await Effect.runPromise(Effect.flip(w.service.revokeCapabilityGrant(root, "cap-404")))
+    assert.ok(missing instanceof PermissionNotFound)
+    const subject = { kind: "user", userId: "ana" } as const
+    const first = await Effect.runPromise(w.service.grantCapability(root, subject, "fixture:read"))
+    const again = await Effect.runPromise(w.service.grantCapability(root, subject, "fixture:read"))
+    assert.equal(again.id, first.id)
+    assert.equal((await Effect.runPromise(w.service.listCapabilityGrants(root, "fixture"))).length, 1)
+    const audit = await Effect.runPromise(w.service.audit({ cube: "fixture", action: "capability.grant.user" }))
+    assert.deepEqual(
+      audit.map((event) => (event.before === null ? "new" : "repeat")),
+      ["new", "repeat"],
+    )
+  })
+
+  it("a grant of a cube that is no longer mounted names nothing", async () => {
+    const mounted = new Map(declared)
+    const w = world(mounted)
+    await Effect.runPromise(w.service.grantCapability(root, { kind: "user", userId: "ana" }, "other:write"))
+    assert.deepEqual(await Effect.runPromise(w.effective("ana", [])), ["other:write"])
+    mounted.delete("other:write")
+    assert.deepEqual(await Effect.runPromise(w.effective("ana", [])), [])
+  })
+
+  it("concurrent duplicate grants: one revoke, by either id, retires the capability", async () => {
+    // A store whose reads take a tick, like Postgres: both fibers read "no grant" before either
+    // inserts. No unique constraint in the store contract, so both land; access must still end
+    // on revoke.
+    const sync = memoryStore()
+    const racy: CubeTools["store"] = {
+      ...sync,
+      page: (...args: Parameters<CubeTools["store"]["page"]>) => Effect.delay(sync.page(...args), 0),
+    }
+    const w = world(declared, racy)
+    const grant = w.service.grantCapability(root, { kind: "user", userId: "ana" }, "fixture:read")
+    const [left, right] = await Effect.runPromise(Effect.all([grant, grant], { concurrency: "unbounded" }))
+    assert.notEqual(left.id, right.id, "the race must produce two rows, or this test proves nothing")
+    assert.deepEqual(await Effect.runPromise(w.effective("ana", [])), ["fixture:read"])
+    await Effect.runPromise(w.service.revokeCapabilityGrant(root, right.id))
+    assert.deepEqual(await Effect.runPromise(w.effective("ana", [])), [])
+    assert.deepEqual(await Effect.runPromise(w.service.listCapabilityGrants(root, "fixture")), [])
+    const gone = await Effect.runPromise(Effect.flip(w.service.revokeCapabilityGrant(root, left.id)))
+    assert.ok(gone instanceof PermissionNotFound)
   })
 
   it("roles stay as they were: revoking a grant leaves the role permission in place", async () => {
