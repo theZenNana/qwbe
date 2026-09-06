@@ -2,6 +2,7 @@ import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema } from "@effect/platform"
 import { Schema } from "effect"
 import { Authorization } from "qwbe-core/auth"
 import { BadRequest, Conflict, Forbidden, NotFound } from "qwbe-core/errors"
+import { PageOf } from "qwbe-core/http"
 import {
   AuditEventPageSchema,
   AuditQuerySchema,
@@ -93,6 +94,14 @@ export const group = HttpApiGroup.make("permissions")
     )`/permissions/groups/${HttpApiSchema.param("groupId", Schema.String)}/members`
       .setPayload(MembershipCreate)
       .addSuccess(GroupMembershipSchema)
+      .addError(Forbidden),
+  )
+  .add(
+    HttpApiEndpoint.get(
+      "permissionGroupMembers",
+    )`/permissions/groups/${HttpApiSchema.param("groupId", Schema.String)}/members`
+      .setUrlParams(EntityGrantListParams)
+      .addSuccess(PageOf(GroupMembershipSchema))
       .addError(Forbidden),
   )
   .add(

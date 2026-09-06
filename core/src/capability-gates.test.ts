@@ -476,6 +476,31 @@ describe("the same matrix over HTTP: real router, real Authorization middleware,
     assert.equal((await w.http("DELETE", `/permissions/capabilities/${read.body?.id}`, root)).status, 200)
     assert.equal(await needed(await w.http("GET", "/fixture?offset=0&limit=10", ana)), "fixture:read")
     assert.deepEqual((await w.http("GET", "/auth/me", ana)).body?.permissions, [])
+    // Group member list over HTTP: offset/limit are honoured by the handler's slice, the
+    // total is the whole active membership, and a user without authority over the cube is 403.
+    const sales = await w.http("POST", "/permissions/groups", root, { cube: "fixture", name: "Sales" })
+    assert.equal(sales.status, 200)
+    for (const username of ["m1", "m2", "m3"]) {
+      assert.equal(
+        (await w.http("POST", `/permissions/groups/${sales.body?.id}/members`, root, { username })).status,
+        200,
+      )
+    }
+    const membersPath = `/permissions/groups/${sales.body?.id}/members`
+    const secondPage = await w.http("GET", `${membersPath}?offset=2&limit=1`, root)
+    assert.equal(secondPage.status, 200)
+    assert.deepEqual(
+      [
+        (secondPage.body?.rows as Array<{ userId: string }> | undefined)?.map((row) => row.userId),
+        secondPage.body?.total,
+        secondPage.body?.offset,
+        secondPage.body?.limit,
+      ],
+      [["m3"], 3, 2, 1],
+    )
+    assert.equal((await w.http("GET", membersPath, ana)).status, 403)
+    assert.equal((await w.http("GET", membersPath)).status, 401)
+    assert.equal((await w.http("GET", "/permissions/groups/grp-missing/members", root)).status, 404)
     await w.dispose()
   })
 })
