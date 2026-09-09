@@ -26,6 +26,80 @@ export const outboxInsert = (cube: string, table: string, id: string, op: string
   values: [cube, table, id, op, version],
 })
 
+/**
+ * The activity row (Echo A1), written in the SAME transaction as the mutation. The actor is
+ * the authenticated account or `undefined` (recorded as NULL) -- never caller-supplied.
+ */
+export const activityInsert = (
+  cube: string,
+  entityType: string,
+  id: string,
+  op: string,
+  version: number | null,
+  actor: { readonly id: string; readonly username: string } | undefined,
+  changes: Record<string, { from?: unknown; to?: unknown }>,
+  /** Echo A2 comments: set only by the comment seam, linking the row to qwbe.comment. */
+  commentId: string | null = null,
+) => ({
+  text: `INSERT INTO qwbe.activity (cube, entity_type, row_id, op, version, actor_id, actor_username, changes, comment_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9)`,
+  values: [
+    cube,
+    entityType,
+    id,
+    op,
+    version,
+    actor?.id ?? null,
+    actor?.username ?? null,
+    JSON.stringify(changes),
+    commentId,
+  ],
+})
+
+const sameJson = (a: unknown, b: unknown): boolean => JSON.stringify(a) === JSON.stringify(b)
+
+/**
+ * The `changes` payload of an activity row, as a pure function next to `mergeCustom`.
+ *
+ * `before === null` (an insert) records every body key as `{ "to": v }`; an update records
+ * only keys whose JSON differs, as `{ "from", "to" }`. The reserved `custom` sub-object is
+ * diffed PER SUB-KEY, keyed `custom.<name>`, so a PATCH touching one custom value does not
+ * republish the whole object. Undefined and missing keys are equivalent (JSON.stringify drops
+ * undefined, and so does the row body the store writes).
+ */
+export const diffBody = (
+  before: Record<string, unknown> | null,
+  after: Record<string, unknown>,
+): Record<string, { from?: unknown; to?: unknown }> => {
+  const out: Record<string, { from?: unknown; to?: unknown }> = {}
+  const keys = new Set([...Object.keys(before ?? {}), ...Object.keys(after)])
+  for (const key of keys) {
+    if (key === "custom") {
+      // Only object-vs-object diffs sub-keys; anything else is not republished.
+      const obj = (v: unknown): Record<string, unknown> | undefined =>
+        typeof v === "object" && v !== null && !Array.isArray(v) ? (v as Record<string, unknown>) : undefined
+      const cb = obj(before?.custom)
+      const ca = obj(after.custom)
+      if (cb === undefined || ca === undefined) continue
+      for (const name of new Set([...Object.keys(cb), ...Object.keys(ca)])) {
+        const from = cb[name]
+        const to = ca[name]
+        if (sameJson(from, to)) continue
+        out[`custom.${name}`] =
+          before === null || from === undefined ? { to } : to === undefined ? { from } : { from, to }
+      }
+      continue
+    }
+    const from = before?.[key]
+    const to = after[key]
+    if (sameJson(from, to)) continue
+    // A key absent before the update records as an insertion, and a key absent after records
+    // as a removal: the object never carries an explicit undefined.
+    out[key] = before === null || from === undefined ? { to } : to === undefined ? { from } : { from, to }
+  }
+  return out
+}
+
 /** Prepared together with the WHERE clause so COUNT and the page always share a predicate. */
 export const orderClause = (sortBy: string | undefined, descending: boolean, sortableFields: ReadonlySet<string>) => {
   const dir = descending ? "DESC" : "ASC"

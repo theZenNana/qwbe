@@ -18,15 +18,35 @@
 // role was not granted, and `SET LOCAL` ends with the transaction, so nothing leaks between
 // operations on a pooled connection.
 
-import { Effect } from "effect"
+import { Effect, FiberRef } from "effect"
+import { CurrentActor } from "../kernel/actor.ts"
 import type { CubeStore } from "../kernel/manifest.ts"
 import type { ListWhere, Page, PageRequest } from "../kernel/pagination.ts"
 import { type BatchStore, batchFor } from "./batch.ts"
 import { ForeignTableError } from "./errors.ts"
-import { decode, mergeCustom, newId, orderClause, outboxInsert, renumber, whereClause } from "./rows.ts"
+import {
+  activityInsert,
+  decode,
+  diffBody,
+  mergeCustom,
+  newId,
+  orderClause,
+  outboxInsert,
+  renumber,
+  whereClause,
+} from "./rows.ts"
 import { ensureCubeSchema, ensureTable, q, schemaName, withRole } from "./setup.ts"
 
 export { ForeignTableError } from "./errors.ts"
+
+/**
+ * Echo A1: the capture predicate at the store seam. A row is captured ONLY when its type is
+ * EXACTLY the cube's declared entity (insert: the call's entityType; update: the STORED row
+ * type). Auxiliary tables -- any other type -- are never captured; undefined capture entity
+ * disables capture entirely.
+ */
+export const capturesType = (captureEntity: string | undefined, type: string): boolean =>
+  captureEntity !== undefined && type === captureEntity
 
 /**
  * The row a handler returns IS the response body, and it must equal what was stored: the
@@ -46,6 +66,13 @@ export const storeFor = (
   sortable: ReadonlyArray<string> = [],
   /** The raw SQL batch capability is handed over ONLY on the manifest's declared `usesBatch`. */
   withBatch = false,
+  /**
+   * Echo A1: record one activity row per committed mutation of rows whose type IS the
+   * declared entity, in the SAME transaction. Undefined means no capture. The value comes
+   * from `captureEntity(manifest)` (entity-enforcement.ts), so the mediated set and the
+   * recorded set cannot drift; auxiliary tables (any other `type`) are never captured.
+   */
+  captureEntity?: string | undefined,
 ): CubeStore & { readonly batch?: BatchStore["batch"] } => {
   const allowed = new Set(tables)
   const sortableFields = new Set(sortable)
@@ -119,53 +146,84 @@ export const storeFor = (
       }),
 
     insert: (table: string, entityType: string, prefix: string, values: Record<string, unknown>) =>
-      Effect.promise(async () => {
-        const t = check(table)
-        await ensureCubeSchema(cube)
-        await ensureTable(schemaName(cube), t)
-        return withRole(cube, async (c) => {
-          const row = asStored({
-            id: newId(prefix),
-            type: entityType,
-            createdAt: new Date().toISOString(),
-            deleted: false,
-            ...values,
-          })
-          const { id, type, createdAt, deleted, ...body } = row
-          await c.query(
-            `INSERT INTO ${q(schemaName(cube))}.${q(t)} (id, type, created_at, deleted, version, body)
+      // The actor is read BEFORE the promise: a FiberRef read needs no Effect requirement, so
+      // the store keeps `R = never` (a cube could not provide a service it cannot see).
+      Effect.gen(function* () {
+        const actor = yield* FiberRef.get(CurrentActor)
+        return yield* Effect.promise(async () => {
+          const t = check(table)
+          await ensureCubeSchema(cube)
+          await ensureTable(schemaName(cube), t)
+          return withRole(cube, async (c) => {
+            const row = asStored({
+              id: newId(prefix),
+              type: entityType,
+              createdAt: new Date().toISOString(),
+              deleted: false,
+              ...values,
+            })
+            const { id, type, createdAt, deleted, ...body } = row
+            await c.query(
+              `INSERT INTO ${q(schemaName(cube))}.${q(t)} (id, type, created_at, deleted, version, body)
              VALUES ($1, $2, $3::timestamptz, $4, 1, $5)`,
-            [id, type, createdAt, deleted, JSON.stringify(body)],
-          )
-          await c.query(outboxInsert(cube, t, id, "insert", 1))
-          return row
+              [id, type, createdAt, deleted, JSON.stringify(body)],
+            )
+            await c.query(outboxInsert(cube, t, id, "insert", 1))
+            if (capturesType(captureEntity, entityType)) {
+              await c.query(activityInsert(cube, entityType, id, "create", 1, actor, diffBody(null, body)))
+            }
+            return row
+          })
         })
       }),
 
     update: (table: string, id: string, patch: Record<string, unknown>) =>
-      Effect.promise(async () => {
-        const t = check(table)
-        await ensureCubeSchema(cube)
-        await ensureTable(schemaName(cube), t)
-        return withRole(cube, async (c) => {
-          const current = await c.query(`SELECT * FROM ${q(schemaName(cube))}.${q(t)} WHERE id = $1`, [id])
-          if (!current.rows[0]) return undefined
-          const merged = { ...decode(current.rows[0] as Record<string, unknown>), ...patch }
-          // `custom` merges (rows.ts), so a partial PATCH cannot wipe sibling values.
-          const withCustom = mergeCustom(current.rows[0] as Record<string, unknown>, merged)
-          const { id: _i, type, createdAt, deleted, ...body } = withCustom
-          const version = ((current.rows[0] as { version: number }).version ?? 1) + 1
-          await c.query(
-            `UPDATE ${q(schemaName(cube))}.${q(t)}
+      Effect.gen(function* () {
+        const actor = yield* FiberRef.get(CurrentActor)
+        return yield* Effect.promise(async () => {
+          const t = check(table)
+          await ensureCubeSchema(cube)
+          await ensureTable(schemaName(cube), t)
+          return withRole(cube, async (c) => {
+            const current = await c.query(`SELECT * FROM ${q(schemaName(cube))}.${q(t)} WHERE id = $1`, [id])
+            if (!current.rows[0]) return undefined
+            const merged = { ...decode(current.rows[0] as Record<string, unknown>), ...patch }
+            // `custom` merges (rows.ts), so a partial PATCH cannot wipe sibling values.
+            const withCustom = mergeCustom(current.rows[0] as Record<string, unknown>, merged)
+            const { id: _i, type, createdAt, deleted, ...body } = withCustom
+            const version = ((current.rows[0] as { version: number }).version ?? 1) + 1
+            await c.query(
+              `UPDATE ${q(schemaName(cube))}.${q(t)}
              SET type = $1, created_at = $2::timestamptz, deleted = $3, version = $4, body = $5
              WHERE id = $6`,
-            [String(type), String(createdAt), deleted, version, JSON.stringify(body), id],
-          )
-          // ADR-0001 section 5 lists delete as its own op: a soft delete is not an update.
-          await c.query(outboxInsert(cube, t, id, deleted === true ? "delete" : "update", version))
-          // The row stores the MERGE, so the response must too -- a
-          // PATCH response reporting `custom` as only the patched keys would lie about the row.
-          return asStored({ ...withCustom, id })
+              [String(type), String(createdAt), deleted, version, JSON.stringify(body), id],
+            )
+            // ADR-0001 section 5 lists delete as its own op: a soft delete is not an update.
+            await c.query(outboxInsert(cube, t, id, deleted === true ? "delete" : "update", version))
+            if (capturesType(captureEntity, String(type))) {
+              const {
+                id: _pi,
+                type: _pt,
+                createdAt: _pc,
+                deleted: _pd,
+                ...prevBody
+              } = decode(current.rows[0] as Record<string, unknown>)
+              await c.query(
+                activityInsert(
+                  cube,
+                  String(type),
+                  id,
+                  deleted === true ? "delete" : "update",
+                  version,
+                  actor,
+                  deleted === true ? {} : diffBody(prevBody, body),
+                ),
+              )
+            }
+            // The row stores the MERGE, so the response must too -- a
+            // PATCH response reporting `custom` as only the patched keys would lie about the row.
+            return asStored({ ...withCustom, id })
+          })
         })
       }),
 
@@ -183,3 +241,33 @@ export const storeFor = (
       }),
   }
 }
+
+/**
+ * Echo A3: the row STATE of one captured entity row -- `{ id, type, deleted }` and nothing
+ * else, no body column ever selected -- read under the owning cube's OWN role over its OWN
+ * declared tables. Kernel-only: it is built next to `storeFor` and handed to the registry
+ * (`RegistryEntry.state`), never to a cube. Undefined when no declared table holds a row of
+ * that id whose stored type IS the capture entity (auxiliary rows are invisible here, as they
+ * are to activity capture). This is the ONE current-state source the echo feed may use to
+ * tell "deleted" from "missing": the activity log is history, never truth.
+ */
+export type RowState = { readonly id: string; readonly type: string; readonly deleted: boolean }
+
+export const rowStateFor =
+  (cube: string, tables: ReadonlyArray<string>, captureEntity: string) =>
+  (id: string): Effect.Effect<RowState | undefined, never, never> =>
+    Effect.promise(async () => {
+      await ensureCubeSchema(cube)
+      for (const t of tables) await ensureTable(schemaName(cube), t)
+      return withRole(cube, async (c) => {
+        for (const t of tables) {
+          const r = await c.query(
+            `SELECT id, type, deleted FROM ${q(schemaName(cube))}.${q(t)} WHERE id = $1 AND type = $2`,
+            [id, captureEntity],
+          )
+          const row = r.rows[0] as { id: string; type: string; deleted: boolean } | undefined
+          if (row) return { id: row.id, type: row.type, deleted: row.deleted === true }
+        }
+        return undefined
+      })
+    })

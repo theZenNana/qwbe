@@ -21,9 +21,10 @@ import type { CustomRowView } from "../custom-defs-reader.ts"
 import { registerCustomFieldDefsReader } from "../custom-defs-reader.ts"
 import { customRowById, customRows } from "../pg/custom-rows.ts"
 
+export { activityToolsFor } from "../pg/activity.ts"
 export { closeAll, databaseUrl, initStore } from "../pg/db.ts"
 export { ForeignTableError } from "../pg/errors.ts"
-export { storeFor } from "../pg/store.ts"
+export { type RowState, rowStateFor, storeFor } from "../pg/store.ts"
 
 /**
  * Two cubes cannot own the same table.

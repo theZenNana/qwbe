@@ -84,6 +84,11 @@ export const ensureCubeSchema = async (cube: string): Promise<string> => {
       await client.query(`GRANT INSERT ON qwbe.outbox TO ${q(role)}`)
       // bigserial draws from a sequence; INSERT on the table alone does not cover it.
       await client.query(`GRANT USAGE ON SEQUENCE qwbe.outbox_id_seq TO ${q(role)}`)
+      // Echo A1: every cube role records activity for its committed row mutations; SELECT
+      // stays off -- only the one role whose cube declares `readsActivity` reads the log
+      // (ensureActivityReader below, granted at mount time).
+      await client.query(`GRANT INSERT ON qwbe.activity TO ${q(role)}`)
+      await client.query(`GRANT USAGE ON SEQUENCE qwbe.activity_id_seq TO ${q(role)}`)
       await client.query("COMMIT")
     } catch (e) {
       failed = true
@@ -161,6 +166,38 @@ export const ensureTable = async (schema: string, table: string): Promise<void> 
 export const schemaExists = async (schema: string): Promise<boolean> => {
   const r = await getPool().query(`SELECT 1 FROM information_schema.schemata WHERE schema_name = $1`, [schema])
   return (r.rowCount ?? 0) > 0
+}
+
+/**
+ * Grant SELECT on `qwbe.activity` to exactly one cube role: the one whose manifest declares
+ * `readsActivity` (at-most-one checked at mount). Called lazily by the activity tools
+ * (pg/activity.ts) because `mount` is synchronous and cube roles come into being lazily;
+ * memoized per schema like the DDL above, idempotent like every GRANT.
+ */
+const activityReaders = new Map<string, Promise<void>>()
+
+export const ensureActivityReader = async (cube: string): Promise<void> => {
+  const schema = schemaName(cube)
+  const inflight = activityReaders.get(schema)
+  if (inflight) return inflight
+  const run = (async () => {
+    // The reader's schema and role exist only once ensureCubeSchema has run for it, and every
+    // activity tool calls THIS before withRole: on a fresh database the GRANT below would
+    // otherwise hit `role "..." does not exist` on every call. Memoized and idempotent.
+    await ensureCubeSchema(cube)
+    await getPool().query(`GRANT SELECT ON qwbe.activity TO ${q(roleName(schema))}`)
+    // Echo A2 comments: the reader role is the ONLY role that may touch qwbe.comment (the
+    // comment write path runs under it, same-transaction with its activity row). Batch and
+    // every other cube role stay exactly as wide as A1 left them.
+    await getPool().query(`GRANT SELECT, INSERT, UPDATE ON qwbe.comment TO ${q(roleName(schema))}`)
+  })()
+  activityReaders.set(schema, run)
+  try {
+    return await run
+  } catch (e) {
+    activityReaders.delete(schema)
+    throw e
+  }
 }
 
 /*

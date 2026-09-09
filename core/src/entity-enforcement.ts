@@ -33,6 +33,26 @@ const deny = (cube: string) =>
 const runHandler = (handler: Handler, request: unknown) => handler(request)
 
 /**
+ * The ONE predicate deciding both which cubes get entity mediation and which get activity
+ * capture. Exported so `discovery.ts` (the store's capture entity) and `mediateEntityCube`
+ * (the wrapper) read the same rule from the same place: the recorded set and the mediated set
+ * cannot drift. The identity directory is excluded -- it holds credentials, and its rows are
+ * never business-activity material.
+ */
+export const recordsActivity = <M extends { entity?: string; providesIdentityDirectory?: boolean }>(
+  manifest: M,
+): manifest is M & { entity: string } => Boolean(manifest.entity) && !manifest.providesIdentityDirectory
+
+/**
+ * Echo A1: the DECLARED ENTITY TYPE whose rows are captured -- not a boolean. Only rows whose
+ * type is exactly this string are recorded (pg/store.ts), so a cube's auxiliary tables are
+ * never captured. Undefined for non-entity cubes and the identity directory.
+ */
+export const captureEntity = <M extends { entity?: string; providesIdentityDirectory?: boolean }>(
+  manifest: M,
+): string | undefined => (recordsActivity(manifest) ? manifest.entity : undefined)
+
+/**
  * Kernel-owned mediation for entity routes. A plugin receives no choice about this wrapper:
  * discovery applies it from the manifest's concrete `entity`, after `create` returns handlers.
  */
@@ -151,7 +171,7 @@ export const mediateEntityCube = <
   parts: Parts,
   permissions: Gate,
 ): Parts =>
-  manifest.entity && !manifest.providesIdentityDirectory
+  recordsActivity(manifest)
     ? {
         ...parts,
         handlers: enforceEntityHandlers(
