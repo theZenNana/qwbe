@@ -3,6 +3,7 @@ import { CurrentUser } from "./kernel/auth-contract.ts"
 import type { RelationalPart, SearchResult } from "./kernel/manifest.ts"
 import type { PageRequest } from "./kernel/pagination.ts"
 import { MAX_LIMIT } from "./kernel/pagination.ts"
+import type { RowState } from "./kernel/store.ts"
 import type { AccessDecision, EntityRef, PermissionActor } from "./permissions-contracts.ts"
 
 export type RelationalGate = Readonly<{
@@ -13,6 +14,8 @@ export type ProtectedRelationalEntry = Readonly<{
   entity?: string | undefined
   relational?: RelationalPart | undefined
   permissionExempt?: boolean | undefined
+  captureEntity?: string | undefined
+  state?: ((id: string) => Effect.Effect<RowState | undefined>) | undefined
 }>
 
 const actor = (user: typeof CurrentUser.Service): PermissionActor => ({ userId: user.id, roles: user.roles })
@@ -60,6 +63,7 @@ export const protectRelational = (entry: ProtectedRelationalEntry, gate: Relatio
   const source = entry.relational
   return {
     ...entry,
+    captureEntity: entry.captureEntity,
     relational: {
       ...(source.search ? { search: (field, value, page) => protectedSearch(entry, gate, field, value, page) } : {}),
       ...(source.summaryById ? { summaryById: source.summaryById } : {}),

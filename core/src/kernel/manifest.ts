@@ -225,6 +225,14 @@ export type Manifest = {
    * complete list of holders.
    */
   readonly usesBatch?: boolean
+  /**
+   * DECLARED CAPABILITY (Echo A1): this cube reads the kernel activity log -- the committed
+   * row-mutation history of every declared entity cube -- through the narrow `activity` tool.
+   * At most one cube may hold it (checked at mount, discovery.ts). INSERT is granted to every
+   * cube role for the store's same-transaction capture; SELECT only here, so no other cube
+   * and no plugin can browse other cubes' history.
+   */
+  readonly readsActivity?: boolean
 }
 
 /** What a credential provider offers, and a consumer receives. Never the hash itself. */
@@ -283,9 +291,86 @@ export type CubeTools = {
   readonly entityPermissions?: PermissionService | undefined
   /** Present ONLY when the manifest declares `providesCustomFields`. */
   readonly customFields?: CustomFieldTools | undefined
+  /** Present ONLY when the manifest declares `readsActivity`. */
+  readonly activity?: ActivityTools | undefined
 }
 
 export type { Catalogue } from "../catalogue.ts"
+
+/**
+ * The narrow activity interface (Echo A1). One row per committed row mutation of a DECLARED
+ * entity row (type exactly the manifest's `entity`), captured by the kernel store in the same
+ * transaction (pg/store.ts). The interface is read-only on purpose: there is no hand `record`
+ * entry point in A1 (no consumers -- stage A2 adds atomic comments separately), and no
+ * `deletedTargets` (a delete row is evidence of a deletion, never current existence -- a
+ * misleading API with no caller).
+ *
+ * `page` reads newest-first under the reader cube's own role.
+ */
+export type ActivityRow = {
+  readonly id: number
+  readonly at: string
+  readonly cube: string
+  readonly entityType: string
+  readonly rowId: string
+  readonly op: string
+  readonly version: number | null
+  readonly actorId: string | null
+  readonly actorUsername: string | null
+  readonly changes: Record<string, { from?: unknown; to?: unknown }> | null
+  readonly commentId: string | null
+  /** Filled from qwbe.comment (page's LEFT JOIN); null unless `op` is "comment". */
+  readonly comment: CommentRow | null
+}
+
+/**
+ * One comment (Echo A2). The body lives ONLY here -- never in the activity log -- so no log
+ * history can carry an old text. Deletion is in-place: `body` wiped to "" plus the
+ * `deletedAt`/`deletedBy` markers; the linked activity row stays.
+ */
+export type CommentRow = {
+  readonly id: string
+  readonly cube: string
+  readonly entityType: string
+  readonly rowId: string
+  readonly actorId: string | null
+  readonly actorUsername: string | null
+  readonly body: string
+  readonly createdAt: string
+  readonly editedAt: string | null
+  readonly deletedAt: string | null
+  readonly deletedBy: string | null
+}
+
+export type ActivityTools = {
+  readonly page: (query: {
+    readonly cube?: string
+    readonly entityType?: string
+    readonly entityId?: string
+    readonly beforeId?: number
+    readonly limit: number
+  }) => Effect.Effect<ReadonlyArray<ActivityRow>, never, never>
+  /**
+   * Echo A2 comments. Held by the same single `readsActivity` holder as `page`; the comment
+   * row and its linked activity row are written in ONE transaction, with `op` forced to
+   * "comment", `changes` to "{}" and `version` to NULL, so this seam cannot forge a mutation
+   * event. The actor comes from the `CurrentActor` FiberRef, never a parameter.
+   */
+  readonly comments: {
+    readonly add: (
+      target: { readonly cube: string; readonly entityType: string; readonly entityId: string },
+      body: string,
+    ) => Effect.Effect<ActivityRow, never, never>
+    readonly byId: (id: string) => Effect.Effect<CommentRow | undefined, never, never>
+    /** Always the AUTHOR's own row: UPDATE ... WHERE id = $1 AND actor_id = <CurrentActor.id>.
+     * There is no moderator edit; nobody edits another person's words. Refuses (undefined) an
+     * already-deleted comment. */
+    readonly edit: (id: string, body: string) => Effect.Effect<CommentRow | undefined, never, never>
+    /** moderator=false pins actor_id to the current actor; true (superadmin / cube-admin on
+     * the target) matches any live row. Wipes the body in place either way. */
+    readonly remove: (id: string, moderator: boolean) => Effect.Effect<CommentRow | undefined, never, never>
+  }
+}
 
 /**
  * What a package in the store looks like from a cube's side: a name and what it brings.

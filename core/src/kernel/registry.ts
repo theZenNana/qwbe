@@ -16,6 +16,7 @@ import type { CurrentUser } from "./auth-contract.ts"
 import type { RelationalPart, SearchResult, SummaryRow } from "./entity.ts"
 import type { PageRequest } from "./pagination.ts"
 import type { Link } from "./space.ts"
+import type { RowState } from "./store.ts"
 
 export type RegistryEntry = {
   readonly name: string
@@ -28,6 +29,21 @@ export type RegistryEntry = {
   readonly entity?: string | undefined
   readonly relational?: RelationalPart | undefined
   readonly permissionExempt?: boolean | undefined
+  /**
+   * Echo A2: the DECLARED entity type whose rows the kernel store captures for this cube
+   * (entity-enforcement `captureEntity`): the manifest's `entity`, except for the identity
+   * directory and non-entity cubes. Undefined means "no captured rows can exist for this
+   * cube" -- and, since the entry only exists while the cube is mounted, also "not a live
+   * capture source right now". This is the narrow resolver the echo feed reads BEFORE any
+   * access: existence and current capture identity, never inferred from a summary.
+   */
+  readonly captureEntity?: string | undefined
+  /**
+   * Echo A3: the kernel-built row STATE lookup on this cube's OWN store (`rowStateFor`):
+   * `{ id, type, deleted }` only, never a body. Present only for capture sources; wired in
+   * `main.ts` next to `captureEntity`, never handed to a cube.
+   */
+  readonly state?: ((id: string) => Effect.Effect<RowState | undefined>) | undefined
 }
 
 export type LinkGroup = {
@@ -62,6 +78,20 @@ export class Registry extends Context.Tag("cubes/Registry")<
       caller?: typeof CurrentUser.Service,
     ) => Effect.Effect<string | null>
     readonly entities: () => ReadonlyArray<{ readonly cube: string; readonly entity: string }>
+    /**
+     * Echo A2: the cube's CURRENT capture entity, or undefined when the cube is absent,
+     * switched off, holds no declared entity, or IS the identity directory. The feed checks
+     * this before touching activity rows, so a stale row pointing at a cube that no longer
+     * captures (or never did) never reaches a summary call.
+     */
+    readonly captureOf: (cube: string) => string | undefined
+    /**
+     * Echo A3: the CURRENT state (`{ id, type, deleted }`, no body) of one row of a cube's
+     * capture entity, from the owning store under the owning role. Undefined when the cube is
+     * absent, switched off, not a capture source, or holds no such row -- so a caller can
+     * tell "deleted" from "missing" without ever reading the activity log as truth.
+     */
+    readonly targetState: (cube: string, id: string) => Effect.Effect<RowState | undefined>
   }
 >() {}
 

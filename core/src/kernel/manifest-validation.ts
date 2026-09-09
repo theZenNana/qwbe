@@ -143,6 +143,12 @@ export const validateManifest = (directory: string, m: Manifest): void => {
   if (m.tables.length === 0 && m.entity) {
     reasons.push(`declares entity "${m.entity}" but owns no tables`)
   }
+  // Echo A1: the flag is a capability, not a truthy bag. A non-boolean truthy value (a
+  // string, an object) would otherwise count as "holds the privilege" everywhere the flag is
+  // read -- keep the declaration to exactly the documented shape.
+  if (m.readsActivity !== undefined && typeof m.readsActivity !== "boolean") {
+    reasons.push(`readsActivity must be a boolean when present, got ${typeof m.readsActivity}`)
+  }
   for (const p of m.permissions ?? []) {
     if (!p.name.startsWith(`${full}:`)) {
       reasons.push(`permission "${p.name}" does not start with "${full}:" -- a cube cannot grant another's`)

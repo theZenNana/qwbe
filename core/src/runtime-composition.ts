@@ -31,7 +31,8 @@ import * as AST from "effect/SchemaAST"
 import { withCustomFold as withCustomFoldPolicy } from "./custom-fold.ts"
 import { CUSTOM } from "./custom-values.ts"
 import type { Handler } from "./entity-contract.ts"
-import { declaredPermission, requirePermission } from "./kernel/auth-contract.ts"
+import { CurrentActor } from "./kernel/actor.ts"
+import { CurrentUser, declaredPermission, requirePermission } from "./kernel/auth-contract.ts"
 import type { MountedCube } from "./kernel/discovery.ts"
 
 /**
@@ -165,7 +166,10 @@ export const buildHandlers = (api: unknown, cubes: ReadonlyArray<MountedCube>): 
     return HttpApiBuilder.group(api as any, id as never, (handlers: any) =>
       Object.entries(cube.parts.handlers).reduce(
         (current, [name, implementation]) =>
-          current.handle(name, withDeclaredPermission(cube, name, withCustomFold(cube, name, implementation))),
+          current.handle(
+            name,
+            withDeclaredPermission(cube, name, withCustomFold(cube, name, withActor(implementation))),
+          ),
         handlers,
       ),
     )
@@ -173,6 +177,26 @@ export const buildHandlers = (api: unknown, cubes: ReadonlyArray<MountedCube>): 
   const [first, ...rest] = layers
 
   return (first === undefined ? Layer.empty : Layer.mergeAll(first, ...rest)) as any
+}
+
+/**
+ * Copy the authenticated identity into `CurrentActor` for the handler's duration, so the
+ * store's same-transaction activity capture attributes the write truthfully. `serviceOption`:
+ * a request without Authorization (public route) leaves the FiberRef at its default
+ * `undefined`, and the activity row records actor NULL -- rendered "system" by the feed. The
+ * wrapper is the ONLY writer of the FiberRef, and it takes its value from `CurrentUser`, so
+ * no caller and no cube can attribute activity to someone else. Innermost wrapper: it only
+ * decorates execution, it decides nothing about access.
+ */
+// Exported for runtime-composition.test.ts: the wrapper's behavior is the contract.
+export const withActor = (implementation: unknown) => {
+  const handler = implementation as Handler
+  return (request: unknown) =>
+    Effect.flatMap(Effect.serviceOption(CurrentUser), (user) =>
+      Option.isSome(user)
+        ? handler(request).pipe(Effect.locally(CurrentActor, { id: user.value.id, username: user.value.username }))
+        : handler(request),
+    )
 }
 
 /**

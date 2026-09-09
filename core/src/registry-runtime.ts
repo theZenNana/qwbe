@@ -44,5 +44,12 @@ export const registryFrom = (
       live()
         .filter((entry) => !!entry.entity)
         .map((entry) => ({ cube: entry.name, entity: entry.entity! })),
+    captureOf: (cube) => live().find((entry) => entry.name === cube)?.captureEntity,
+    targetState: (cube, id) => {
+      const entry = live().find((candidate) => candidate.name === cube)
+      if (entry?.captureEntity === undefined || !entry.state) return Effect.succeed(undefined)
+      const capture = entry.captureEntity
+      return Effect.map(entry.state(id), (row) => (row?.type === capture ? row : undefined))
+    },
   })
 }

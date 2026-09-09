@@ -28,8 +28,9 @@ import { discover } from "./scan.ts"
 export { BrokenCubeError, DoubleCapabilityError, DoublePrivilegeError, DuplicateCubeError } from "./errors-discovery.ts"
 
 import type { Subscription } from "../catalogue.ts"
+import { captureEntity } from "../entity-enforcement.ts"
 import { BrokenCubeError, DoubleCapabilityError, DoublePrivilegeError } from "./errors-discovery.ts"
-import type { Catalogue, CommandInfo, CommandRunner, CommandSpec, CubeParts } from "./manifest.ts"
+import type { Catalogue, CommandInfo, CommandRunner, CommandSpec, CubeParts, Manifest } from "./manifest.ts"
 import {
   fullName,
   leafOf,
@@ -42,7 +43,7 @@ import {
 } from "./manifest-validation.ts"
 import { activeLinks, type SpaceDefinition } from "./space.ts"
 import { type Switches, switchesFrom } from "./state.ts"
-import { checkUniqueTables, customFieldToolsFor, storeFor } from "./store.ts"
+import { activityToolsFor, checkUniqueTables, customFieldToolsFor, storeFor } from "./store.ts"
 
 export type MountedCube = {
   readonly manifest: import("../cube-contract.ts").CubeManifest
@@ -148,6 +149,20 @@ type MountedSystem = {
  *   5. bus + subscription list -- the list is filled in step 6 and read per publish
  *   6. live parts         -- each cube gets ITS store, ITS bus, and the switches only if declared
  */
+/**
+ * ONE flag, at most ONE holder (mount-time gate). The flags listed in `SingleHolderFlag` hand
+ * out a privilege over other cubes' data with no permission gate between holders, so a second
+ * holder must refuse to mount -- `DoublePrivilegeError` names every holder. Exported for the
+ * focused unit test; `mount` is the only production caller.
+ */
+export type SingleHolderFlag = "managesCubes" | "providesCustomFields" | "readsActivity"
+
+export const singleHolderOf = (manifests: ReadonlyArray<Manifest>, flag: SingleHolderFlag): ReadonlyArray<string> => {
+  const holders = manifests.filter((m) => m[flag]).map((m) => fullName(m))
+  if (holders.length > 1) throw new DoublePrivilegeError(holders)
+  return holders
+}
+
 export const mount = (
   definitions: ReadonlyArray<{ name: string; plugin: string | null; definition: CubeDefinition }>,
   spaces: ReadonlyArray<SpaceDefinition>,
@@ -159,19 +174,19 @@ export const mount = (
 
   checkUniqueTables(manifests.map((m) => ({ name: fullName(m), tables: m.tables })))
 
-  const privileged = manifests.filter((m) => m.managesCubes).map((m) => fullName(m))
-  if (privileged.length > 1) throw new DoublePrivilegeError(privileged)
-
   // Credential verification is a declared capability with exactly one provider and one
   // consumer. Both are named in manifests, so `grep -r providesCredentials` shows the whole
   // arrangement -- the same visibility rule as `managesCubes`.
   const runners = manifests.filter((m) => m.runsCommands).map((m) => fullName(m))
   if (runners.length > 1) throw new DoubleCapabilityError("runsCommands", runners)
-  // The same single-holder rule for `providesCustomFields`: the flag hands out an unrestricted
-  // reader over every other cube's rows under that cube's own DB role. Two holders would mean
-  // two plugins reading each other's data with no permission gate between them.
-  const fieldReaders = manifests.filter((m) => m.providesCustomFields).map((m) => fullName(m))
-  if (fieldReaders.length > 1) throw new DoublePrivilegeError(fieldReaders)
+  // The single-holder privileges: each flag below hands out a privilege over OTHER cubes'
+  // data with no permission gate between holders (managesCubes: cube registry;
+  // providesCustomFields: unrestricted row reader under the holder's own DB role;
+  // readsActivity (Echo A1): SELECT on the whole activity log -- every entity cube's
+  // history). Two holders would read each other's users' data with no gate between them.
+  singleHolderOf(manifests, "managesCubes")
+  singleHolderOf(manifests, "providesCustomFields")
+  singleHolderOf(manifests, "readsActivity")
   // The provider fills this during its own `create`; the consumer receives a wrapper that reads
   // it at call time. Late binding on purpose -- otherwise the two cubes would have to be created
   // in a particular order, and mount order is just the order of directory names on disk.
@@ -268,7 +283,9 @@ export const mount = (
     const created = definition.create({
       // The batch capability is a declared privilege (`usesBatch`): a cube that did not ask
       // gets the six-operation store only. See manifest.ts for why it is declared, not assumed.
-      store: storeFor(full, m.tables, m.sortable ?? [], m.usesBatch === true),
+      // The activity capture entity reuses the mediation predicate, so what is recorded and
+      // what is mediated can never disagree (entity-enforcement.ts).
+      store: storeFor(full, m.tables, m.sortable ?? [], m.usesBatch === true, captureEntity(m)),
       bus: bus.for(full, m.publishes),
       catalogue,
       permissions: () => permissions,
@@ -284,6 +301,7 @@ export const mount = (
       customFields: m.providesCustomFields
         ? customFieldToolsFor((name) => cubes.find((c) => c.name === name))
         : undefined,
+      activity: m.readsActivity ? activityToolsFor(full) : undefined,
     })
     const parts = capabilities.mediate(full, m, created)
     validateCubeParts(full, parts)

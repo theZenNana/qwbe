@@ -21,6 +21,7 @@ import { NodeHttpServer, NodeRuntime } from "@effect/platform-node"
 import { Effect, Layer } from "effect"
 import { bootStorage } from "./boot-storage.ts"
 import { catalogueMetadata } from "./catalogue.ts"
+import { captureEntity } from "./entity-enforcement.ts"
 import { Authorization } from "./kernel/auth-contract.ts"
 import { loadDefinitions, mount } from "./kernel/discovery.ts"
 import { readLedger, verifyLedgerUnchanged, writeLedger } from "./kernel/ledger.ts"
@@ -28,6 +29,7 @@ import { buildApi, buildHandlers, checkCubes, rejectDisabled } from "./kernel/mo
 import { logRefusals } from "./kernel/refusal-log.ts"
 import type { Registry, RegistryEntry } from "./kernel/registry.ts"
 import { loadSpaces } from "./kernel/space.ts"
+import { rowStateFor } from "./kernel/store.ts"
 import { checkSchemaDrift } from "./metadata/schema-drift.ts"
 import { corsOriginMatcher, originsForStartup } from "./origins.ts"
 import { registryFrom } from "./registry-runtime.ts"
@@ -136,12 +138,19 @@ console.log(
 
 // --- 4. layers ---
 
-const entries: ReadonlyArray<RegistryEntry> = system!.cubes.map((c) => ({
-  name: c.name,
-  entity: c.manifest.entity,
-  relational: c.parts.relational,
-  permissionExempt: c.manifest.providesIdentityDirectory === true,
-}))
+const entries: ReadonlyArray<RegistryEntry> = system!.cubes.map((c) => {
+  const capture = captureEntity(c.manifest)
+  return {
+    name: c.name,
+    entity: c.manifest.entity,
+    relational: c.parts.relational,
+    permissionExempt: c.manifest.providesIdentityDirectory === true,
+    captureEntity: capture,
+    // Echo A3: the kernel-only row-state lookup, over the cube's OWN tables and role. Built
+    // here, next to the capture identity it answers for; no cube ever receives it.
+    state: capture === undefined ? undefined : rowStateFor(c.name, c.manifest.tables, capture),
+  }
+})
 
 const RegistryLive = registryFrom(entries, system!.liveLinks, system!.isEnabled, system!.entityPermissions)
 
