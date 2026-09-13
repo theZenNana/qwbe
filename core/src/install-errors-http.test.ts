@@ -19,7 +19,6 @@ import assert from "node:assert/strict"
 import { describe, it } from "node:test"
 import { HttpApiBuilder, HttpServer } from "@effect/platform"
 import { type Context, Effect, Layer } from "effect"
-import type { CubeTools } from "qwbe-core/cube"
 import { cube as authCube } from "./cubes/auth/index.ts"
 import { cube as permissionsCube } from "./cubes/permissions/index.ts"
 import { cube as settingsCube } from "./cubes/settings/index.ts"
@@ -28,50 +27,7 @@ import { tried } from "./kernel/install-parts.ts"
 import { InstallError } from "./kernel/manifest.ts"
 import { Registry } from "./kernel/registry.ts"
 import { buildApi, buildHandlers } from "./runtime-composition.ts"
-
-// ponytail: same in-memory store as the other handler-level HTTP tests (capability-gates,
-// echo/auth) -- a fourth copy of the helper the owner has not asked to be shared.
-const memoryStore = (): CubeTools["store"] => {
-  const tables = new Map<string, Array<Record<string, unknown>>>()
-  let next = 0
-  const rows = (table: string) => {
-    const found = tables.get(table)
-    if (found) return found
-    const created: Array<Record<string, unknown>> = []
-    tables.set(table, created)
-    return created
-  }
-  return {
-    all: <A>(table: string) => Effect.succeed(rows(table) as ReadonlyArray<A>),
-    page: <A>(table: string, page: { offset: number; limit: number }, where?: unknown) => {
-      // One-pair filter only: what the auth cube's token lookup uses.
-      const pair = where as { field: string; value: unknown } | undefined
-      const hit = pair && "field" in pair ? rows(table).filter((row) => row[pair.field] === pair.value) : rows(table)
-      return Effect.succeed({
-        rows: hit.slice(page.offset, page.offset + page.limit) as ReadonlyArray<A>,
-        total: hit.length,
-        offset: page.offset,
-        limit: page.limit,
-        sortedBy: "createdAt",
-      })
-    },
-    byId: <A>(table: string, id: string) => Effect.succeed(rows(table).find((row) => row.id === id) as A | undefined),
-    insert: (table: string, type: string, prefix: string, values: Record<string, unknown>) =>
-      Effect.sync(() => {
-        const row = { id: `${prefix}-${++next}`, type, createdAt: new Date().toISOString(), deleted: false, ...values }
-        rows(table).push(row)
-        return row
-      }),
-    update: (table: string, id: string, patch: Record<string, unknown>) =>
-      Effect.sync(() => {
-        const row = rows(table).find((candidate) => candidate.id === id)
-        if (!row) return undefined
-        Object.assign(row, patch)
-        return row
-      }),
-    count: (table: string) => Effect.succeed(rows(table).length),
-  }
-}
+import { memoryStore } from "./test-cube-tools.ts"
 
 // The fixture installer speaks through the production bridge `tried`, so the branch the test
 // proves is the branch production takes: an `InstallError` stays on the error channel; a raw

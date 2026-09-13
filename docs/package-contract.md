@@ -139,13 +139,16 @@ back), the error channel is `unknown`, and `Provided` is inferred at `defineCube
 opaque to the kernel. The auth cube's `AuthorizationLive` is the shipped example: it
 implements the kernel-declared `Authorization` tag, and `main.ts` composes every cube layer
 by providing the `Registry`, closing the error channel with `Layer.orDie` (a cube layer
-that fails at build kills startup, like every mount-time refusal) and merging -- cast-free.
+that fails at build kills startup, like every mount-time refusal) and merging -- cast-free
+for the cube layers (main.ts keeps exactly one cast, on the OpenAPI gate).
 
 ```ts
-import { Effect, Layer } from "effect"
+import { Context, Layer } from "effect"
 
 class MyService extends Context.Tag("pack/MyService")<MyService, { hello: () => string }>() {}
 
+// `defineCube` comes from the cube's own module (qwbe-core/cube); `group` is the
+// HttpApiGroup the cube declares.
 export const cube = defineCube(group, {
   manifest: { name: "my-cube", tables: [] },
   create: () => ({ layers: Layer.succeed(MyService, { hello: () => "hi" }) }),
@@ -169,4 +172,4 @@ re-throws it as a defect and the platform answers 500 WITHOUT the message. A sys
 the operator's log to read, not text a caller is shown. The one exception kept on the
 contract channel: a manifest that is not valid JSON is a BAD PACKAGE, refused with 400
 (`core/src/kernel/install.ts` classifies the parse). Both branches are pinned by
-`core/src/cubes/settings/install-errors.test.ts` over real HTTP.
+`core/src/install-errors-http.test.ts` over real HTTP.

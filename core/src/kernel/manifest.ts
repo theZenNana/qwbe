@@ -484,7 +484,7 @@ export type CubeParts<Group extends CubeGroup = CubeGroup, Provided = never> = {
    * cube layer. What the layer PROVIDES is the `Provided` parameter, inferred per cube at
    * `defineCube` and kept opaque to the kernel: with runtime discovery kept, the exact union
    * across cubes is unknowable, so the composition seam in `main.ts` erases it exactly once
-   * (the audited adapter).
+   * (`Layer.provide(Registry)` + `Layer.orDie`, no cast).
    */
   readonly layers?: Layer.Layer<Provided, unknown, Registry>
 }

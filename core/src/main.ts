@@ -229,8 +229,9 @@ const ServerLive = HttpApiBuilder.serve((app) =>
   ),
   // The spec route needs the auth cube's Authorization service. Every system that can pass
   // the life rules has it (with no cube layer providing Authorization, mount refuses to
-  // start), but TypeScript cannot know the merged cube layers provide it -- the same
-  // unknowable union contributeLayer widens above. One cast, same justification.
+  // start), but TypeScript cannot know the merged cube layers provide it -- what a cube
+  // layer provides is kept opaque to the kernel. This cast is now the one erasure left in
+  // main.ts.
   Layer.provide(
     (firstCubeLayer === undefined
       ? GatedOpenApi
