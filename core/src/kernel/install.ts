@@ -161,11 +161,19 @@ const readPackageAt = (name: string, dir: string): CubePackage => {
     throw new InstallError(`refused: "${name}" is not a package - no ${MANIFEST} in the directory`)
   }
 
-  const raw = JSON.parse(readFileSync(manifestPath, "utf8")) as {
-    name?: string
-    kind?: string
-    summary?: string
-    cubes?: Array<string>
+  // A malformed manifest is a BAD PACKAGE, not a disk error: it must stay on the contract
+  // channel (400 naming the problem), so the parse is classified here rather than left as a
+  // SyntaxError that the Effect bridge would turn into a 500 (QWB-38).
+  let raw: { name?: string; kind?: string; summary?: string; cubes?: Array<string> }
+  try {
+    raw = JSON.parse(readFileSync(manifestPath, "utf8")) as {
+      name?: string
+      kind?: string
+      summary?: string
+      cubes?: Array<string>
+    }
+  } catch {
+    throw new InstallError(`refused: package "${name}" has a manifest that is not valid JSON`)
   }
 
   if (raw.name !== name) {
