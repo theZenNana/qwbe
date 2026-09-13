@@ -16,7 +16,7 @@ import type { CurrentUser } from "./auth-contract.ts"
 import type { RelationalPart, SearchResult, SummaryRow } from "./entity.ts"
 import type { PageRequest } from "./pagination.ts"
 import type { Link } from "./space.ts"
-import type { RowState } from "./store.ts"
+import type { RowState } from "./store-contract.ts"
 
 export type RegistryEntry = {
   readonly name: string

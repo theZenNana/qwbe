@@ -13,7 +13,7 @@
 import { type Dirent, readdirSync, readFileSync } from "node:fs"
 import { join, sep } from "node:path"
 
-import type { PackageFinding } from "./package-contract-scan.ts"
+import type { PackageFinding } from "./package-finding.ts"
 
 const SOURCE = /\.(ts|tsx|mjs|js|jsx)$/
 const SKIP_DIR = new Set([

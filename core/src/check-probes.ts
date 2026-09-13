@@ -18,7 +18,7 @@ import { randomBytes } from "node:crypto"
 import { mkdtempSync, readFileSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import type { PackageFinding } from "./package-contract-scan.ts"
+import type { PackageFinding } from "./package-finding.ts"
 
 // --- shapes ---------------------------------------------------------------------------------
 

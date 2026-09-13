@@ -20,7 +20,12 @@
 
 import { Effect, FiberRef } from "effect"
 import { CurrentActor } from "../kernel/actor.ts"
-import type { CubeStore } from "../kernel/manifest.ts"
+// RowState is declared in the leaf store contract; re-exported here so kernel/store.ts keeps
+// its public surface (QWB-70).
+import type { CubeStore, RowState } from "../kernel/store-contract.ts"
+
+export type { RowState }
+
 import type { ListWhere, Page, PageRequest } from "../kernel/pagination.ts"
 import { type BatchStore, batchFor } from "./batch.ts"
 import { ForeignTableError } from "./errors.ts"
@@ -251,8 +256,6 @@ export const storeFor = (
  * are to activity capture). This is the ONE current-state source the echo feed may use to
  * tell "deleted" from "missing": the activity log is history, never truth.
  */
-export type RowState = { readonly id: string; readonly type: string; readonly deleted: boolean }
-
 export const rowStateFor =
   (cube: string, tables: ReadonlyArray<string>, captureEntity: string) =>
   (id: string): Effect.Effect<RowState | undefined, never, never> =>

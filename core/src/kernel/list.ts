@@ -25,8 +25,8 @@ import { HttpServerRequest } from "@effect/platform"
 import { Effect, Option } from "effect"
 import { filterFields, type ListParamsType, type MetadataDeclarations, searchFields } from "../metadata/declarations.ts"
 import { declaredPermission, readPermissionOf, requirePermission } from "./auth-contract.ts"
-import type { CubeStore } from "./manifest.ts"
 import { DEFAULT_LIMIT, type ListWhere, MAX_LIMIT, type PageRequest, pageRequest } from "./pagination.ts"
+import type { CubeStore } from "./store-contract.ts"
 
 export { ListParams, type ListParamsType } from "../metadata/declarations.ts"
 

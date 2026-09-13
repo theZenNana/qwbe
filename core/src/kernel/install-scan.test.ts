@@ -39,7 +39,7 @@ describe("scanDirectory", () => {
     mkdirSync(join(root, "not-a-package"))
     writeFileSync(join(root, "plain-file.txt"), "x")
 
-    const found = await Effect.runPromise(installerFor().scanDirectory(root))
+    const found = await Effect.runPromise(installerFor(async () => []).scanDirectory(root))
     assert.deepEqual(
       found.map((p) => p.name),
       ["alpha"],
@@ -53,9 +53,12 @@ describe("scanDirectory", () => {
   })
 
   it("refuses relative paths and missing directories", async () => {
-    await assert.rejects(() => Effect.runPromise(installerFor().scanDirectory("relative/path")), /not an absolute path/)
     await assert.rejects(
-      () => Effect.runPromise(installerFor().scanDirectory(join(root, "gone"))),
+      () => Effect.runPromise(installerFor(async () => []).scanDirectory("relative/path")),
+      /not an absolute path/,
+    )
+    await assert.rejects(
+      () => Effect.runPromise(installerFor(async () => []).scanDirectory(join(root, "gone"))),
       /not an existing directory/,
     )
   })
@@ -64,11 +67,11 @@ describe("scanDirectory", () => {
     const dir = plantCubePackage("beta", join(root, "beta"))
     // A shelf copy with the same bytes -> identical; install-from would reuse it.
     cpSync(dir, join(store, "beta"), { recursive: true })
-    let found = await Effect.runPromise(installerFor().scanDirectory(root))
+    let found = await Effect.runPromise(installerFor(async () => []).scanDirectory(root))
     assert.equal(found.find((p) => p.name === "beta")!.shelf, "identical")
     // Edited bytes -> different; install-from would refuse until the shelf is forgotten.
     writeFileSync(join(dir, "index.ts"), `${readFileSync(join(dir, "index.ts"), "utf8")}\n// edited\n`)
-    found = await Effect.runPromise(installerFor().scanDirectory(root))
+    found = await Effect.runPromise(installerFor(async () => []).scanDirectory(root))
     assert.equal(found.find((p) => p.name === "beta")!.shelf, "different")
   })
 
@@ -84,7 +87,7 @@ describe("scanDirectory", () => {
     mkdirSync(join(shelf, "node_modules", "shadow"), { recursive: true })
     writeFileSync(join(shelf, "node_modules", "shadow", "index.js"), "module.exports = 1\n")
     writeFileSync(join(shelf, ".pi"), "scratch\n")
-    const found = await Effect.runPromise(installerFor().scanDirectory(root))
+    const found = await Effect.runPromise(installerFor(async () => []).scanDirectory(root))
     assert.equal(found.find((p) => p.name === "poisoned")!.shelf, "different")
   })
 })
@@ -93,17 +96,19 @@ describe("forgetShelf", () => {
   it("removes an uninstalled shelf copy and then reports nothing to forget", async () => {
     const dir = plantCubePackage("gamma", join(root, "gamma"))
     cpSync(dir, join(store, "gamma"), { recursive: true })
-    const removed = await Effect.runPromise(installerFor().forgetShelf("gamma"))
+    const removed = await Effect.runPromise(installerFor(async () => []).forgetShelf("gamma"))
     assert.match(removed.removed, /gamma$/)
     assert.equal(
-      await Effect.runPromise(installerFor().scanDirectory(root)).then((f) => f.find((p) => p.name === "gamma")!.shelf),
+      await Effect.runPromise(installerFor(async () => []).scanDirectory(root)).then(
+        (f) => f.find((p) => p.name === "gamma")!.shelf,
+      ),
       "absent",
     )
-    await assert.rejects(() => Effect.runPromise(installerFor().forgetShelf("gamma")), /holds no package/)
+    await assert.rejects(() => Effect.runPromise(installerFor(async () => []).forgetShelf("gamma")), /holds no package/)
   })
 
   it("refuses names outside the package grammar", async () => {
-    await assert.rejects(() => Effect.runPromise(installerFor().forgetShelf("../escape")), /not allowed/)
+    await assert.rejects(() => Effect.runPromise(installerFor(async () => []).forgetShelf("../escape")), /not allowed/)
   })
 
   it("refuses a shelf whose package is installed (destination exists)", async () => {
@@ -120,7 +125,7 @@ describe("forgetShelf", () => {
       join(dir, "qwbe-package.json"),
       `${JSON.stringify({ name: "auth", kind: "cube", summary: "fixture" }, null, 2)}\n`,
     )
-    await assert.rejects(() => Effect.runPromise(installerFor().forgetShelf("auth")), /is installed/)
+    await assert.rejects(() => Effect.runPromise(installerFor(async () => []).forgetShelf("auth")), /is installed/)
   })
 })
 
@@ -131,7 +136,7 @@ describe("an unreadable manifest is a system error, not a package refusal (QWB-3
   it("stageAndInstall lets an IO error on the manifest through unwrapped", async () => {
     mkdirSync(join(root, "unreadable", "qwbe-package.json"), { recursive: true })
     await assert.rejects(
-      () => Effect.runPromise(installerFor().stageAndInstall(join(root, "unreadable"))),
+      () => Effect.runPromise(installerFor(async () => []).stageAndInstall(join(root, "unreadable"))),
       (e: unknown) => {
         assert.ok(!(e instanceof InstallError), "IO error must not be classified as an InstallError")
         // The defect arrives as a FiberFailure carrying the original IO error.

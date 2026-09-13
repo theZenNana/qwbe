@@ -19,7 +19,7 @@ import { Effect } from "effect"
 import { capabilityRuntime } from "../capability-runtime.ts"
 import { buildCatalogue } from "../catalogue.ts"
 import { type CubeDefinition, decodeCubeExport, validateCubeParts } from "../cube-contract.ts"
-import { assertPackageContracts } from "../package-contract.ts"
+import { assertPackageContracts, checkPackageSource } from "../package-contract.ts"
 import { busFrom } from "./bus.ts"
 import { installerFor } from "./install.ts"
 
@@ -293,7 +293,7 @@ export const mount = (
       switches: m.managesCubes ? { list: switches.list, set: switches.set } : undefined,
       // The same declared basis as the switches: writing to the cubes directory is a privilege,
       // and it goes to the one cube that asked for `managesCubes` in the open.
-      installer: m.managesCubes ? installerFor() : undefined,
+      installer: m.managesCubes ? installerFor(checkPackageSource) : undefined,
       credentials: m.usesCredentials ? capabilities.credentials : undefined,
       identities: m.usesIdentityDirectory ? capabilities.identities : undefined,
       entityPermissions: m.usesEntityPermissions ? capabilities.permissions : undefined,

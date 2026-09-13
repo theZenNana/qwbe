@@ -5,11 +5,13 @@
 // passes every rule; single-line mutations of it fail each rule family in turn.
 
 import assert from "node:assert/strict"
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { basename, join } from "node:path"
 import { after, describe, it } from "node:test"
 
+import { InstallError, stageAndInstall } from "./kernel/install-from.ts"
+import type { CubePackage } from "./kernel/manifest.ts"
 import { pluginsDir } from "./kernel/scan.ts"
 import { assertPackageContracts, checkPackageSource } from "./package-contract.ts"
 import { writePack } from "./test-fixture-pack.ts"
@@ -46,6 +48,42 @@ const build = (mutate?: (root: string) => void): string => {
 }
 
 describe("package contract checker", () => {
+  it("stageAndInstall refuses a package the real checker rejects, before anything reaches the shelf (QWB-70)", async () => {
+    // install-contract.test.ts drives the same path with a stand-in checker (message shape);
+    // this file is the one allowed to run the real one, so the integration is proven here.
+    const bench = mkdtempSync(join(tmpdir(), "qwbe-package-contract-install-"))
+    tmpRoots.push(bench)
+    const source = join(bench, "ghosted")
+    const store = join(bench, "store")
+    mkdirSync(source, { recursive: true })
+    writeFileSync(
+      join(source, "qwbe-package.json"),
+      JSON.stringify({ name: "ghosted", kind: "plugin", summary: "declares air", cubes: ["ghost"] }),
+    )
+    const pkg: CubePackage = {
+      name: "ghosted",
+      kind: "plugin",
+      summary: "declares air",
+      cubes: ["ghost"],
+      installed: false,
+      bytes: 1,
+      conflicts: [],
+    }
+    const install = stageAndInstall({
+      storeDir: store,
+      readPackageAt: () => pkg,
+      installExisting: () => ({ ...pkg, installed: true }),
+      checkPackageSource,
+    })
+    await assert.rejects(install(source), (error: unknown) => {
+      assert.ok(error instanceof InstallError)
+      assert.match(error.message, /source contract/)
+      assert.match(error.message, /cubes\//)
+      return true
+    })
+    assert.deepEqual(existsSync(store) ? readdirSync(store) : [], [])
+  })
+
   it("a well-formed package with a frontend/ directory passes every rule", async () => {
     const root = build()
     const findings = await checkPackageSource(root, { readOnly: true, hierarchy: true })
