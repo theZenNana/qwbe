@@ -125,6 +125,12 @@ export const unsafe: any = 1
         storeDir: store,
         readPackageAt: () => pkg,
         installExisting: () => ({ ...pkg, installed: true }),
+        // The checker is injected (QWB-70) - this test wires a stand-in so the refusal path
+        // and message shape are exercised; the checker's own behavior is covered by
+        // package-contract.test.ts, which is the one file allowed to run it.
+        checkPackageSource: async () => [
+          { rule: "cubes/", file: "qwbe-package.json", message: "cubes/ -- the cubes/ directory is missing" },
+        ],
       })
       await assert.rejects(install(source), (error: unknown) => {
         assert.ok(error instanceof InstallError)

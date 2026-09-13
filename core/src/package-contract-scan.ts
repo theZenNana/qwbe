@@ -3,17 +3,13 @@
 // and the hierarchy rule (which imports cube modules) live in `package-contract.ts`, which
 // imports FROM here -- never the other way, or dependency-cruiser sees a cycle.
 
-/** One broken rule in one file. `rule` is a stable id a pack can filter on. */
-export type PackageFinding = {
-  readonly rule: string
-  readonly file: string
-  readonly message: string
-}
-
 import { existsSync, readdirSync, readFileSync } from "node:fs"
 import { join, relative, sep } from "node:path"
 
 import { specifiers, stripCode } from "./package-contract-lex.ts"
+import type { PackageFinding } from "./package-finding.ts"
+
+export type { PackageFinding }
 
 type Manifest = {
   readonly name?: unknown
