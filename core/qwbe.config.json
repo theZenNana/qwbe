@@ -31,16 +31,7 @@
     }
   },
   "untestedBaseline": {
-    "_comment": "Units that had no unit tests when the gate was introduced (2 Aug 2026). This is a work queue, not a permission: a NEW cube without tests fails the build regardless. Shrinking this list is the job; growing it requires --update-baseline, which is a visible diff.",
-    "units": [
-      "core/plugins/example-plugin/cubes/bookmarks",
-      "core/src/cubes/account",
-      "core/src/cubes/auth",
-      "core/src/cubes/cli",
-      "core/src/cubes/links",
-      "core/src/cubes/notes",
-      "core/src/cubes/settings",
-      "core/src/spaces/workspace"
-    ]
+    "_comment": "Units that had no unit tests when the gate was introduced. This is a work queue, not a permission: a NEW cube without tests fails the build regardless. Shrinking this list is the job; growing it requires --update-baseline, which is a visible diff.",
+    "units": ["core/plugins/example-plugin/cubes/bookmarks"]
   }
 }
