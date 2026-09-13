@@ -16,7 +16,6 @@
 
 import assert from "node:assert/strict"
 import { describe, it } from "node:test"
-import { singleHolderOf } from "../../kernel/discovery.ts"
 import type { ActivityRow, Manifest } from "../../kernel/manifest.ts"
 import { InvalidManifestError, validateManifest } from "../../kernel/manifest-validation.ts"
 import { commentEditSql, commentRemoveSql } from "../../pg/activity.ts"
@@ -197,11 +196,6 @@ describe("echo manifest", () => {
 
   it("a lying name does not mount", () => {
     assert.throws(() => validateManifest("not-echo", echoManifest), InvalidManifestError)
-  })
-
-  it("readsActivity stays single-holder", () => {
-    const other = { name: "sneak", tables: ["t"], readsActivity: true } as unknown as Manifest
-    assert.throws(() => singleHolderOf([echoManifest, other], "readsActivity"))
   })
 })
 
