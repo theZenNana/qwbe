@@ -9,18 +9,34 @@ import { Effect } from "effect"
 import type { CubeTools } from "qwbe-core/cube"
 import { CurrentUser } from "../../kernel/auth-contract.ts"
 import { BadRequest, Forbidden, NotFound } from "../../kernel/errors.ts"
-import { baseTools } from "../../testing.ts"
+import { routeContracts } from "../../metadata/metadata.ts"
+import { baseTools, currentUser } from "../../test-cube-tools.ts"
 import { cube } from "./index.ts"
 
-const user = (permissions: ReadonlyArray<string>) => ({
-  id: "acc-1",
-  username: "ana",
-  roles: permissions.includes("settings:write") ? ["admin"] : ["reader"],
-  permissions,
-  sessionId: "ses-1",
-})
+const user = (permissions: ReadonlyArray<string>) =>
+  currentUser({
+    roles: permissions.includes("settings:write") ? ["admin"] : ["reader"],
+    permissions,
+  })
+
+// The routes the kernel actually publishes, derived the one way (entity-less cube: no field
+// metadata, so deriveCubeMetadata never reaches the routes -- routeContracts is that derivation).
+const md = routeContracts(
+  cube.manifest.name,
+  cube.create({
+    store: {},
+    bus: { publish: () => undefined as never },
+    catalogue: [],
+    switches: {},
+    installer: { scanDirectory: () => [], forgetShelf: () => undefined },
+    entityPermissions: {},
+  } as never).group,
+  cube.manifest,
+)
 
 const settingsTools = (catalogueRows: ReadonlyArray<Record<string, unknown>> = []): CubeTools => {
+  // The installer/switches stubs exist only to satisfy `packagesHandlers`' presence guard
+  // (`in` check at packages.ts) -- no test reaches their methods.
   const installer = {
     cubeOnDisk: () => true,
     remove: (_name: string, _plugin: unknown) => Effect.succeed({ removed: true, requiresRestart: true }),
@@ -61,7 +77,7 @@ const catalogueEntry = (over: Record<string, unknown> = {}): Record<string, unkn
 const run = (effect: Effect.Effect<unknown, unknown, never>) => Effect.runPromise(effect)
 
 describe("settings cube contract (QWB-69)", () => {
-  it("is required, holds the managesCubes privilege, and gates writes to admins", () => {
+  it("is required, holds the managesCubes privilege, and publishes admin-gated writes", () => {
     assert.equal(cube.manifest.name, "settings")
     assert.equal(cube.manifest.required, true)
     assert.equal(cube.manifest.managesCubes, true)
@@ -70,9 +86,13 @@ describe("settings cube contract (QWB-69)", () => {
       { name: "settings:read", roles: ["admin", "reader"] },
       { name: "settings:write", roles: ["admin"] },
     ])
-    const routes = cube.manifest.routes as Record<string, string>
-    assert.equal(routes.toggle, "settings:write")
-    assert.equal(routes.restart, "settings:write")
+    // The routes the kernel publishes: writes are settings:write, reads settings:read.
+    assert.ok(md.toggle && md.restart && md.cubes && md.uninstall)
+    assert.equal(md.toggle.permission, "settings:write")
+    assert.equal(md.restart.permission, "settings:write")
+    assert.equal(md.cubes.permission, "settings:read")
+    assert.equal(md.cubes.method, "GET")
+    assert.equal(md.uninstall.method, "DELETE")
   })
 })
 

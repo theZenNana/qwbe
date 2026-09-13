@@ -2,51 +2,9 @@ import assert from "node:assert/strict"
 import { describe, it } from "node:test"
 
 import { Effect } from "effect"
-import type { CubeTools } from "qwbe-core/cube"
 import { PermissionConflict, PermissionForbidden, PermissionInvalid, PermissionNotFound } from "qwbe-core/permissions"
+import { memoryStore } from "../../test-cube-tools.ts"
 import { cube } from "./index.ts"
-
-const memoryStore = (): CubeTools["store"] => {
-  const tables = new Map<string, Array<Record<string, unknown>>>()
-  let next = 0
-  const rows = (table: string) => {
-    const found = tables.get(table)
-    if (found) return found
-    const created: Array<Record<string, unknown>> = []
-    tables.set(table, created)
-    return created
-  }
-  return {
-    all: <A>(table: string) => Effect.succeed(rows(table) as ReadonlyArray<A>),
-    page: <A>(table: string, page: { offset: number; limit: number }, where?: unknown) => {
-      // One-pair filter only: what the permissions state's `every` reads through.
-      const pair = where as { field: string; value: unknown } | undefined
-      const hit = pair && "field" in pair ? rows(table).filter((row) => row[pair.field] === pair.value) : rows(table)
-      return Effect.succeed({
-        rows: hit.slice(page.offset, page.offset + page.limit) as ReadonlyArray<A>,
-        total: hit.length,
-        offset: page.offset,
-        limit: page.limit,
-        sortedBy: "createdAt",
-      })
-    },
-    byId: <A>(table: string, id: string) => Effect.succeed(rows(table).find((row) => row.id === id) as A | undefined),
-    insert: (table: string, type: string, prefix: string, values: Record<string, unknown>) =>
-      Effect.sync(() => {
-        const row = { id: `${prefix}-${++next}`, type, createdAt: new Date().toISOString(), deleted: false, ...values }
-        rows(table).push(row)
-        return row
-      }),
-    update: (table: string, id: string, patch: Record<string, unknown>) =>
-      Effect.sync(() => {
-        const row = rows(table).find((candidate) => candidate.id === id)
-        if (!row) return undefined
-        Object.assign(row, patch)
-        return row
-      }),
-    count: (table: string) => Effect.succeed(rows(table).length),
-  }
-}
 
 const tools = () => ({
   store: memoryStore(),

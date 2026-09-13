@@ -9,32 +9,14 @@ import { danglingLinks } from "../../kernel/space.ts"
 import { space } from "./index.ts"
 
 describe("workspace space contract (QWB-69)", () => {
-  it("carries the workspace title and exactly the declared links", () => {
+  it("carries the workspace title and exactly the three declared links, verbatim", () => {
     assert.equal(space.name, "workspace")
     assert.equal(space.title, "Workspace")
-    assert.equal(space.links.length, 3)
-  })
-
-  it("links notes.authorId to Account as the 'notes' group", () => {
-    const link = space.links.find((l) => l.from === "notes")
-    assert.ok(link)
-    assert.equal(link!.field, "authorId")
-    assert.equal(link!.to, "Account")
-    assert.equal(link!.label, "notes")
-  })
-
-  it("declares the crm/contracts party link and the booktags tags link", () => {
-    const party = space.links.find((l) => l.from === "crm/contracts")
-    assert.ok(party)
-    assert.equal(party!.field, "partyId")
-    assert.equal(party!.to, "Contact")
-    assert.equal(party!.label, "party")
-
-    const tags = space.links.find((l) => l.from === "booktags/tags")
-    assert.ok(tags)
-    assert.equal(tags!.field, "bookmarkId")
-    assert.equal(tags!.to, "Bookmark")
-    assert.equal(tags!.label, "tags")
+    assert.deepEqual(space.links, [
+      { from: "notes", field: "authorId", to: "Account", label: "notes" },
+      { from: "crm/contracts", field: "partyId", to: "Contact", label: "party" },
+      { from: "booktags/tags", field: "bookmarkId", to: "Bookmark", label: "tags" },
+    ])
   })
 
   it("reports dangling links honestly when only notes is mounted", () => {

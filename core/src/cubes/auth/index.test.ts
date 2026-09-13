@@ -9,14 +9,22 @@ import { Effect } from "effect"
 import type { CubeTools } from "qwbe-core/cube"
 import { CurrentUser } from "../../kernel/auth-contract.ts"
 import { Unauthorized } from "../../kernel/errors.ts"
-import { baseTools, memoryStore, recordingBus } from "../../testing.ts"
+import { routeContracts } from "../../metadata/metadata.ts"
+import { baseTools, memoryStore, recordingBus } from "../../test-cube-tools.ts"
 import { cube } from "./index.ts"
+
+// The routes the kernel actually publishes, derived the one way (entity-less cube: no field
+// metadata, so deriveCubeMetadata never reaches the routes -- routeContracts is that derivation).
+const md = routeContracts(
+  cube.manifest.name,
+  cube.create({ store: {}, bus: { publish: () => undefined as never } } as never).group,
+  cube.manifest,
+)
 
 type LoginResult = { token: string; expiresAt: string }
 
 const authTools = (): CubeTools => {
   const tools = baseTools() as Record<string, unknown>
-  tools.permissions = () => new Map([["auth:session", ["admin", "reader"]]])
   tools.credentials = {
     verify: (username: string) => Effect.succeed({ id: "acc-1", username }),
   }
@@ -33,15 +41,17 @@ const user = (sessionId: string, permissions: ReadonlyArray<string>) => ({
 })
 
 describe("auth cube contract (QWB-69)", () => {
-  it("declares login as the only public route and session-scoped me/logout", () => {
+  it("publishes login/me/logout through the kernel's one route derivation", () => {
     assert.equal(cube.manifest.name, "auth")
     assert.equal(cube.manifest.requiresAuth, false)
     assert.deepEqual(cube.manifest.tables, ["sessions"])
     assert.deepEqual(cube.manifest.permissions, [{ name: "auth:session", roles: ["admin", "reader"] }])
-    // login has no declared route permission (public); me/logout are explicitly per-request.
-    const routes = cube.manifest.routes as Record<string, string | null>
-    assert.equal(routes.login, undefined)
-    assert.deepEqual([routes.me, routes.logout], [null, null])
+    // login is public; me/logout are explicitly per-request (null permission), both behind auth.
+    assert.deepEqual(md, {
+      login: { auth: false, permission: null, method: "POST", path: "/auth/login" },
+      me: { auth: true, permission: null, method: "GET", path: "/auth/me" },
+      logout: { auth: true, permission: null, method: "POST", path: "/auth/logout" },
+    })
   })
 
   it("refuses login when the credentials capability verifies nothing", async () => {
@@ -80,7 +90,7 @@ describe("auth cube contract (QWB-69)", () => {
     assert.equal(rows.length, 1)
     assert.ok(!("token" in rows[0]!))
     assert.ok(typeof rows[0]!.tokenHash === "string")
-    assert.equal((bus.events[0] ?? {}).topic, "auth.loggedIn")
+    assert.equal(bus.events[0]?.topic, "auth.loggedIn")
   })
 
   it("drops exactly the caller's own session on logout", async () => {
@@ -119,6 +129,6 @@ describe("auth cube contract (QWB-69)", () => {
         { id: "ses-2", deleted: false },
       ],
     )
-    assert.equal((bus.events[0] ?? {}).topic, "auth.loggedOut")
+    assert.equal(bus.events[0]?.topic, "auth.loggedOut")
   })
 })

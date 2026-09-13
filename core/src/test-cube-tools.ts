@@ -60,13 +60,30 @@ export const recordingBus = () => {
   }
 }
 
-/** Base CubeTools shell: store + bus, everything else empty. Not asserted here: eslint no-unnecessary-type-assertion
- * flags the cast; tests provide the extra capability fields themselves. */
-export const baseTools = (): CubeTools =>
-  ({
-    store: memoryStore(),
-    bus: recordingBus(),
-    catalogue: () => [],
-    permissions: () => new Map(),
-    commands: () => [],
-  }) as unknown as CubeTools
+/** Base CubeTools shell: store + bus, everything else empty. Cast through unknown on purpose:
+ * the shell omits the optional capabilities; each test adds the ones its cube asks for. */
+export const baseTools = (): CubeTools => ({
+  store: memoryStore(),
+  bus: recordingBus(),
+  catalogue: () => [],
+  permissions: () => new Map(),
+  commands: () => [],
+})
+
+/** A CurrentUser with sensible defaults; pass overrides for the fields a test cares about. */
+export const currentUser = (
+  overrides: Partial<{
+    id: string
+    username: string
+    roles: ReadonlyArray<string>
+    permissions: ReadonlyArray<string>
+    sessionId: string
+  }> = {},
+) => ({
+  id: "acc-1",
+  username: "ana",
+  roles: ["reader"] as ReadonlyArray<string>,
+  permissions: [] as ReadonlyArray<string>,
+  sessionId: "ses-1",
+  ...overrides,
+})

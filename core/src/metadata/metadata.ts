@@ -51,7 +51,14 @@ type DeclaredManifest = MetadataCube["manifest"]
  * An undeclared route other than `list` publishes null: the requirement is either absent or
  * decided per request, and a guessed name would be a lie.
  */
-const routeContracts = (cubeName: string, group: unknown, m: DeclaredManifest): Record<string, RouteContract> => {
+/** The published route demands of one cube, on their own: entity-less cubes (auth, cli,
+ *  links, settings) publish no field metadata, so `deriveCubeMetadata` never reaches their
+ *  routes -- this is the same derivation, callable for them. */
+export const routeContracts = (
+  cubeName: string,
+  group: unknown,
+  m: DeclaredManifest,
+): Record<string, RouteContract> => {
   const groupAuth = ((group as { middlewares?: ReadonlySet<unknown> }).middlewares ?? new Set()).has(Authorization)
   const out: Record<string, RouteContract> = {}
   for (const [name, endpoint] of Object.entries(groupEndpoints(group))) {

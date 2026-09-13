@@ -11,16 +11,19 @@ import { CurrentUser } from "../../kernel/auth-contract.ts"
 import { NotFound } from "../../kernel/errors.ts"
 import type { LinkGroup } from "../../kernel/registry.ts"
 import { Registry } from "../../kernel/registry.ts"
-import { baseTools } from "../../testing.ts"
+import { routeContracts } from "../../metadata/metadata.ts"
+import { baseTools, currentUser } from "../../test-cube-tools.ts"
 import { cube } from "./index.ts"
 
-const user = {
-  id: "acc-1",
-  username: "ana",
-  roles: ["reader"] as ReadonlyArray<string>,
-  permissions: ["links:read"] as ReadonlyArray<string>,
-  sessionId: "ses-1",
-}
+// The routes the kernel actually publishes, derived the one way (entity-less cube: no field
+// metadata, so deriveCubeMetadata never reaches the routes -- routeContracts is that derivation).
+const md = routeContracts(
+  cube.manifest.name,
+  cube.create({ store: {}, bus: { publish: () => undefined as never } } as never).group,
+  cube.manifest,
+)
+
+const user = currentUser({ permissions: ["links:read"] })
 
 // A minimal registry stub: only `entities` and `linksTo` are exercised here.
 const stubRegistry = {
@@ -34,12 +37,15 @@ const run = <A, E>(eff: Effect.Effect<A, E, CurrentUser | Registry>) =>
   Effect.runPromise(Effect.provideService(Effect.provideService(eff, CurrentUser, user), Registry, stubRegistry))
 
 describe("links cube contract (QWB-69)", () => {
-  it("owns no tables and gates every route behind links:read", () => {
+  it("owns no tables and publishes every route behind links:read", () => {
     assert.equal(cube.manifest.name, "links")
     assert.deepEqual(cube.manifest.tables, [])
     assert.deepEqual(cube.manifest.permissions, [{ name: "links:read", roles: ["admin", "reader"] }])
-    const routes = cube.manifest.routes as Record<string, string>
-    assert.deepEqual(routes, { entities: "links:read", for: "links:read", group: "links:read" })
+    assert.deepEqual(md, {
+      entities: { auth: true, permission: "links:read", method: "GET", path: "/links" },
+      for: { auth: true, permission: "links:read", method: "GET", path: "/links/:entity/:id" },
+      group: { auth: true, permission: "links:read", method: "GET", path: "/links/:entity/:id/:cube" },
+    })
   })
 })
 
