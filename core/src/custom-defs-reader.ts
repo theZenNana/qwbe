@@ -7,7 +7,7 @@
 // validating on empty.
 
 import { Effect } from "effect"
-import type { CustomFieldDefinition } from "./catalogue.ts"
+import type { CustomFieldDefinition } from "./custom-field-types.ts"
 
 /** One target row's custom values, as the providing cube reads them from the row itself. */
 export type CustomRowView = {

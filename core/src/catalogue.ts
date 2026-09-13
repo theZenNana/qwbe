@@ -60,15 +60,11 @@ export type Subscription = {
   readonly handle: (payload: unknown) => Effect.Effect<void, never, never>
 }
 
-/** One active custom-field definition, as the providing cube reports it. */
-export type CustomFieldDefinition = {
-  readonly name: string
-  readonly label: string
-  readonly fieldType: "text" | "number" | "date" | "bool" | "select"
-  readonly required: boolean
-  readonly options: ReadonlyArray<string>
-  readonly position: number
-}
+// Declared in custom-field-types.ts (leaf); re-exported here so the catalogue stays the
+// public door for cube-facing types (QWB-70).
+import type { CustomFieldDefinition } from "./custom-field-types.ts"
+
+export type { CustomFieldDefinition }
 
 export type CustomFieldProvider = (cube: string) => ReadonlyArray<CustomFieldDefinition>
 

@@ -10,8 +10,8 @@
 
 import { Effect, FiberRef } from "effect"
 import { CurrentActor } from "../kernel/actor.ts"
-import type { ActivityRow, ActivityTools, CommentRow } from "../kernel/manifest.ts"
 import { MAX_LIMIT } from "../kernel/pagination.ts"
+import type { ActivityRow, ActivityTools, CommentRow } from "../kernel/store-contract.ts"
 import { activityInsert } from "./rows.ts"
 import { ensureActivityReader, withRole } from "./setup.ts"
 

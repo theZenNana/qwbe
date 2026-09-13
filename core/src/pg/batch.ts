@@ -15,7 +15,7 @@
 // parameters, never concatenated into the SQL text.
 
 import { Effect } from "effect"
-import type { CubeStore } from "../kernel/manifest.ts"
+import type { CubeStore } from "../kernel/store-contract.ts"
 import { ensureCubeSchema, q, schemaName, withRole } from "./setup.ts"
 
 /** One SQL statement inside a batch: text plus bound values. Identifiers are never parameters

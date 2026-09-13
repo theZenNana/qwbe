@@ -32,6 +32,7 @@ import { Effect, FiberRef, Layer } from "effect"
 import type { CubeTools } from "qwbe-core/cube"
 import { buildCatalogue } from "../catalogue.ts"
 import { cube as authCube } from "../cubes/auth/index.ts"
+import { cube as echoCube } from "../cubes/echo/index.ts"
 import { cube as notesCube } from "../cubes/notes/index.ts"
 import { cube as permissionsCube } from "../cubes/permissions/index.ts"
 import { captureEntity, enforceEntityHandlers } from "../entity-enforcement.ts"
@@ -42,7 +43,6 @@ import type { RegistryEntry } from "../kernel/registry.ts"
 import { registryFrom } from "../registry-runtime.ts"
 import { buildApi, buildHandlers } from "../runtime-composition.ts"
 import { memoryStore } from "../test-cube-tools.ts"
-import { cube as echoCube } from "../cubes/echo/index.ts"
 
 // One world per process: `buildApi` widens the module-singleton groups IN PLACE, so only one
 // composition may run. Everything below goes over this one router.
