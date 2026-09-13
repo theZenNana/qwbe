@@ -41,6 +41,7 @@ describe("install-from static contract gate", () => {
         storeDir: store,
         readPackageAt: () => pkg,
         installExisting: () => ({ ...pkg, installed: true }),
+        checkPackageSource: async () => [], // no source findings: this case is about the stage, not the checker
       })
 
       await assert.rejects(install(source), (error: unknown) => {
@@ -91,6 +92,7 @@ export const unsafe: any = 1
         storeDir: store,
         readPackageAt: () => pkg,
         installExisting: () => ({ ...pkg, installed: true }),
+        checkPackageSource: async () => [], // no source findings: this case is about the stage, not the checker
       })
       await assert.rejects(install(source), /no-explicit-any/)
       assert.deepEqual(existsSync(store) ? readdirSync(store) : [], [])
@@ -179,6 +181,7 @@ export const unsafe: any = 1
         storeDir: store,
         readPackageAt: () => pkg,
         installExisting: () => ({ ...pkg, installed: true }),
+        checkPackageSource: async () => [], // no source findings: this case is about the stage, not the checker
       })
       const result = await install(source)
       assert.equal(result.staged, true)

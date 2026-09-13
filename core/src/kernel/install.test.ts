@@ -14,6 +14,6 @@ describe("plugin package cube identities", () => {
 
 describe("cubeOnDisk - discovery names outside the package slug grammar", () => {
   it("reports absent instead of taking the settings catalogue down", () => {
-    assert.equal(installerFor().cubeOnDisk("bookmarks", "example_plugin"), false)
+    assert.equal(installerFor(async () => []).cubeOnDisk("bookmarks", "example_plugin"), false)
   })
 })

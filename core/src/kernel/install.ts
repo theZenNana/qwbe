@@ -222,14 +222,14 @@ const readPackageAt = (name: string, dir: string): CubePackage => {
 const readPackage = (name: string): CubePackage => readPackageAt(name, under(storeDir, join(storeDir, name)))
 
 export const installerFor = (
-  /** Injected by discovery.ts, the only module allowed to run the source checker (QWB-70). */
-  checkPackageSource?: (source: string) => Promise<ReadonlyArray<{ rule: string; file: string; message: string }>>,
+  /** Injected by discovery.ts, the only module allowed to run the source checker (QWB-70). Required. */
+  checkPackageSource: (source: string) => Promise<ReadonlyArray<{ rule: string; file: string; message: string }>>,
 ): ScanInstaller => {
   const stageAndInstallFrom = stageAndInstallFor({
     storeDir,
     readPackageAt,
     installExisting,
-    ...(checkPackageSource ? { checkPackageSource } : {}),
+    checkPackageSource,
   })
   const scanContext = { storeDir, readPackageAt }
 

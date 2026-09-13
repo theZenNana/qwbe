@@ -63,7 +63,9 @@ describe("one content rule for every copy of a package", () => {
       const shelf = join(process.env.QWBE_STORE_DIR ?? "", NAME)
       mkdirSync(process.env.QWBE_STORE_DIR ?? "", { recursive: true })
       cpSync(source, shelf, { recursive: true })
-      const installed = await import("effect").then(({ Effect }) => Effect.runPromise(installerFor().install(NAME)))
+      const installed = await import("effect").then(({ Effect }) =>
+        Effect.runPromise(installerFor(async () => []).install(NAME)),
+      )
       assert.ok(installed.installed)
       const installedFiles = filesUnder(join(process.env.QWBE_PLUGINS_DIR ?? "", NAME))
 

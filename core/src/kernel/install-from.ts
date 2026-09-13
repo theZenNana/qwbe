@@ -60,12 +60,11 @@ type StageContext = Readonly<{
   installExisting: (name: string) => CubePackage
   /**
    * The boot-gate checker, injected (QWB-70): only discovery.ts may open the pack door, so the
-   * caller hands the function in instead of this module importing it. Absent (tests, probes)
-   * means the source-contract stage is skipped -- the boot gate in discovery.ts still judges
-   * every package before any of its code runs. # ponytail: ceiling is a required param once
-   * every installerFor caller can supply it; upgrade path is threading it through those calls.
+   * caller hands the function in instead of this module importing it. Required, not optional:
+   * an installer that skips the source-contract stage by omission is exactly the hole the
+   * pack-door rule exists to close (tests pass an explicit `async () => []`).
    */
-  checkPackageSource?: (source: string) => Promise<ReadonlyArray<{ rule: string; file: string; message: string }>>
+  checkPackageSource: (source: string) => Promise<ReadonlyArray<{ rule: string; file: string; message: string }>>
 }>
 
 /**
@@ -156,7 +155,7 @@ export const stageAndInstall =
       // like the boot gate: a cube-kind source has no cubes/ for the checker to read, and the
       // boot gate never judged one either.
       if (pkg.kind === "plugin") {
-        const findings = ctx.checkPackageSource ? await ctx.checkPackageSource(source) : []
+        const findings = await ctx.checkPackageSource(source)
         if (findings.length > 0) {
           throw new InstallError(
             `refused: package breaks the source contract the kernel enforces at boot:\n` +
