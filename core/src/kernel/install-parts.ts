@@ -50,13 +50,21 @@ export const checkName = (kind: string, name: string): string => {
 export const destinationOf = (pkg: { name: string; kind: "cube" | "plugin" }): string =>
   pkg.kind === "plugin" ? under(pluginsDir, join(pluginsDir, pkg.name)) : under(cubesDir, join(cubesDir, pkg.name))
 
-export const toInstallError = (e: unknown): InstallError =>
-  e instanceof InstallError ? e : new InstallError(e instanceof Error ? e.message : String(e))
+export const toInstallError = (e: unknown): InstallError => {
+  if (e instanceof InstallError) return e
+  // Not a contract refusal -- a disk error (EACCES, ENOSPC) or a bug. Re-thrown, so the
+  // Effect bridge below turns it into a DEFECT, not an InstallError: the router then answers
+  // 500 without the message. A system error is the operator's log to read, not something the
+  // caller should see wrapped as a package refusal (QWB-38).
+  throw e
+}
 
 /**
- * The installer speaks Effect at its face: every refusal travels as `InstallError` in the
- * error channel, while the body stays ordinary strict TypeScript over the filesystem.
- * One `Effect.try` per public method is the whole bridge -- no throw escapes past this line.
+ * The installer speaks Effect at its face: a CONTRACT refusal travels as `InstallError` in
+ * the error channel and the router turns it into a 400 carrying the refusal text; anything
+ * else is re-thrown as a defect and answers 500 without details. The body stays ordinary
+ * strict TypeScript over the filesystem. One `Effect.try` per public method is the whole
+ * bridge -- no throw escapes past this line unclassified.
  */
 export const tried = <A>(run: () => A): Effect.Effect<A, InstallError> =>
   Effect.try({ try: run, catch: toInstallError })

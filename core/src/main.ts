@@ -160,20 +160,18 @@ const RegistryLive = registryFrom(entries, system!.liveLinks, system!.isEnabled,
 //
 // They get the registry too: the auth cube reads user data the same way any cube would --
 // through the registry, never by opening the account cube's database.
-// The ONE audited type-erasure seam: with runtime discovery kept, the exact union of
-// services cube layers provide is unknowable to TypeScript. Providers are checked per cube at
-// `CubeParts.layers` (Provided inferred at defineCube, requirements bounded to `Registry`);
-// this adapter widens the provided side so `mergeAll` accepts a dynamic list. The only cast
-// in the kernel allowed to erase -- and the double step is deliberate: the compiler is told,
-// twice, that this is where the guarantee stops.
-const contributeLayer = (layer: Layer.Layer<never, unknown, never>): Layer.Layer<never, never, never> =>
-  layer as unknown as Layer.Layer<never, never, never>
-
+//
+// Cube layers are typed `Layer<Provided, unknown, Registry>`: the exact union of services is
+// unknowable to TypeScript with runtime discovery kept, and the ERROR channel is `unknown`.
+// `mergeAll` needs a known error channel, so the erasure that used to sit here was an
+// `as unknown as` cast. It is gone (QWB-38): `Layer.orDie` closes the error channel
+// honestly -- a cube layer that fails at build SHOULD kill startup, exactly like every other
+// mount-time refusal -- and the provided side is then `never`, which `mergeAll` accepts
+// directly. No cast remains in this composition.
 const CubeLayers = system!.cubes
   .map((c) => c.parts.layers)
   .filter((l): l is Layer.Layer<never, unknown, Registry> => l !== undefined)
-  .map((l) => l.pipe(Layer.provide(RegistryLive)))
-  .map(contributeLayer)
+  .map((l) => l.pipe(Layer.provide(RegistryLive), Layer.orDie))
 
 const HandlersLive = buildHandlers(api, system!.cubes).pipe(Layer.provide(RegistryLive))
 
@@ -231,8 +229,9 @@ const ServerLive = HttpApiBuilder.serve((app) =>
   ),
   // The spec route needs the auth cube's Authorization service. Every system that can pass
   // the life rules has it (with no cube layer providing Authorization, mount refuses to
-  // start), but TypeScript cannot know the merged cube layers provide it -- the same
-  // unknowable union contributeLayer widens above. One cast, same justification.
+  // start), but TypeScript cannot know the merged cube layers provide it -- what a cube
+  // layer provides is kept opaque to the kernel. This cast is now the one erasure left in
+  // main.ts.
   Layer.provide(
     (firstCubeLayer === undefined
       ? GatedOpenApi

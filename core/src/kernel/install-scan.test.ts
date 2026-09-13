@@ -4,6 +4,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { describe, it } from "node:test"
 import { Effect } from "effect"
+import { InstallError } from "./manifest.ts"
 
 // The store directory is resolved at module load, so the fixture store must exist BEFORE the
 // installer module is imported - hence the dynamic import below.
@@ -120,6 +121,24 @@ describe("forgetShelf", () => {
       `${JSON.stringify({ name: "auth", kind: "cube", summary: "fixture" }, null, 2)}\n`,
     )
     await assert.rejects(() => Effect.runPromise(installerFor().forgetShelf("auth")), /is installed/)
+  })
+})
+
+describe("an unreadable manifest is a system error, not a package refusal (QWB-38)", () => {
+  // The PARSE of a malformed manifest is classified as a 400 refusal; the READ of the
+  // manifest file itself is not -- an IO error (EACCES, EISDIR) must stay a defect and
+  // answer 500, never be dressed up as the package being invalid.
+  it("stageAndInstall lets an IO error on the manifest through unwrapped", async () => {
+    mkdirSync(join(root, "unreadable", "qwbe-package.json"), { recursive: true })
+    await assert.rejects(
+      () => Effect.runPromise(installerFor().stageAndInstall(join(root, "unreadable"))),
+      (e: unknown) => {
+        assert.ok(!(e instanceof InstallError), "IO error must not be classified as an InstallError")
+        // The defect arrives as a FiberFailure carrying the original IO error.
+        assert.match(String((e as Error).message ?? e), /EISDIR/)
+        return true
+      },
+    )
   })
 })
 

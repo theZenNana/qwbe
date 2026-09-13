@@ -128,3 +128,48 @@ allows no module in the kernel to import `package-contract` except its own test 
 gate in `kernel/discovery.ts` -- which uses the checker WITHOUT `hierarchy`, so it runs no
 foreign code, which is the whole point of running before the imports. If another kernel module
 ever needs the checker, that rule is the visible place to argue it.
+
+## 8. What a cube may provide, and how install answers (QWB-38)
+
+**`Provided` -- the layer channel.** A cube's `create` may contribute one Effect layer
+(`CubeParts.layers` in `qwbe-core/cube`): the service the cube makes available to every
+other mounted cube and to the kernel's middleware. The type is `Layer<Provided, unknown,
+Registry>` -- the requirements are bounded to `Registry` (the only service the kernel lends
+back), the error channel is `unknown`, and `Provided` is inferred at `defineCube` and kept
+opaque to the kernel. The auth cube's `AuthorizationLive` is the shipped example: it
+implements the kernel-declared `Authorization` tag, and `main.ts` composes every cube layer
+by providing the `Registry`, closing the error channel with `Layer.orDie` (a cube layer
+that fails at build kills startup, like every mount-time refusal) and merging -- cast-free
+for the cube layers (main.ts keeps exactly one cast, on the OpenAPI gate).
+
+```ts
+import { Context, Layer } from "effect"
+
+class MyService extends Context.Tag("pack/MyService")<MyService, { hello: () => string }>() {}
+
+// `defineCube` comes from the cube's own module (qwbe-core/cube); `group` is the
+// HttpApiGroup the cube declares.
+export const cube = defineCube(group, {
+  manifest: { name: "my-cube", tables: [] },
+  create: () => ({ layers: Layer.succeed(MyService, { hello: () => "hi" }) }),
+})
+```
+
+**`InstallError` answers 400; anything else answers 500.** Every refusal the installer
+raises on purpose (relative path, symlink in the tree, lying manifest, name clash, package
+already installed) travels as `InstallError` carrying its own refusal text. The settings
+routes map that error to `BadRequest` -- a 400 whose `message` IS the contract, naming what
+was refused and why:
+
+```
+POST /settings/packages/install-from  {"path": "/tmp/relative"}
+400 {"message": "refused: \"/tmp/relative\" is not an absolute path"}
+```
+
+Anything that is NOT a contract refusal -- a disk error (`EACCES`, `ENOSPC`), a bug -- never
+becomes a 400: the installer's Effect bridge (`toInstallError`, `core/src/kernel/install-parts.ts`)
+re-throws it as a defect and the platform answers 500 WITHOUT the message. A system error is
+the operator's log to read, not text a caller is shown. The one exception kept on the
+contract channel: a manifest that is not valid JSON is a BAD PACKAGE, refused with 400
+(`core/src/kernel/install.ts` classifies the parse). Both branches are pinned by
+`core/src/install-errors-http.test.ts` over real HTTP.
