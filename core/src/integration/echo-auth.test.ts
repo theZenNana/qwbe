@@ -48,7 +48,7 @@ import { memoryStore } from "../test-cube-tools.ts"
 // composition may run. Everything below goes over this one router.
 const rolesOf = new Map<string, ReadonlyArray<string>>()
 
-export const world = () => {
+const world = () => {
   const store = memoryStore()
 
   // --- in-memory activity log, same predicate as pg/activity.ts ---

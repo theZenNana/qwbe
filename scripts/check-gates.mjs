@@ -77,7 +77,8 @@ export const gatesFor = ({ strict }) => [
     id: "test",
     fix: "test",
     what: "testele unitare trec",
-    command: ["node", ["--test", "core/**/*.test.ts", "web/**/*.test.ts"]],
+    // Not core/**: core/tools holds vitest files, which node:test cannot run.
+    command: ["node", ["--test", "core/src/**/*.test.ts", "core/plugins/**/*.test.ts", "web/**/*.test.ts"]],
     summary: (out) => {
       const pass = /^# pass (\d+)$/m.exec(out)?.[1] ?? /pass (\d+)/.exec(out)?.[1] ?? "?"
       const fail = /^# fail (\d+)$/m.exec(out)?.[1] ?? /fail (\d+)/.exec(out)?.[1] ?? "?"

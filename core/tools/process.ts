@@ -1,0 +1,46 @@
+import * as Command from "@effect/platform/Command"
+import type * as CommandExecutor from "@effect/platform/CommandExecutor"
+import type { PlatformError } from "@effect/platform/Error"
+import * as Data from "effect/Data"
+import * as Effect from "effect/Effect"
+import * as Schema from "effect/Schema"
+import * as Stream from "effect/Stream"
+import { lines, withoutAllowScripts } from "./process-pure.ts"
+
+export class GateFailed extends Data.TaggedError("GateFailed")<{
+  readonly message: string
+  readonly status: number
+}> {}
+
+export type Argv = readonly [string, ...string[]]
+
+// A POSIX exit status is one byte; the executor's number is decoded, never trusted.
+const ExitStatus = Schema.Int.pipe(Schema.between(0, 255))
+
+const text = (stream: Stream.Stream<Uint8Array, PlatformError>) => stream.pipe(Stream.decodeText(), Stream.mkString)
+
+const commandFor = (argv: Argv, cwd: string) =>
+  Command.make(...argv).pipe(Command.workingDirectory(cwd), Command.env(withoutAllowScripts(process.env)))
+
+// stdout and stderr drain together, so a child that fills one pipe never stalls on it.
+const drain = (child: CommandExecutor.Process) =>
+  Effect.all(
+    {
+      status: Effect.flatMap(child.exitCode, Schema.decodeUnknown(ExitStatus)),
+      stdout: text(child.stdout),
+      stderr: text(child.stderr),
+    },
+    { concurrency: "unbounded" },
+  )
+
+export const capture = (argv: Argv, cwd: string) =>
+  Effect.scoped(Effect.flatMap(Command.start(commandFor(argv, cwd)), drain))
+
+export const captureLines = (argv: Argv, cwd: string) =>
+  capture(argv, cwd).pipe(
+    Effect.filterOrFail(
+      ({ status }) => status === 0,
+      ({ status, stderr }) => new GateFailed({ message: `${argv.join(" ")}: ${stderr}`, status }),
+    ),
+    Effect.map(({ stdout }) => lines(stdout)),
+  )
