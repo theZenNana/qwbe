@@ -8,5 +8,7 @@ export default defineConfig({
     isolate: true,
     fileParallelism: false,
     include: ["tools/**/*.test.ts", "checks/**/*.test.ts"],
+    // Fixture packs carry their own node:test suites, run by the kernel's pack contract, not here.
+    exclude: ["checks/_fixtures/**", "**/node_modules/**"],
   },
 })

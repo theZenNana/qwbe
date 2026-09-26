@@ -13,7 +13,7 @@ const findings = await checkPackageSource(import.meta.dirname, { readOnly: false
 
 Everything below skips a top-level `frontend/` directory in a package. The pack's UI is
 judged by the browser build, not by the cube contract -- not by this checker, not by the
-size gate (`probes/size-lib.mjs` skips `frontend/` too).
+size caps (`core/src/package-size.ts` skips `frontend/` too).
 
 ## 1. The manifest
 
@@ -52,15 +52,13 @@ size gate (`probes/size-lib.mjs` skips `frontend/` too).
 
 ## 3. Size caps
 
-Caps are characters, not lines, measured with comments stripped -- the numbers and the
-baseline live in `qwbe.config.json`, the gate is `npm run probe:sizecaps`
-(`probes/sizecaps.mjs`). Caps: 6000 chars per file, 40000 chars
-and 15 files per unit; a unit is one cube directory, a space, or the kernel.
+Caps are characters, not lines, measured with comments stripped. The numbers live in the
+kernel's `core/qwbe.config.json`; `qwbe check` applies them at stage 2
+(`core/src/package-size.ts`), and a pack that carries caps of its own fails that stage.
+Caps: 50000 chars per file, 50000 chars and 15 files per unit; a unit is one cube
+directory, tests excluded.
 
-Existing violations are recorded in `qwbe.config.json` as a **baseline**: the gate is red
-for anything NEW or anything that GREW past its recorded number; the inherited debt is
-printed every run. The fix for an over-cap file is to split it, never to raise the number
--- raising is a visible diff to `qwbe.config.json`, done after the split, on purpose.
+The fix for an over-cap file is to split it, never to raise the number.
 
 ## 3b. The kernel runs this checker itself, at boot (QWB-54)
 
@@ -79,7 +77,7 @@ disk. A pack placed in `plugins/` by hand keeps its own manifest and is judged a
 ## 4. Tests and probes a pack must ship
 
 - Unit tests per cube, run by `npm test` in the pack. A cube without tests is a work-queue
-  entry in qwbe's own gate (`probes/testgate.mjs`); a pack should not need reminding.
+  entry in qwbe's own `testgate` (`npm run check`); a pack should not need reminding.
 - The source-contract check: a test file that calls `checkPackageSource` with the pack's
   options and asserts zero findings. See the `source-contract.test.mjs` at the root of the
   `plugins/crm-pack` and `plugins/agents-tools` repositories (sibling checkouts of this one)

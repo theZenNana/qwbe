@@ -197,4 +197,6 @@ declares no version has `version: null` and cannot break this gate.
 ## The machine-readable contract
 
 `GET /openapi.json` serves the OpenAPI 3.1 document generated from the same Effect schemas.
-The conformance probe (`npm run probe:contract`) checks the running server against it.
+`npm run check` checks it: `core/checks/unit/api-inventory.test.ts` compares the document with
+the expected operations, and `core/checks/integration/api-auth-matrix.test.ts` calls the
+running server.

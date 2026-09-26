@@ -11,14 +11,12 @@ node_modules/
 node_modules
 **/__pycache__/
 data/
-data.qwb26-random-backup-20260811/
 data/*.sqlite
 data/*.sqlite-wal
 data/*.sqlite-shm
 data/switches.json
 data/provenance.json
 web/.next/
-screenshots/
 test-results/
 
 # build artefact, regenerat la fiecare typecheck

@@ -20,8 +20,8 @@ import effect from "@effect/eslint-plugin"
 import tseslint from "typescript-eslint"
 
 export default tseslint.config(
-  // .mjs is out of scope: the probes are plain node scripts with no tsconfig behind them, so a
-  // type-aware rule cannot run on them at all. web/ is excluded until it gets its own project
+  // .mjs is out of scope: the few left (the product bin, pack probes, configs) have no tsconfig
+  // behind them, so a type-aware rule cannot run on them at all. web/ is excluded until it gets its own project
   // service — its tsconfig is Next's, and pulling it in here would typecheck the whole app twice.
   //
   // `core/plugins/*` and `core/store/*` hold INSTALLED and STAGED packages -- artifacts, not

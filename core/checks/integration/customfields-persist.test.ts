@@ -10,7 +10,7 @@ import { TestServer, testServer } from "../_layers/test-server.ts"
 // ponytail: no restart between write and read, testServer boots once per file; add a second boot
 // on the same database when the layers can share one.
 
-const GUESTBOOK = resolve(import.meta.dirname, "../../../probes/fixtures/guestbook-pack")
+const GUESTBOOK = resolve(import.meta.dirname, "../_fixtures/guestbook-pack")
 const CUBE = "guestbook"
 
 interface Row {

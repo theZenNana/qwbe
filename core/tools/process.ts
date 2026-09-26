@@ -4,6 +4,12 @@ import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
 import * as Stream from "effect/Stream"
 
+// Every tool spawns through this module. Under `npm run`, npm passes the user's allow-scripts as
+// npm_config_allow_scripts, and a child npm >= 12 refuses it in a project (EALLOWSCRIPTS); the child
+// reads ~/.npmrc itself, so dropping the variable keeps the policy. Children inherit process.env.
+for (const key of Object.keys(process.env))
+  if (key.toLowerCase() === "npm_config_allow_scripts") delete process.env[key]
+
 export class GateFailed extends Data.TaggedError("GateFailed")<{
   readonly message: string
   readonly status: number

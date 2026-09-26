@@ -29,19 +29,18 @@ Storage is one Postgres database with one schema per cube (ADR-0001). The server
 `QWBE_DATABASE_URL` (see `.env.example`); missing or unreachable, it refuses to start. No SQLite
 per cube any more.
 
-`npm start` prefixes every log line with `[api]` or `[web]`, and Ctrl-C stops both. Neither
-script adds a dependency: they are plain Node, `scripts/setup.mjs` and `scripts/start.mjs`.
+`npm start` prefixes every log line with `[api]` or `[web]`, and Ctrl-C stops both. The tools
+behind the scripts live in `core/tools/`: `bootstrap.ts` and `setup.ts` (setup), `dev.ts`
+(start, api, web), `db.ts` (db:up, db:down), `e2e.ts`, `check.ts`.
 
 Root tooling, `core/`, and `web/` are independent npm packages with one committed lockfile each.
-`npm run compliance` regenerates `sbom.spdx.json` and `THIRD_PARTY_NOTICES.md` from those exact
-lockfiles.
 
 Open <http://127.0.0.1:4510> and sign in with credentials created for the installation.
 Swagger at <http://127.0.0.1:4500/docs>, the raw spec at `/openapi.json`.
 
 Moving the ports: `QWBE_PORT=4530 npm start` moves the API and tells the frontend where it
-went. `QWBE_WEB_PORT=4540 npm start` overrides the web port; otherwise the `-p` argument in
-`web/package.json` remains its source. The start runner respawns a cleanly exited API, so the
+went. `QWBE_WEB_PORT=4540 npm start` overrides the web port. Without them, both ports come from
+the `dev:` block of `qwbe.yaml`. The start runner respawns a cleanly exited API, so the
 admin restart action returns under this documented flow without stopping the frontend.
 `QWBE_DATABASE_URL` moves the database.
 
@@ -55,17 +54,17 @@ Passwords use Node's scrypt with a random 16-byte salt per account: N=16384, r=8
 32-byte derived key. Stored hashes include algorithm, parameters and salt. Existing prototype
 SHA-256 hashes remain login-compatible only for migration and are replaced with scrypt after
 their first successful login. `QWBE_READER_PASSWORD` creates the demonstration reader only when
-explicitly set; probes and browser tests set both variables inside their isolated processes.
+explicitly set; checks and browser tests set both variables inside their isolated processes.
 
-Running the halves by hand still works, if you want two terminals:
+Running the halves separately, in two terminals:
 
 ```bash
-cd core && node src/main.ts            # API on :4500  (QWBE_PORT to move it)
-cd web  && npm run dev                 # sibling app on :4510
+npm run api                            # API on :4500, respawned after an admin restart
+npm run web                            # sibling app on :4510
 ```
 
-This manual API process has no supervisor: the admin restart action stops it. Use `npm start`
-when restart from the admin screen must bring the API back while keeping the frontend alive.
+`cd core && node src/main.ts` still starts the API with no supervisor: the admin restart action
+stops it.
 
 The frontend reads the API address from `NEXT_PUBLIC_QWBE_API` (default `http://127.0.0.1:4500`).
 Demo records use `example.com`, the IANA-reserved documentation domain; they are fixtures, not
@@ -93,93 +92,66 @@ Locked out because the printed bootstrap password is gone (say, the first start 
 terminal nobody kept)? Stop Qwbe, set `QWBE_ADMIN_PASSWORD`, drop the server's database and let
 the next start recreate it -- this **erases all data**, acceptable only on a fresh install.
 
-The Playwright suite (`npm run e2e`, `npm run screenshots`) uses the root dependencies installed
-by setup. Browser binaries remain a separate Playwright install.
+The Playwright suite (`npm run e2e`: web build, then `qwbe.spec.mjs`) uses the root
+dependencies installed by setup. Browser binaries remain a separate Playwright install.
 
 ## Verifying it
 
 ```bash
-node probes/smoke.mjs                                          # 27 - behaviour, login to logout
-node probes/decoupling.mjs                                     # 22 - the invariant, by SHA-256 fingerprint
-node probes/security.mjs                                       # 35 - attacks on this README's own claims
-node probes/permissions.mjs                                    # ownership, sharing, visibility and audit
-node probes/restart.mjs                                        #  3 - survives restarts against one database
-node probes/drift.mjs                                         # 11 - five disk/process drift states
-node probes/admin-restart.mjs                                 #  5 - admin restart returns under npm start
-cd core && npx depcruise src plugins --config .dependency-cruiser.cjs   # boundaries on the real graph
-npx playwright test                                            #  5 - the UI, terminal included
-node screenshots.mjs                                           # writes screenshots/
+npm run check          # every gate, in order; needs the database from db:up
+npm run check:strict   # same, but ignores the `untested:` list in qwbe.yaml
+npm run check:bench    # adds the benchmarks; budgets in the `bench:` block of qwbe.yaml
+npm run e2e            # the UI, terminal included
 ```
 
-`probes/security.mjs` exists because two independent adversarial reviews found real holes here.
-Every check in it is an attack that once succeeded, or one written to make sure a fixed hole
-stays shut.
+`check` (`core/tools/check.ts`, gates in `core/tools/gates.ts`) runs typecheck, typecheck:web,
+lint, test, boundaries, testgate, untracked, secrets and audit, and exits 1 if any is red. The
+`test` gate runs vitest over `core/checks/`: `unit/`, `integration/` and `live/`; `bench/` runs
+only under `check:bench`. Most of these checks are ports of the old `probes/*.mjs`, and each
+file names the probes it came from.
 
-The probes start whatever servers they need and stop them afterwards. That is deliberate: a
+The attacks in `core/checks/integration/api-auth-matrix.test.ts` exist because two independent
+adversarial reviews found real holes here. Each is an attack that once succeeded, or one written
+to make sure a fixed hole stays shut.
+
+The checks start whatever servers they need and stop them afterwards. That is deliberate: a
 server started by an agent lives inside that agent's sandbox - `ss` reports LISTEN while a
 request from anywhere else gets ECONNREFUSED. Producing the evidence in the same place as the
 act is the only way it means anything.
 
-CI starts from a clean checkout, audits all three package trees, checks generated compliance
-files, runs `check`, `probe:all`, the production web build, and Playwright. Existing testgate and
-sizecaps debt remains recorded in committed baselines; owner accepted that debt for this ticket
-on 2026-08-09. New regressions still fail the ordinary `check` gate.
+CI (`.github/workflows/verify.yml`) starts from a clean checkout with a Postgres service, runs
+`setup`, installs gitleaks, runs `check`, then `e2e`. The workflow is currently disabled on
+GitHub, pending an owner decision, so nothing runs on push today.
 
 ## Committing to this repo
 
-Four checks run at commit time, installed by `npm install` (husky sets `core.hooksPath`). Each one
-exists because the thing it catches already happened here.
+No git hooks run at commit time. What used to be hooks is either a gate of `check` or a
+convention:
 
-**Work on a branch.** `.husky/pre-commit` refuses `master` and `main`. Two agents committing
-straight to master is how this repo ended up with changes nobody expected to find in the working
-tree. For a deliberate one-off, `QWBE_ALLOW_MASTER=1 git commit ...` - it prints a warning, so the
-exception is visible in the terminal rather than silent.
+**No credentials.** `.env` and everything matching `.env.*` are ignored; commit `.env.example`
+with placeholders instead. The `secrets` gate of `check` runs secretlint over every tracked file
+(rules and allowlist in `.secretlintrc.json`), then gitleaks over the commits in
+`origin/main..HEAD`. Run `npm run check` before a push.
 
-**Name the branch `<type>/<slug>`.** Types: `feature`, `fix`, `hardening`, `refactor`, `docs`,
-`test`, `experiment`, `chore`. Slug is lowercase ASCII words joined by single hyphens, 40
-characters at most. The vocabulary and the reasoning live in `scripts/check-branch.mjs`; run
-`npm run branch` to check a name before using it. The repo previously carried 24 branches in four
-different naming habits at once, which made the branch list unreadable.
-
-**No credentials.** `.env` and everything matching `.env.*` are ignored and refused by name even
-when forced in with `git add -f`; commit `.env.example` with placeholders instead. On top of that,
-secretlint scans every staged file: GitHub, Slack and AWS tokens, `sk-` keys, private-key blocks,
-basic-auth URLs, hardcoded `password =` assignments, and `/home/<user>/` paths. Rules and the
-allowlist are in `.secretlintrc.json`; run `npm run secrets` to scan the whole tree.
-
-**ASCII in source.** Checked on the lines a commit ADDS, not on whole files - 114 of 130 tracked
-files still contain Romanian prose, and whole-file checking would block every commit until that
-translation is finished. `npm run ascii` runs the whole-file version. Exemptions, each with its
-reason, are in `scripts/check-ascii.mjs`.
+**Work on a branch named `<type>/<slug>`**, never on `main`. Types: `feature`, `fix`,
+`hardening`, `refactor`, `docs`, `test`, `experiment`, `chore`. Nothing enforces this any more.
 
 **Commit messages**: ASCII, subject at most 72 characters, no trailing period, blank line before
 the body. Deliberately not Conventional Commits - the messages here carry a sentence of reasoning,
 and a machine-readable prefix adds nothing to that.
 
-### What this does not do
-
-A git hook is a nudge, not a boundary:
-
-- `git commit --no-verify` skips all of it.
-- A fresh clone has no hooks at all until someone runs `npm install`.
-- Hooks are files in the working tree, so a branch that does not contain `.husky/pre-commit` is
-  not protected by it. This was measured, not assumed: committing to master was still possible
-  until this commit was merged into master.
-
-There is no CI and no remote behind these checks. A green hook means the obvious mistakes were
-caught, not that the commit is safe to publish.
-
 ## The invariant
 
 > **One cube = one directory. Installing it touches no existing file.**
 
-Not a claim, a measurement. `probes/decoupling.mjs` fingerprints every file under `core/`,
-creates a cube AND installs a plugin, starts the server, calls both their routes - and only then
-compares. Result on 1 Aug: **22 files untouched, 2 added**.
+Not a claim, a measurement. `core/checks/integration/discovery-no-registry.test.ts` fingerprints
+every file under `core/`, places a plugin, starts the server, calls its route - and only then
+compares. No file under `core/` may change.
 
-It also removes the `notes` cube from disk entirely. The server starts, `account` carries on,
-the notes permissions drop out of `auth` by themselves, its commands leave the CLI, and its
-group vanishes from the account page. Nothing edited anywhere.
+The probe it replaced also created a core cube (result on 1 Aug: **22 files untouched, 2
+added**) and removed the `notes` cube from disk entirely. The server started, `account`
+carried on, the notes permissions dropped out of `auth` by themselves, its commands left the
+CLI, and its group vanished from the account page. Nothing edited anywhere.
 
 ## Two levels
 
@@ -337,7 +309,7 @@ before it was fixed. The two most serious were security holes, not style:
 - **Login died permanently after the third restart.** Ids came from a module-level counter that
   reset to zero each boot and was shared across every cube, so it eventually reissued an id that
   already existed: `UNIQUE constraint failed: sessions.id`, and nothing self-healed. Ids are
-  random now, and `probes/restart.mjs` exists so it cannot come back quietly.
+  random now.
 - **"Switched off" did not switch off**, two independent ways: a cube declaring a route under
   another's prefix stayed reachable, and a cube named with a `:` sent its commands to another
   cube's switch. Both are refused at mount now.
@@ -363,7 +335,8 @@ distinguishable after the first attempt; and `finiteInt` let `1e20` through beca
 
 ## What the probes caught while building
 
-Worth keeping, because each was a real mistake and the probe is why it did not survive:
+History from before `core/checks/` replaced the repo's `probes/`. Worth keeping, because each
+was a real mistake and a probe is why it did not survive:
 
 - **A dangling link used to stop the server.** The invariant probe caught it immediately:
   deleting `notes` broke startup, because the space still pointed at it - which would mean
@@ -397,9 +370,10 @@ core/
   src/main.ts      knows no cube by name
   plugins/         installed plugins, each bringing cubes into level 0
   .dependency-cruiser.cjs
+  checks/          unit, integration, live, bench; run by vitest under `npm run check`
+  tools/           setup, dev, db, e2e, build, check and its gates
 web/               Next.js. `lib/session.ts` holds the session half of authentication
-probes/            smoke.mjs (27) · decoupling.mjs (22) · lib.mjs
-qwbe.spec.mjs      Playwright (5)
-screenshots.mjs    screenshots
-data/              files the admin restart and probes use; the store lives in Postgres
+qwbe.yaml          dev ports, the untested work queue, benchmark budgets
+qwbe.spec.mjs      Playwright, run by `npm run e2e`
+data/              files the admin restart and checks use; the store lives in Postgres
 ```
