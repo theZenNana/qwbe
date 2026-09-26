@@ -85,13 +85,30 @@ const makePack = (name: string, probe: string) =>
     return pack
   })
 
-const runCheck = (pack: string) =>
-  capture([process.execPath, BIN, "check", pack], CORE).pipe(Effect.timeout("150 seconds"))
-
 // The bin boots its kernel from a sandbox under core/; a finished run leaves none behind.
 const leftSandboxes = Effect.flatMap(FileSystem.FileSystem, (fs) => fs.readDirectory(CORE)).pipe(
   Effect.map((entries) => entries.filter((entry) => entry.startsWith(".qwbe-check-"))),
 )
+
+// A timeout kills the bin before its own finally runs, so the test's scope removes the sandboxes
+// this run made; the next test then judges its own run, not this one's leftovers.
+const runCheck = (pack: string) =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem
+    const before = yield* leftSandboxes
+    yield* Effect.addFinalizer(() =>
+      leftSandboxes.pipe(
+        Effect.flatMap((after) =>
+          Effect.forEach(
+            after.filter((entry) => !before.includes(entry)),
+            (entry) => fs.remove(join(CORE, entry), { recursive: true }),
+          ),
+        ),
+        Effect.orDie,
+      ),
+    )
+    return yield* capture([process.execPath, BIN, "check", pack], CORE).pipe(Effect.timeout("150 seconds"))
+  })
 
 layer(NodeContext.layer, { timeout: 180_000, excludeTestServices: true })((it) => {
   it.scoped("a clean pack passes all four stages with exit 0", () =>

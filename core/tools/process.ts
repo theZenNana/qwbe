@@ -21,10 +21,14 @@ const text = (stream: Stream.Stream<Uint8Array, PlatformError>) => stream.pipe(S
 
 type Env = Readonly<Record<string, string | undefined>>
 
+// stdin is an empty stream, so the child reads end-of-file at once. The executor's default is a
+// pipe nobody writes or closes, and a child (or a grandchild inheriting it) that reads stdin
+// waits on it forever.
 const commandFor = (argv: Argv, cwd: string, env: Env = {}) =>
   Command.make(...argv).pipe(
     Command.workingDirectory(cwd),
     Command.env({ ...withoutAllowScripts(process.env), ...env }),
+    Command.stdin(Stream.empty),
   )
 
 // stdout and stderr drain together, so a child that fills one pipe never stalls on it.

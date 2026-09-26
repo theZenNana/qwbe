@@ -31,6 +31,15 @@ it.layer(NodeContext.layer)("capture", (it) => {
     }),
   )
 
+  // A gate is never interactive: a child that reads stdin must see end-of-file, not wait on an
+  // open pipe forever. Shells hand that to direct runs; the executor's default pipe never ends.
+  it.effect("gives the child a stdin that ends", () =>
+    Effect.gen(function* () {
+      const result = yield* capture(node("process.stdin.resume().on('end', () => console.log('eof'))"), ".")
+      expect(result).toEqual({ status: 0, stdout: "eof\n", stderr: "" })
+    }),
+  )
+
   it.effect("drops npm_config_allow_scripts in any case", () =>
     Effect.gen(function* () {
       process.env.NPM_CONFIG_ALLOW_SCRIPTS = "x"
