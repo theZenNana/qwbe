@@ -51,4 +51,36 @@ which a test file does not have. The `_layers` entries are real modules and the 
 | `core/checks/unit/policy-reader-no-write.test.ts` | codebase-design | 65.6 |
 | `core/checks/unit/policy-reader-no-write.test.ts` | lucian | 60.8 |
 
+## Stages 4 and 5 (tools, benchmarks, bootstrap), scored 2026-09-26
+
+`dev.ts`, `setup.ts` and `boot.ts` orchestrate processes and are the first to split; `bootstrap.ts`
+is stdlib-only on purpose (it runs before any dependency exists).
+
+| file | rubric | score |
+|---|---|---|
+| `core/checks/_layers/boot.ts` | lucian | 56.5 |
+| `core/checks/_layers/measure.ts` | lucian | 64.5 |
+| `core/checks/bench/list-60k.test.ts` | codebase-design | 64.3 |
+| `core/checks/bench/staging-pg.test.ts` | codebase-design | 63.2 |
+| `core/checks/bench/staging-pg.test.ts` | lucian | 65.3 |
+| `core/checks/live/qwbe-check-bin.test.ts` | codebase-design | 67.6 |
+| `core/tools/bootstrap.ts` | codebase-design | 61.7 |
+| `core/tools/bootstrap.ts` | lucian | 68.8 |
+| `core/tools/build.ts` | lucian | 63.2 |
+| `core/tools/build.ts` | ponytail | 66.6 |
+| `core/tools/check.ts` | codebase-design | 67.6 |
+| `core/tools/check.ts` | lucian | 65.4 |
+| `core/tools/db.ts` | codebase-design | 67.6 |
+| `core/tools/dev-ports.ts` | lucian | 70.0 |
+| `core/tools/dev.ts` | codebase-design | 65.9 |
+| `core/tools/dev.ts` | lucian | 51.3 |
+| `core/tools/dev.ts` | ponytail | 66.9 |
+| `core/tools/e2e.ts` | codebase-design | 64.5 |
+| `core/tools/gates.ts` | codebase-design | 68.3 |
+| `core/tools/process.ts` | lucian | 66.2 |
+| `core/tools/setup.ts` | codebase-design | 65.7 |
+| `core/tools/setup.ts` | lucian | 55.0 |
+| `core/tools/setup.ts` | ponytail | 68.5 |
+| `core/vitest.bench.config.ts` | codebase-design | 63.1 |
+
 Revisit when stage 6 is done.
