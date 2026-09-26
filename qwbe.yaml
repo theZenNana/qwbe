@@ -1,0 +1,8 @@
+version: 1
+dev:
+  api: 4500
+  web: 4510
+# Units that had no test when the test gate started. A work queue, not a permission:
+# a new unit without tests fails `check`; `check --strict` ignores this list.
+untested:
+  - core/plugins/example-plugin/cubes/bookmarks
