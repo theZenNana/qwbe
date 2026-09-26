@@ -1,11 +1,11 @@
 // Measuring a PACKAGE against the kernel's size caps, for `qwbe check`.
 //
-// The caps live in the kernel's qwbe.config.json and the kernel measures ITSELF with
-// `probes/sizecaps.mjs`. A pack is measured by the same numbers, never by numbers of its own:
-// that is the whole point of the check command -- a pack cannot write its own rules.
+// The caps live in the kernel's qwbe.config.json. A pack is measured by those numbers, never by
+// numbers of its own: that is the whole point of the check command -- a pack cannot write its own
+// rules.
 //
-// One unit is one cube directory: a pack's `cubes/` children, walked recursively. The same
-// exemptions as the kernel's own gate apply: tests do not count, `node_modules` and friends are
+// One unit is one cube directory: a pack's `cubes/` children, walked recursively. Exemptions:
+// tests do not count, `node_modules` and friends are
 // skipped at any depth, and a `frontend/` nested INSIDE a cube counts like any other source --
 // only the pack's TOP-level `frontend/` is outside the contract, and this walk never
 // starts there.
@@ -61,7 +61,7 @@ export const walk = (dir: string, { includeTests = false, top = true } = {}): st
 /**
  * Strip comments so the cap can measure code.
  *
- * A lexer, not a regex, for the reason `probes/size-lib.mjs` gives: a regex over `//` eats the
+ * A lexer, not a regex: a regex over `//` eats the
  * `//` inside a URL string, and the resulting number is quietly wrong. A gate whose number is
  * quietly wrong is worse than no gate, because people trust it.
  */
@@ -169,9 +169,8 @@ const children = (dir: string): string[] => {
 
 /**
  * Judge a package's cubes against the caps. Units are the direct children of `<root>/cubes/`,
- * exactly the units the kernel's own gate measures for an installed pack. No baseline: the
- * baseline is the KERNEL's recorded debt, keyed by kernel paths -- a pack gets the caps and
- * nothing else, so anything over cap is a finding.
+ * the units of an installed pack. No baseline: a pack gets the caps and nothing else, so
+ * anything over cap is a finding.
  */
 export const sizeCapsFindings = (root: string, caps: SizeCaps): PackageFinding[] => {
   const findings: PackageFinding[] = []

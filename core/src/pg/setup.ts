@@ -9,7 +9,7 @@
 // tables and insert into the kernel outbox, and that is EVERYTHING. The application connects
 // as the URL's user, which is a member of every cube role, and each operation opens its
 // transaction with `SET LOCAL ROLE` -- so a cube's query against another cube's schema dies in
-// Postgres with a permission error. See probes/store-isolation.mjs, which proves both halves.
+// Postgres with a permission error. See checks/integration/pg-grants.test.ts.
 
 import { MAX_CUSTOM_BYTES, MAX_CUSTOM_KEYS } from "../custom-values.ts"
 import { getPool, type Pool } from "./db.ts"

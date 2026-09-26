@@ -4,12 +4,13 @@ import * as Effect from "effect/Effect"
 import { benchFindings } from "./bench-budget.ts"
 import type { GateSpec, Step } from "./gates.ts"
 import { type Argv, capture, captureLines } from "./process.ts"
+import { commandName } from "./process-pure.ts"
 import { testgate } from "./testgate.ts"
 import { untracked } from "./untracked.ts"
 
 const commandFindings = (root: string, argv: Argv) =>
   Effect.map(capture(argv, root), ({ status, stdout, stderr }) =>
-    status === 0 ? [] : [`${argv.join(" ")} exited ${status}\n${stdout}${stderr}`],
+    status === 0 ? [] : [`${commandName(argv)} exited ${status}\n${stdout}${stderr}`],
   )
 
 // Tracked files only: ignored local scratch is not ours to scan.

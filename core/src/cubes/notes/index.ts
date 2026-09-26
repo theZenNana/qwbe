@@ -7,7 +7,7 @@
 // Look for the word "Account" in this file. It is not here — not in an import, not in a string,
 // not in the manifest. `notes` holds an `authorId` and knows nothing about what it points at.
 // The connection is declared one level up, in `spaces/workspace/`, by neither party.
-// This is checked mechanically: `probes/decoupling.mjs` greps for it.
+// This is checked mechanically: `npm run boundaries` (rule `no-cube-to-cube`) refuses the import.
 
 import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema } from "@effect/platform"
 import { Effect, Layer, Schema } from "effect"

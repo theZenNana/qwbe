@@ -23,25 +23,26 @@ directly through Node type stripping.
 npm run db:up       # starts the Postgres container (docker compose)
 npm run setup       # npm ci at root/core/web, creates data/, checks the Node version
 npm start           # API on :4500 and the web app on :4510, in one terminal
+npm run db:down     # stops the container; `npm run db:clean` drops test databases left by killed runs
 ```
 
 Storage is one Postgres database with one schema per cube (ADR-0001). The server names it with
 `QWBE_DATABASE_URL` (see `.env.example`); missing or unreachable, it refuses to start. No SQLite
 per cube any more.
 
-`npm start` prefixes every log line with `[api]` or `[web]`, and Ctrl-C stops both. Neither
-script adds a dependency: they are plain Node, `scripts/setup.mjs` and `scripts/start.mjs`.
+`npm start` prefixes every log line with `[api]` or `[web]`, and Ctrl-C stops both. Every npm
+command runs a small Effect program in `core/tools/` (`setup.ts`, `dev.ts`, `db.ts`, `check.ts`,
+`e2e.ts`, `build.ts`). `npm run setup` starts through `core/tools/bootstrap.mjs`, which installs
+`core/` first on a fresh clone, because the tools need `effect` from it.
 
 Root tooling, `core/`, and `web/` are independent npm packages with one committed lockfile each.
-`npm run compliance` regenerates `sbom.spdx.json` and `THIRD_PARTY_NOTICES.md` from those exact
-lockfiles.
 
 Open <http://127.0.0.1:4510> and sign in with credentials created for the installation.
 Swagger at <http://127.0.0.1:4500/docs>, the raw spec at `/openapi.json`.
 
-Moving the ports: `QWBE_PORT=4530 npm start` moves the API and tells the frontend where it
-went. `QWBE_WEB_PORT=4540 npm start` overrides the web port; otherwise the `-p` argument in
-`web/package.json` remains its source. The start runner respawns a cleanly exited API, so the
+Moving the ports: the defaults are `dev.api` and `dev.web` in `qwbe.yaml`. `QWBE_PORT=4530 npm start`
+moves the API for one run and tells the frontend where it went; `QWBE_WEB_PORT=4540 npm start`
+moves the web port. `npm start` refuses to start when a port is already taken. The start runner respawns a cleanly exited API, so the
 admin restart action returns under this documented flow without stopping the frontend.
 `QWBE_DATABASE_URL` moves the database.
 
@@ -55,7 +56,7 @@ Passwords use Node's scrypt with a random 16-byte salt per account: N=16384, r=8
 32-byte derived key. Stored hashes include algorithm, parameters and salt. Existing prototype
 SHA-256 hashes remain login-compatible only for migration and are replaced with scrypt after
 their first successful login. `QWBE_READER_PASSWORD` creates the demonstration reader only when
-explicitly set; probes and browser tests set both variables inside their isolated processes.
+explicitly set; checks and browser tests set both variables inside their isolated processes.
 
 Running the halves by hand still works, if you want two terminals:
 
@@ -93,93 +94,76 @@ Locked out because the printed bootstrap password is gone (say, the first start 
 terminal nobody kept)? Stop Qwbe, set `QWBE_ADMIN_PASSWORD`, drop the server's database and let
 the next start recreate it -- this **erases all data**, acceptable only on a fresh install.
 
-The Playwright suite (`npm run e2e`, `npm run screenshots`) uses the root dependencies installed
-by setup. Browser binaries remain a separate Playwright install.
+The Playwright suite (`npm run e2e`) uses the root dependencies installed by setup. Browser
+binaries remain a separate install: `npx playwright install chromium`.
 
 ## Verifying it
 
+One command runs every gate and reports each one; it does not stop at the first red:
+
 ```bash
-node probes/smoke.mjs                                          # 27 - behaviour, login to logout
-node probes/decoupling.mjs                                     # 22 - the invariant, by SHA-256 fingerprint
-node probes/security.mjs                                       # 35 - attacks on this README's own claims
-node probes/permissions.mjs                                    # ownership, sharing, visibility and audit
-node probes/restart.mjs                                        #  3 - survives restarts against one database
-node probes/drift.mjs                                         # 11 - five disk/process drift states
-node probes/admin-restart.mjs                                 #  5 - admin restart returns under npm start
-cd core && npx depcruise src plugins --config .dependency-cruiser.cjs   # boundaries on the real graph
-npx playwright test                                            #  5 - the UI, terminal included
-node screenshots.mjs                                           # writes screenshots/
+npm run check         # typecheck, typecheck:web, lint, test, boundaries, testgate, untracked, secrets, audit
+npm run check:strict  # the same, without the testgate exemptions listed under `untested` in qwbe.yaml
+npm run check:live    # plus the live checks: real servers booted on free ports
+npm run check:bench   # plus the benchmarks, held against the budgets under `bench` in qwbe.yaml
+npm run e2e           # builds the web app, then runs the Playwright suite (qwbe.spec.mjs)
 ```
 
-`probes/security.mjs` exists because two independent adversarial reviews found real holes here.
-Every check in it is an attack that once succeeded, or one written to make sure a fixed hole
-stays shut.
+The verdict is the exit code: 0 when every gate is green. `test`, `live` and `bench` need
+Postgres (`npm run db:up`); each test file creates its own `qwbe_test_*` database and drops it
+when it ends. `QWBE_PG_HOST`, `QWBE_PG_PORT`, `QWBE_PG_USER` and `QWBE_PG_PASSWORD` point the
+checks at another server (default `localhost:5433`, `postgres`, `qwbe`).
 
-The probes start whatever servers they need and stop them afterwards. That is deliberate: a
+Where the checks live:
+
+```
+core/tools/               the npm commands and the gates (check.ts, gates.ts, testgate.ts, untracked.ts)
+core/checks/unit/         no server, no database
+core/checks/integration/  one Postgres database per file, no HTTP server
+core/checks/live/         real servers and processes (`check:live`)
+core/checks/bench/        vitest bench against the qwbe.yaml budgets (`check:bench`)
+core/checks/_layers/      shared Effect layers: test database, booted server, API client
+core/checks/_fixtures/    fixture packs
+core/src/**/*.test.ts     kernel and cube tests, still on node:test
+```
+
+The live checks start whatever servers they need and stop them afterwards. That is deliberate: a
 server started by an agent lives inside that agent's sandbox - `ss` reports LISTEN while a
 request from anywhere else gets ECONNREFUSED. Producing the evidence in the same place as the
 act is the only way it means anything.
 
-CI starts from a clean checkout, audits all three package trees, checks generated compliance
-files, runs `check`, `probe:all`, the production web build, and Playwright. Existing testgate and
-sizecaps debt remains recorded in committed baselines; owner accepted that debt for this ticket
-on 2026-08-09. New regressions still fail the ordinary `check` gate.
+CI (`.github/workflows/verify.yml`) runs `npm run setup`, `npm run check` with a Postgres service
+and gitleaks, then `npm run e2e`. The workflow is disabled on GitHub until the owner turns it
+back on; until then, green means green locally.
 
 ## Committing to this repo
 
-Four checks run at commit time, installed by `npm install` (husky sets `core.hooksPath`). Each one
-exists because the thing it catches already happened here.
+There are no commit hooks. Run `npm run check` before a commit; its `secrets` gate does what the
+old pre-commit hook did.
 
-**Work on a branch.** `.husky/pre-commit` refuses `master` and `main`. Two agents committing
-straight to master is how this repo ended up with changes nobody expected to find in the working
-tree. For a deliberate one-off, `QWBE_ALLOW_MASTER=1 git commit ...` - it prints a warning, so the
-exception is visible in the terminal rather than silent.
+**Work on a branch named `<type>/<slug>`.** Types: `feature`, `fix`, `hardening`, `refactor`,
+`docs`, `test`, `experiment`, `chore`. Slug is lowercase ASCII words joined by single hyphens.
+Never commit on `main`; it receives merges from pull requests.
 
-**Name the branch `<type>/<slug>`.** Types: `feature`, `fix`, `hardening`, `refactor`, `docs`,
-`test`, `experiment`, `chore`. Slug is lowercase ASCII words joined by single hyphens, 40
-characters at most. The vocabulary and the reasoning live in `scripts/check-branch.mjs`; run
-`npm run branch` to check a name before using it. The repo previously carried 24 branches in four
-different naming habits at once, which made the branch list unreadable.
-
-**No credentials.** `.env` and everything matching `.env.*` are ignored and refused by name even
-when forced in with `git add -f`; commit `.env.example` with placeholders instead. On top of that,
-secretlint scans every staged file: GitHub, Slack and AWS tokens, `sk-` keys, private-key blocks,
-basic-auth URLs, hardcoded `password =` assignments, and `/home/<user>/` paths. Rules and the
-allowlist are in `.secretlintrc.json`; run `npm run secrets` to scan the whole tree.
-
-**ASCII in source.** Checked on the lines a commit ADDS, not on whole files - 114 of 130 tracked
-files still contain Romanian prose, and whole-file checking would block every commit until that
-translation is finished. `npm run ascii` runs the whole-file version. Exemptions, each with its
-reason, are in `scripts/check-ascii.mjs`.
+**No credentials.** `.env` and everything matching `.env.*` are ignored; commit `.env.example`
+with placeholders instead. `git add -f` walks past `.gitignore`, so the `secrets` gate scans
+anyway: secretlint over every tracked file (GitHub, Slack and AWS tokens, `sk-` keys, private-key
+blocks, basic-auth URLs, hardcoded `password =` assignments, `/home/<user>/` paths; rules and the
+allowlist in `.secretlintrc.json`), and gitleaks over the commits in `origin/main..HEAD`.
 
 **Commit messages**: ASCII, subject at most 72 characters, no trailing period, blank line before
 the body. Deliberately not Conventional Commits - the messages here carry a sentence of reasoning,
 and a machine-readable prefix adds nothing to that.
 
-### What this does not do
-
-A git hook is a nudge, not a boundary:
-
-- `git commit --no-verify` skips all of it.
-- A fresh clone has no hooks at all until someone runs `npm install`.
-- Hooks are files in the working tree, so a branch that does not contain `.husky/pre-commit` is
-  not protected by it. This was measured, not assumed: committing to master was still possible
-  until this commit was merged into master.
-
-There is no CI and no remote behind these checks. A green hook means the obvious mistakes were
-caught, not that the commit is safe to publish.
-
 ## The invariant
 
 > **One cube = one directory. Installing it touches no existing file.**
 
-Not a claim, a measurement. `probes/decoupling.mjs` fingerprints every file under `core/`,
-creates a cube AND installs a plugin, starts the server, calls both their routes - and only then
-compares. Result on 1 Aug: **22 files untouched, 2 added**.
-
-It also removes the `notes` cube from disk entirely. The server starts, `account` carries on,
-the notes permissions drop out of `auth` by themselves, its commands leave the CLI, and its
-group vanishes from the account page. Nothing edited anywhere.
+Not a claim, a measurement. `core/checks/integration/discovery-no-registry.test.ts` places a
+plugin in a temporary plugins directory and checks that it reaches the catalog, OpenAPI,
+permissions and CLI while no tracked file under `core/` changes.
+`core/checks/live/boot-smoke.test.ts` boots without the `notes` cube: its routes and permissions
+are simply absent. `npm run boundaries` refuses any import from one cube into another.
 
 ## Two levels
 
@@ -337,7 +321,7 @@ before it was fixed. The two most serious were security holes, not style:
 - **Login died permanently after the third restart.** Ids came from a module-level counter that
   reset to zero each boot and was shared across every cube, so it eventually reissued an id that
   already existed: `UNIQUE constraint failed: sessions.id`, and nothing self-healed. Ids are
-  random now, and `probes/restart.mjs` exists so it cannot come back quietly.
+  random now.
 - **"Switched off" did not switch off**, two independent ways: a cube declaring a route under
   another's prefix stayed reachable, and a cube named with a `:` sent its commands to another
   cube's switch. Both are refused at mount now.
@@ -397,9 +381,11 @@ core/
   src/main.ts      knows no cube by name
   plugins/         installed plugins, each bringing cubes into level 0
   .dependency-cruiser.cjs
+  tools/           the npm commands and gates, in Effect (see "Verifying it")
+  checks/          unit, integration, live and bench checks, on vitest + @effect/vitest
+  qwbe.config.json size caps `qwbe check` measures a pack against
 web/               Next.js. `lib/session.ts` holds the session half of authentication
-probes/            smoke.mjs (27) · decoupling.mjs (22) · lib.mjs
+qwbe.yaml          dev ports, the testgate exemptions, bench budgets (read by core/tools/config.ts)
 qwbe.spec.mjs      Playwright (5)
-screenshots.mjs    screenshots
-data/              files the admin restart and probes use; the store lives in Postgres
+data/              files the admin restart uses; the store lives in Postgres
 ```

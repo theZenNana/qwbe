@@ -2,7 +2,14 @@ import * as NodeContext from "@effect/platform-node/NodeContext"
 import { expect, it } from "@effect/vitest"
 import * as Effect from "effect/Effect"
 import { capture, captureLines } from "./process.ts"
-import { withoutAllowScripts } from "./process-pure.ts"
+import { commandName, withoutAllowScripts } from "./process-pure.ts"
+
+it("names a command by the words before its first path operand", () => {
+  expect(commandName(["npx", "--no-install", "secretlint", "a.ts", "src/b.ts"])).toBe("npx --no-install secretlint")
+  expect(commandName(["npx", "biome", "check", "."])).toBe("npx biome check")
+  expect(commandName(["npm", "--prefix", "core", "test"])).toBe("npm --prefix core test")
+  expect(commandName(["gitleaks", "git", ".", "--log-opts=origin/main..HEAD"])).toBe("gitleaks git")
+})
 
 const node = (script: string) => [process.execPath, "-e", script] as const
 

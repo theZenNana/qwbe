@@ -199,7 +199,7 @@ export const stageSandbox = (
   return { root, plugins, store, data }
 }
 
-/** A throwaway Postgres database for one check run -- the probes' model (probes/lib.mjs). */
+/** A throwaway Postgres database for one check run -- the model of checks/_layers/test-db.ts. */
 const adminUrl = (): string => {
   const u = new URL("postgres://localhost/postgres")
   u.hostname = process.env.QWBE_PG_HOST ?? "localhost"

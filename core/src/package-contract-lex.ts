@@ -5,7 +5,7 @@
 /**
  * Strip comments, and optionally string-literal contents, so a mention in prose cannot raise a
  * finding: a file whose only `writeFile` sits in a comment does not write. A lexer, not a
- * regex, for the reason `probes/size-lib.mjs` gives -- a regex over `//` eats the `//` inside
+ * regex, because a regex over `//` eats the `//` inside
  * a URL string. String contents survive by default (module specifiers live in them and must
  * still be readable); `dropStrings` removes them for the includes-based rules, where text
  * inside quotes is never a call and never a write.

@@ -1,7 +1,7 @@
 // The generic list (QWB-54): the query contract, and the SQL it becomes.
 //
 // Everything here is pure -- no server, no database. The runtime half, on a large table, is
-// `probes/list.mjs`.
+// `checks/bench/list-60k.bench.ts`.
 
 import assert from "node:assert/strict"
 import { describe, it } from "node:test"

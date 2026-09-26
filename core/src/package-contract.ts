@@ -10,7 +10,7 @@
 // runtime probes -- those stay the pack's job; this only judges the source boundary.
 //
 // One carve-out, everywhere: a top-level `frontend/` directory in a package is outside the
-// contract. It is skipped by the size gate (`probes/size-lib.mjs`) and by every rule below.
+// contract. It is skipped by the size check (`package-size.ts`) and by every rule below.
 
 import { existsSync } from "node:fs"
 import { join } from "node:path"
@@ -123,8 +123,8 @@ export const checkPackageSource = async (
 
 // Where to read a mounted package's manifest. Normally it sits next to the cubes -- but an
 // INSTALLED package has none there: the installer treats `qwbe-package.json` as store
-// bookkeeping and strips it from the copy it lands in plugins/ (pinned by
-// probes/install-from.mjs). So the fallback is the store copy, cross-checked against the cubes
+// bookkeeping and strips it from the copy it lands in plugins/ (kernel/install-from.ts).
+// So the fallback is the store copy, cross-checked against the cubes
 // really on disk, which still catches a directory added after the install. `QWBE_STORE_DIR` is
 // the same override kernel/install.ts honours, read per call because probes set it per server.
 const manifestRootFor = (root: string, plugin: string): string | undefined => {
