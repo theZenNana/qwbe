@@ -19,8 +19,13 @@ const ExitStatus = Schema.Int.pipe(Schema.between(0, 255))
 
 const text = (stream: Stream.Stream<Uint8Array, PlatformError>) => stream.pipe(Stream.decodeText(), Stream.mkString)
 
-const commandFor = (argv: Argv, cwd: string) =>
-  Command.make(...argv).pipe(Command.workingDirectory(cwd), Command.env(withoutAllowScripts(process.env)))
+type Env = Readonly<Record<string, string | undefined>>
+
+const commandFor = (argv: Argv, cwd: string, env: Env = {}) =>
+  Command.make(...argv).pipe(
+    Command.workingDirectory(cwd),
+    Command.env({ ...withoutAllowScripts(process.env), ...env }),
+  )
 
 // stdout and stderr drain together, so a child that fills one pipe never stalls on it.
 const drain = (child: CommandExecutor.Process) =>
@@ -37,12 +42,21 @@ export const capture = (argv: Argv, cwd: string) =>
   Effect.scoped(Effect.flatMap(Command.start(commandFor(argv, cwd)), drain))
 
 // The child writes straight to this terminal; only its exit status comes back.
-export const inherit = (argv: Argv, cwd: string) =>
-  commandFor(argv, cwd).pipe(
+export const inherit = (argv: Argv, cwd: string, env: Env = {}) =>
+  commandFor(argv, cwd, env).pipe(
     Command.stdout("inherit"),
     Command.stderr("inherit"),
     Command.exitCode,
     Effect.flatMap(Schema.decodeUnknown(ExitStatus)),
+  )
+
+// Like inherit, but a nonzero exit is a GateFailed carrying that status.
+export const inheritOk = (argv: Argv, cwd: string, env: Env = {}) =>
+  inherit(argv, cwd, env).pipe(
+    Effect.filterOrFail(
+      (status) => status === 0,
+      (status) => new GateFailed({ message: `${argv.join(" ")} exited ${status} in ${cwd}`, status }),
+    ),
   )
 
 export const captureLines = (argv: Argv, cwd: string) =>

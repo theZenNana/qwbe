@@ -71,7 +71,8 @@
   },
   "scripts": {
     "start": "node src/main.ts",
-    "build": "tsc -p tsconfig.build.json && node scripts/build-assets.mjs",
+    "build": "node tools/build.ts",
+    "build:old": "tsc -p tsconfig.build.json && node scripts/build-assets.mjs",
     "prepack": "npm run build",
     "test": "vitest run",
     "boundaries": "depcruise src plugins --config .dependency-cruiser.cjs"

@@ -1,0 +1,6 @@
+{
+  "name": "vault-pack",
+  "kind": "plugin",
+  "summary": "A fixture cube with skewed roles: only 'curator' may read it, so tokens with customfields permissions still lack vault:read.",
+  "cubes": ["vault"]
+}

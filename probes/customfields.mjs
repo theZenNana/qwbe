@@ -30,7 +30,7 @@ import {
   stopServer,
 } from "./lib.mjs"
 
-const FIXTURE = join(root, "probes", "fixtures", "guestbook-pack")
+const FIXTURE = join(root, "core", "checks", "_fixtures", "guestbook-pack")
 const FIXTURE_PACK = "guestbook-pack"
 const score = makeScore()
 

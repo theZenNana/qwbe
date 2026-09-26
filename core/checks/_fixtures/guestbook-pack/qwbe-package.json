@@ -1,0 +1,6 @@
+{
+  "name": "guestbook-pack",
+  "kind": "plugin",
+  "summary": "A minimal fixture cube the customfields probe defines fields on.",
+  "cubes": ["guestbook"]
+}

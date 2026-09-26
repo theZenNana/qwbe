@@ -11,7 +11,7 @@ export class ConfigInvalid extends Data.TaggedError("ConfigInvalid")<{
   readonly message: string
 }> {}
 
-const Port = Schema.Int.pipe(Schema.between(1, 65535))
+export const Port = Schema.Int.pipe(Schema.between(1, 65535))
 
 export const QwbeConfig = Schema.Struct({
   version: Schema.Literal(1),
