@@ -1,6 +1,7 @@
 import * as FileSystem from "@effect/platform/FileSystem"
 import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
+import * as ParseResult from "effect/ParseResult"
 import * as Schema from "effect/Schema"
 import { parse } from "yaml"
 import { describeIssues } from "./schema-issues.ts"
@@ -25,7 +26,10 @@ const decodeConfig = (file: string, text: string) =>
       catch: (error) => new ConfigInvalid({ file, message: `${file}: $: ${String(error)}` }),
     })
     return yield* Schema.decodeUnknown(Config, { onExcessProperty: "error", errors: "all" })(input).pipe(
-      Effect.mapError((error) => new ConfigInvalid({ file, message: describeIssues(file, input, error) })),
+      Effect.mapError((error) => {
+        const issues = ParseResult.ArrayFormatter.formatErrorSync(error)
+        return new ConfigInvalid({ file, message: describeIssues(file, input, issues) })
+      }),
     )
   })
 

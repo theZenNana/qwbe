@@ -1,5 +1,11 @@
 import { inspect } from "node:util"
-import * as ParseResult from "effect/ParseResult"
+
+// Pure text for schema errors. No I/O in this module.
+
+export interface Issue {
+  readonly path: ReadonlyArray<PropertyKey>
+  readonly message: string
+}
 
 const valueAt = (input: unknown, path: ReadonlyArray<PropertyKey>) =>
   path.reduce<unknown>(
@@ -7,11 +13,11 @@ const valueAt = (input: unknown, path: ReadonlyArray<PropertyKey>) =>
     input,
   )
 
-/** One line per schema issue: file, key path, what was expected, and the value found there. */
-export const describeIssues = (file: string, input: unknown, error: ParseResult.ParseError) =>
-  ParseResult.ArrayFormatter.formatErrorSync(error)
-    .map((issue) => {
-      const where = issue.path.map(String).join(".") || "$"
-      return `${file}: ${where}: ${issue.message}; value ${inspect(valueAt(input, issue.path))}`
-    })
+/** One line per issue: file, key path, what was expected, and the value found there in `input`. */
+export const describeIssues = (file: string, input: unknown, issues: ReadonlyArray<Issue>) =>
+  issues
+    .map(
+      ({ path, message }) =>
+        `${file}: ${path.map(String).join(".") || "$"}: ${message}; value ${inspect(valueAt(input, path))}`,
+    )
     .join("\n")
