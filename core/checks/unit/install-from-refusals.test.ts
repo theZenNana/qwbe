@@ -9,95 +9,102 @@ import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import { PROVENANCE, packageSourceFingerprint } from "../../src/package-source.ts"
-import { tempDirectoryAs } from "./temp-env.ts"
+import { importUnderTempDirs } from "./temp-env.ts"
 
-// install.ts and install-parts.ts read QWBE_STORE_DIR and QWBE_PLUGINS_DIR at import, so both
-// point at scoped temp directories before the installer loads. Sources sit in a third one.
-// The source-contract checker is injected as "no findings": every row is refused before it.
+// install.ts and install-parts.ts read QWBE_STORE_DIR and QWBE_PLUGINS_DIR at import. Sources sit
+// in a third temp directory. The source-contract checker is injected as "no findings": every row
+// is refused before it.
 const loadBench = Effect.gen(function* () {
-  const store = yield* tempDirectoryAs("QWBE_STORE_DIR")
-  const plugins = yield* tempDirectoryAs("QWBE_PLUGINS_DIR")
+  const { dirs, kernel } = yield* importUnderTempDirs(
+    ["QWBE_STORE_DIR", "QWBE_PLUGINS_DIR"],
+    () => import("../../src/kernel/install.ts"),
+  )
   const sources = yield* (yield* FileSystem.FileSystem).makeTempDirectoryScoped()
-  const { installerFor } = yield* Effect.promise(() => import("../../src/kernel/install.ts"))
-  return { installer: installerFor(() => Promise.resolve([])), store, plugins, sources }
+  const installer = kernel.installerFor(() => Promise.resolve([]))
+  return { installer, store: dirs.QWBE_STORE_DIR, plugins: dirs.QWBE_PLUGINS_DIR, sources }
 })
 
 class Bench extends Context.Tag("checks/unit/InstallBench")<Bench, Effect.Effect.Success<typeof loadBench>>() {}
 
-type Plant = Effect.Effect<
-  string,
-  PlatformError.PlatformError,
-  Bench | FileSystem.FileSystem | CommandExecutor.CommandExecutor
->
+/** Plants a source under `sources` and returns the path to hand the installer. */
+type Plant = (
+  sources: string,
+) => Effect.Effect<string, PlatformError.PlatformError, FileSystem.FileSystem | CommandExecutor.CommandExecutor>
 
 const cubeManifest = (name: string): string => JSON.stringify({ name, kind: "cube" })
 
-const pluginManifest = (name: string, cubes: ReadonlyArray<string>): string =>
-  JSON.stringify({ name, kind: "plugin", cubes })
+const cube = (name: string) => ({ "qwbe-package.json": cubeManifest(name), "index.ts": "//\n" })
 
-const writeFile = (path: string, text: string) =>
+const plugin = (name: string, cubes: ReadonlyArray<string>) => ({
+  "qwbe-package.json": JSON.stringify({ name, kind: "plugin", cubes }),
+})
+
+/** Writes `files` (relative path to text) under `dir`, creating directories, and returns `dir`. */
+const writeTree = (dir: string, files: Readonly<Record<string, string>>) =>
   Effect.flatMap(FileSystem.FileSystem, (fs) =>
-    Effect.zipRight(fs.makeDirectory(dirname(path), { recursive: true }), fs.writeFileString(path, text)),
+    Effect.as(
+      Effect.forEach(Object.entries(files), ([path, text]) =>
+        Effect.zipRight(
+          fs.makeDirectory(dirname(join(dir, path)), { recursive: true }),
+          fs.writeFileString(join(dir, path), text),
+        ),
+      ),
+      dir,
+    ),
   )
 
-/** Creates `sources/<name>` holding `files` (relative path to text) and returns its path. */
-const plant = (name: string, files: Readonly<Record<string, string>>) =>
-  Effect.gen(function* () {
-    const dir = join((yield* Bench).sources, name)
-    yield* Effect.forEach(Object.entries(files), ([path, text]) => writeFile(join(dir, path), text))
-    return dir
-  })
+const symlink = (target: string, link: string) =>
+  Effect.flatMap(FileSystem.FileSystem, (fs) => fs.symlink(target, link))
 
-const plantCube = (name: string) => plant(name, { "qwbe-package.json": cubeManifest(name), "index.ts": "//\n" })
-
-const linkAt = (target: string, link: string) => Effect.flatMap(FileSystem.FileSystem, (fs) => fs.symlink(target, link))
-
-const fifoAt = (path: string) =>
+const mkfifo = (path: string) =>
   Command.exitCode(Command.make("mkfifo", path)).pipe(Effect.filterOrDieMessage((code) => code === 0, "mkfifo failed"))
 
-const sourcesPath = (name: string) => Effect.map(Bench, (bench) => join(bench.sources, name))
-
-const sourcesRoot = Effect.map(Bench, (bench) => bench.sources)
-
 // One row per refusal: the source to plant, and the words the InstallError must carry.
-const ROWS: ReadonlyArray<readonly [label: string, source: Plant, says: string]> = [
-  ["a relative path", Effect.succeed("relative/path/dirplugin"), "is not an absolute path"],
-  ["a missing path", sourcesPath("gone"), "is not an existing directory"],
-  ["a plain file", Effect.map(plant("afile", { "x.ts": "//\n" }), (dir) => join(dir, "x.ts")), "is not a directory"],
+const ROWS: ReadonlyArray<readonly [label: string, plant: Plant, says: string]> = [
+  ["a relative path", () => Effect.succeed("relative/path/dirplugin"), "is not an absolute path"],
+  ["a missing path", (sources) => Effect.succeed(join(sources, "gone")), "is not an existing directory"],
+  [
+    "a plain file",
+    (sources) => Effect.map(writeTree(join(sources, "afile"), { "x.ts": "//\n" }), (dir) => join(dir, "x.ts")),
+    "is not a directory",
+  ],
   [
     "a symlink as the root",
-    Effect.tap(sourcesPath("linkroot"), (link) => Effect.flatMap(plantCube("linktarget"), (dir) => linkAt(dir, link))),
+    (sources) =>
+      Effect.flatMap(writeTree(join(sources, "linktarget"), cube("linktarget")), (dir) =>
+        Effect.as(symlink(dir, join(sources, "linkroot")), join(sources, "linkroot")),
+      ),
     "is a symlink",
   ],
   [
     "a symlink inside the tree",
-    Effect.tap(plantCube("escapeplugin"), (dir) =>
-      Effect.flatMap(sourcesRoot, (out) => linkAt(out, join(dir, "sneaky"))),
-    ),
+    (sources) =>
+      Effect.tap(writeTree(join(sources, "escapeplugin"), cube("escapeplugin")), (dir) =>
+        symlink(sources, join(dir, "sneaky")),
+      ),
     "is a symlink",
   ],
   [
     "a FIFO inside the tree",
-    Effect.tap(plantCube("fifoplugin"), (dir) => fifoAt(join(dir, "pipe"))),
+    (sources) =>
+      Effect.tap(writeTree(join(sources, "fifoplugin"), cube("fifoplugin")), (dir) => mkfifo(join(dir, "pipe"))),
     "is a special file",
   ],
-  ["no manifest", plant("nomanifest", { "index.ts": "//\n" }), "no qwbe-package.json"],
+  ["no manifest", (sources) => writeTree(join(sources, "nomanifest"), { "index.ts": "//\n" }), "no qwbe-package.json"],
   [
     "a manifest naming another package",
-    plant("liarplugin", { "qwbe-package.json": cubeManifest("other") }),
+    (sources) => writeTree(join(sources, "liarplugin"), { "qwbe-package.json": cubeManifest("other") }),
     'declares name "other"',
   ],
   [
     "a manifest promising a missing cube",
-    plant("ghostplugin", { "qwbe-package.json": pluginManifest("ghostplugin", ["ghostcube"]) }),
+    (sources) => writeTree(join(sources, "ghostplugin"), plugin("ghostplugin", ["ghostcube"])),
     "no cubes/ghostcube/ directory",
   ],
   [
     "a cube name already on disk",
-    plant("clashplugin", {
-      "qwbe-package.json": pluginManifest("clashplugin", ["notes"]),
-      "cubes/notes/index.ts": "//\n",
-    }),
+    (sources) =>
+      writeTree(join(sources, "clashplugin"), { ...plugin("clashplugin", ["notes"]), "cubes/notes/index.ts": "//\n" }),
     "cannot share a name",
   ],
 ]
@@ -115,16 +122,18 @@ const refusalFor = (source: string) =>
 const plantEditedShelf = (source: string, shelf: string) =>
   Effect.gen(function* () {
     yield* Effect.flatMap(FileSystem.FileSystem, (fs) => fs.copy(source, shelf))
-    yield* writeFile(join(shelf, "index.ts"), "// edited on the shelf\n")
-    yield* writeFile(join(shelf, PROVENANCE), JSON.stringify({ fingerprint: packageSourceFingerprint(source) }))
+    yield* writeTree(shelf, {
+      "index.ts": "// edited on the shelf\n",
+      [PROVENANCE]: JSON.stringify({ fingerprint: packageSourceFingerprint(source) }),
+    })
   })
 
 layer(Layer.scoped(Bench, loadBench).pipe(Layer.provideMerge(NodeContext.layer)), { excludeTestServices: true })(
   (it) => {
-    for (const [label, plantSource, says] of ROWS) {
+    for (const [label, plant, says] of ROWS) {
       it.effect(`refuses ${label} and leaves the store and plugins as they were`, () =>
         Effect.gen(function* () {
-          const source = yield* plantSource
+          const source = yield* plant((yield* Bench).sources)
           const before = yield* listing
           const refusal = yield* refusalFor(source)
           expect(refusal._tag).toBe("InstallError")
@@ -137,8 +146,9 @@ layer(Layer.scoped(Bench, loadBench).pipe(Layer.provideMerge(NodeContext.layer))
     // The fingerprint of the shelf is recomputed from disk, so the stamp does not vouch for it.
     it.effect("refuses a shelf edited after staging as different content and keeps the edit", () =>
       Effect.gen(function* () {
-        const source = yield* plantCube("shelfpkg")
-        const shelf = join((yield* Bench).store, "shelfpkg")
+        const { sources, store } = yield* Bench
+        const source = yield* writeTree(join(sources, "shelfpkg"), cube("shelfpkg"))
+        const shelf = join(store, "shelfpkg")
         yield* plantEditedShelf(source, shelf)
         expect((yield* refusalFor(source)).message).toContain("different content")
         const kept = yield* Effect.flatMap(FileSystem.FileSystem, (fs) => fs.readFileString(join(shelf, "index.ts")))

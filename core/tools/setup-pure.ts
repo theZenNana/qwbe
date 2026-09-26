@@ -1,5 +1,5 @@
 // 22.18 is the first Node that runs .ts files without a flag; tests and the API rely on it.
-export const REQUIRED = [22, 18, 0] as const
+const REQUIRED = [22, 18, 0] as const
 
 // Each directory has its own package-lock.json; `npm ci` runs in this order.
 export const INSTALL_DIRS = [".", "core", "web"] as const

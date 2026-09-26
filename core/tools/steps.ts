@@ -2,11 +2,13 @@ import type { CommandExecutor } from "@effect/platform/CommandExecutor"
 import type { FileSystem } from "@effect/platform/FileSystem"
 import * as Effect from "effect/Effect"
 import { benchFindings } from "./bench-budget.ts"
-import type { GateSpec, Step } from "./gates.ts"
 import { type Argv, capture, captureLines } from "./process.ts"
 import { commandName } from "./process-pure.ts"
 import { testgate } from "./testgate.ts"
 import { untracked } from "./untracked.ts"
+
+// A step is a command to run, or the tag of a check that runs in this process.
+export type Step = Argv | "testgate" | "untracked" | "secretlint" | "bench"
 
 const commandFindings = (root: string, argv: Argv) =>
   Effect.map(capture(argv, root), ({ status, stdout, stderr }) =>
@@ -47,6 +49,3 @@ export const gateFindings = (root: string, excused: ReadonlyArray<string>, steps
     Effect.forEach(steps, (step) => stepFindings(root, excused, step)),
     (lists) => lists.flat(),
   )
-
-export const gatesAt = (root: string, excused: ReadonlyArray<string>, specs: ReadonlyArray<GateSpec>) =>
-  specs.map(({ name, steps }) => ({ name, findings: gateFindings(root, excused, steps) }))

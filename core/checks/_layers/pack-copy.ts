@@ -15,14 +15,17 @@ export class RenameMissed extends Data.TaggedError("RenameMissed")<{ readonly fi
 
 const BOOKMARKS = join(CORE, "plugins", "example-plugin", "cubes", "booktags", "bookmarks")
 
-const rewriteIndex = (file: string) =>
-  Effect.gen(function* () {
-    const fs = yield* FileSystem.FileSystem
-    const source = yield* fs.readFileString(file)
-    const renamed = renameBookmarks(source)
-    if (renamed === source) return yield* new RenameMissed({ file })
-    yield* fs.writeFileString(file, renamed)
-  })
+/** Pure: the renamed source, or RenameMissed when the rename no longer matches anything. */
+const renamedIndex = (file: string, source: string) => {
+  const renamed = renameBookmarks(source)
+  return renamed === source ? Effect.fail(new RenameMissed({ file })) : Effect.succeed(renamed)
+}
+
+const rewriteIndex = (fs: FileSystem.FileSystem, file: string) =>
+  fs.readFileString(file).pipe(
+    Effect.flatMap((source) => renamedIndex(file, source)),
+    Effect.flatMap((renamed) => fs.writeFileString(file, renamed)),
+  )
 
 /** A `Plant` that copies the pack directory `pack` unchanged into `dir` under its own name. */
 export const copyPack = (pack: string) => (dir: string) =>
@@ -38,6 +41,6 @@ export const plantBookmarksCopy = (dir: string) =>
     const fs = yield* FileSystem.FileSystem
     const cubeDir = join(dir, PKG, "cubes", PKG_CUBE)
     yield* fs.copy(BOOKMARKS, cubeDir)
-    yield* rewriteIndex(join(cubeDir, "index.ts"))
+    yield* rewriteIndex(fs, join(cubeDir, "index.ts"))
     yield* fs.writeFileString(join(dir, PKG, "qwbe-package.json"), JSON.stringify(MANIFEST))
   })

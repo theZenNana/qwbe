@@ -1,11 +1,8 @@
-import * as FetchHttpClient from "@effect/platform/FetchHttpClient"
-import type * as HttpClient from "@effect/platform/HttpClient"
 import * as Effect from "effect/Effect"
-import pg from "pg"
 import { bench, inject } from "vitest"
 import { BENCH } from "../../tools/bench-budget-pure.ts"
-import { call, login } from "../_layers/api-client.ts"
-import { USERS } from "../_layers/boot.ts"
+import { connect, query } from "../_layers/postgres.ts"
+import { benchAdmin, okBody, runHttp } from "./client.ts"
 
 // Replaces the timing half of probes/list.mjs (its correctness half is kernel/list.test.ts): on
 // 60,000 accounts, paging and filtering run in Postgres, so a deep page costs about what the
@@ -34,28 +31,13 @@ const QUERIES: ReadonlyArray<readonly [string, string]> = [
 // One warm-up, then seven timed requests each; the median is what the budget reads.
 const OPTIONS = { iterations: 7, time: 0, warmupIterations: 1, warmupTime: 0 }
 
-const run = <A, E>(effect: Effect.Effect<A, E, HttpClient.HttpClient>) =>
-  Effect.runPromise(Effect.provide(effect, FetchHttpClient.layer))
-
-// A refused request is not a fast answer: anything but 200 fails the bench.
-const listed = (base: string, token: string, query: string) =>
-  call(base, `/account${query}`, { token }).pipe(
-    Effect.filterOrDie(
-      (reply) => reply.status === 200,
-      (reply) => new Error(`GET /account${query} answered ${reply.status}`),
-    ),
-  )
-
-const plant = (url: string) =>
-  Effect.acquireUseRelease(
-    Effect.sync(() => new pg.Pool({ connectionString: url, max: 1 })),
-    (pool) => Effect.promise(() => pool.query(PLANT)),
-    (pool) => Effect.promise(() => pool.end()),
-  )
+const plant = (url: string) => Effect.scoped(Effect.flatMap(connect(url), (client) => query(client, PLANT)))
 
 const { base, url } = inject("benchServer")
-const token = await run(login(base, "admin", USERS.admin))
-await run(listed(base, token, "?pageSize=1")) // the cube creates its table on first use
+const admin = await benchAdmin(base)
+const listed = (search: string) => okBody(admin.get(`/account${search}`), `GET /account${search}`)
+
+await runHttp(listed("?pageSize=1")) // the cube creates its table on first use
 await Effect.runPromise(plant(url))
 
-for (const [name, query] of QUERIES) bench(name, () => run(Effect.asVoid(listed(base, token, query))), OPTIONS)
+for (const [name, search] of QUERIES) bench(name, () => runHttp(Effect.asVoid(listed(search))), OPTIONS)

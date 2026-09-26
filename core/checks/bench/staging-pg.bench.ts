@@ -1,11 +1,9 @@
-import * as FetchHttpClient from "@effect/platform/FetchHttpClient"
-import type * as HttpClient from "@effect/platform/HttpClient"
 import * as Effect from "effect/Effect"
 import * as Schema from "effect/Schema"
 import { bench, inject } from "vitest"
 import { BENCH, STAGING_ROWS } from "../../tools/bench-budget-pure.ts"
-import { type CallOptions, call, login } from "../_layers/api-client.ts"
-import { USERS } from "../_layers/boot.ts"
+import type { Session } from "../_layers/session.ts"
+import { benchAdmin, okBody, runHttp } from "./client.ts"
 
 // Replaces probes/staging-perf.mjs: 100,000 JSONL rows imported through the staging API in
 // chunks of 1,000, then profiled. tools/bench-budget.ts turns the import median into rows per
@@ -32,62 +30,54 @@ const row = (i: number) =>
     note: i % 3 === 0 ? "customer asked for a callback about the open invoice" : "",
   })
 
-const chunkText = (start: number) =>
-  `${Array.from({ length: Math.min(CHUNK, STAGING_ROWS - start) }, (_, k) => row(start + k)).join("\n")}\n`
+/** Pure: how many rows the chunk starting at row `start` holds. */
+const chunkSize = (start: number) => Math.min(CHUNK, STAGING_ROWS - start)
 
-const run = <A, E>(effect: Effect.Effect<A, E, HttpClient.HttpClient>) =>
-  Effect.runPromise(Effect.provide(effect, FetchHttpClient.layer))
+/** Pure: the JSONL text of the chunk starting at row `start`. */
+const chunkText = (start: number) =>
+  `${Array.from({ length: chunkSize(start) }, (_, k) => row(start + k)).join("\n")}\n`
+
+const starts = Array.from({ length: Math.ceil(STAGING_ROWS / CHUNK) }, (_, n) => n * CHUNK)
 
 // Anything but 200 fails the bench; a failed step is never timed as a fast one.
-const ok = (base: string, path: string, options: CallOptions) =>
-  call(base, path, options).pipe(
-    Effect.filterOrDie(
-      (reply) => reply.status === 200,
-      (reply) => new Error(`${options.method ?? "GET"} ${path} answered ${reply.status}`),
-    ),
-    Effect.map((reply) => reply.body),
+const post = (admin: Session, path: string, body?: unknown) => okBody(admin.send("POST", path, body), `POST ${path}`)
+
+const createSet = (admin: Session) =>
+  post(admin, "/staging/sets", { name: "bench", format: "jsonl", sourceFile: "bench.jsonl" }).pipe(
+    Effect.flatMap(Schema.decodeUnknown(Created)),
+    Effect.map(({ id }) => id),
   )
 
-const sendChunk = (base: string, token: string, setId: string, start: number) =>
-  ok(base, `/staging/sets/${setId}/chunks`, {
-    method: "POST",
-    token,
-    body: { text: chunkText(start), startLine: start + 1 },
-  }).pipe(
+const sendChunk = (admin: Session, setId: string, start: number) =>
+  post(admin, `/staging/sets/${setId}/chunks`, { text: chunkText(start), startLine: start + 1 }).pipe(
     Effect.flatMap(Schema.decodeUnknown(Parsed)),
     Effect.filterOrDie(
-      ({ parsed }) => parsed === Math.min(CHUNK, STAGING_ROWS - start),
+      ({ parsed }) => parsed === chunkSize(start),
       ({ parsed }) => new Error(`chunk at line ${start + 1}: ${parsed} rows parsed`),
     ),
   )
 
-const starts = Array.from({ length: Math.ceil(STAGING_ROWS / CHUNK) }, (_, n) => n * CHUNK)
-
 /** Creates a set, sends every chunk in order, finishes it; returns the set id. */
-const importSet = (base: string, token: string) =>
-  ok(base, "/staging/sets", {
-    method: "POST",
-    token,
-    body: { name: "bench", format: "jsonl", sourceFile: "bench.jsonl" },
-  }).pipe(
-    Effect.flatMap(Schema.decodeUnknown(Created)),
-    Effect.map(({ id }) => id),
-    Effect.tap((id) => Effect.forEach(starts, (start) => sendChunk(base, token, id, start), { discard: true })),
-    Effect.tap((id) => ok(base, `/staging/sets/${id}/finish`, { method: "POST", token })),
+const importSet = (admin: Session) =>
+  createSet(admin).pipe(
+    Effect.tap((id) => Effect.forEach(starts, (start) => sendChunk(admin, id, start), { discard: true })),
+    Effect.tap((id) => post(admin, `/staging/sets/${id}/finish`)),
   )
 
-const { base } = inject("benchServer")
-const token = await run(login(base, "admin", USERS.admin))
+const admin = await benchAdmin(inject("benchServer").base)
 // The profile bench reads the set the last import left behind.
 let lastSet = ""
 const remember = (id: string) => {
   lastSet = id
 }
 
-bench(BENCH.stagingImport, () => run(importSet(base, token)).then(remember), OPTIONS)
+bench(BENCH.stagingImport, () => runHttp(importSet(admin)).then(remember), OPTIONS)
 
 bench(
   "staging-pg profile 100k rows",
-  () => run(Effect.asVoid(ok(base, `/staging/sets/${lastSet}/profile`, { token }))),
+  () =>
+    runHttp(
+      Effect.asVoid(okBody(admin.get(`/staging/sets/${lastSet}/profile`), `GET /staging/sets/${lastSet}/profile`)),
+    ),
   OPTIONS,
 )

@@ -1,7 +1,4 @@
-import type { Argv } from "./process.ts"
-
-// A step is a command to run, or the tag of a check that runs in this process.
-export type Step = Argv | "testgate" | "untracked" | "secretlint" | "bench"
+import { gateFindings, type Step } from "./steps.ts"
 
 export type GateSpec = { readonly name: string; readonly steps: ReadonlyArray<Step> }
 
@@ -56,3 +53,7 @@ export const gateList = (live: boolean, bench: boolean): ReadonlyArray<GateSpec>
   ...(live ? [LIVE] : []),
   ...(bench ? [BENCH] : []),
 ]
+
+// Every gate `check` runs, each bound to the repo at `root`; `excused` holds the units allowed to lack tests.
+export const gatesFor = (root: string, excused: ReadonlyArray<string>, live: boolean, bench: boolean) =>
+  gateList(live, bench).map(({ name, steps }) => ({ name, findings: gateFindings(root, excused, steps) }))

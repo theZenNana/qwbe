@@ -1,6 +1,58 @@
-// The reviewed list of published operations, one line each: "METHOD /path|parameters|body|statuses".
-// Explicit on purpose: deriving it from the OpenAPI would let an endpoint vanish from the runtime
-// and the document together without failing the check. Ported from probes/contract-inventory.mjs.
+import type * as OpenApi from "@effect/platform/OpenApi"
+
+type Published = readonly [method: string, path: string, operation: OpenApi.OpenAPISpecOperation]
+
+const METHODS: ReadonlyArray<string> = ["get", "post", "put", "patch", "delete"]
+
+const parameterList = (parameters: ReadonlyArray<OpenApi.OpenAPISpecParameter>): string =>
+  parameters
+    .map((p) => `${p.in}:${p.name}${p.required ? "!" : ""}`)
+    .sort()
+    .join(",") || "-"
+
+const statusList = (statuses: ReadonlyArray<string>): string =>
+  [...statuses].sort((a, b) => Number(a) - Number(b)).join(",")
+
+/** One line of EXPECTED_OPERATIONS: "METHOD /path|parameters|body|statuses". */
+const signature = ([method, path, operation]: Published): string =>
+  [
+    `${method.toUpperCase()} ${path}`,
+    parameterList(operation.parameters),
+    operation.requestBody ? "body" : "-",
+    statusList(Object.keys(operation.responses)),
+  ].join("|")
+
+const operationsOf = (paths: OpenApi.OpenAPISpecPaths): ReadonlyArray<Published> =>
+  Object.entries(paths).flatMap(([path, item]) =>
+    Object.entries(item).flatMap(([method, operation]) =>
+      METHODS.includes(method) ? [[method, path, operation]] : [],
+    ),
+  )
+
+const isLogin = ([method, path]: Published): boolean => method === "post" && path === "/auth/login"
+
+const declaresBearer401 = ([, , operation]: Published): boolean =>
+  "401" in operation.responses && operation.security.some((requirement) => "bearer" in requirement)
+
+/**
+ * Core cubes plus the committed example-plugin; a package installed locally extends the API at
+ * runtime and answers for its own routes.
+ */
+export const isReviewed = (plugin: string | null): boolean => plugin === null || plugin === "example-plugin"
+
+/** The signatures of every operation in `paths`, sorted like EXPECTED_OPERATIONS. */
+export const publishedSignatures = (paths: OpenApi.OpenAPISpecPaths): ReadonlyArray<string> =>
+  operationsOf(paths).map(signature).sort()
+
+/** The signatures of the operations in `paths`, login aside, that lack bearer auth or a 401. */
+export const unguardedSignatures = (paths: OpenApi.OpenAPISpecPaths): ReadonlyArray<string> =>
+  operationsOf(paths)
+    .filter((o) => !isLogin(o) && !declaresBearer401(o))
+    .map(signature)
+
+// The reviewed list of published operations, one signature each. Explicit on purpose: deriving it
+// from the OpenAPI would let an endpoint vanish from the runtime and the document together without
+// failing the check. Ported from probes/contract-inventory.mjs.
 export const EXPECTED_OPERATIONS: ReadonlyArray<string> = [
   "DELETE /permissions/cube-admins/{cube}/{username}|path:cube!,path:username!|-|200,400,401,403,404,409",
   "DELETE /permissions/capabilities/{grantId}|path:grantId!|-|200,400,401,403,404,409",

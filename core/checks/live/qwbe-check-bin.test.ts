@@ -1,4 +1,4 @@
-import { join } from "node:path"
+import { dirname, join } from "node:path"
 import * as FileSystem from "@effect/platform/FileSystem"
 import * as NodeContext from "@effect/platform-node/NodeContext"
 import { expect, layer } from "@effect/vitest"
@@ -43,17 +43,25 @@ process.exit((await cubes.json()).some((cube) => cube.name === "gadgets") ? 0 : 
 
 const RED_PROBE = "process.exit(1)\n"
 
-const packageJson = (name: string) =>
-  JSON.stringify({
-    name,
-    private: true,
-    type: "module",
-    scripts: { test: "qwbe check ." },
-    dependencies: { "qwbe-core": "0.0.0" },
-  })
-
 // dist/ goes along when a build exists: an installed kernel runs the compiled files.
 const KERNEL_FILES = ["bin", "src", "dist", "package.json", "qwbe.config.json"]
+
+/** Pure: every file of a pack named `name` with the gadgets cube and `probe` as its one probe. */
+const packFiles = (name: string, probe: string): ReadonlyArray<readonly [path: string, text: string]> => [
+  ["qwbe-package.json", JSON.stringify({ name, kind: "plugin", cubes: ["gadgets"] })],
+  [
+    "package.json",
+    JSON.stringify({
+      name,
+      private: true,
+      type: "module",
+      scripts: { test: "qwbe check ." },
+      dependencies: { "qwbe-core": "0.0.0" },
+    }),
+  ],
+  ["cubes/gadgets/index.ts", CUBE],
+  ["probes/selfcheck.mjs", probe],
+]
 
 /** The kernel as the npm pack tarball lands it: real directories, node_modules linked to the real one. */
 const installKernel = (pack: string) =>
@@ -67,20 +75,24 @@ const installKernel = (pack: string) =>
     yield* fs.symlink(join(CORE, "node_modules"), join(dest, "node_modules"))
   })
 
-/** A pack with the gadgets cube and `probe` as its one probe, in a scoped temp directory. */
+const writeFiles = (dir: string, files: ReadonlyArray<readonly [path: string, text: string]>) =>
+  Effect.flatMap(FileSystem.FileSystem, (fs) =>
+    Effect.forEach(
+      files,
+      ([path, text]) =>
+        fs
+          .makeDirectory(dirname(join(dir, path)), { recursive: true })
+          .pipe(Effect.zipRight(fs.writeFileString(join(dir, path), text))),
+      { discard: true },
+    ),
+  )
+
+/** The pack in a scoped temp directory, with the kernel installed under its node_modules. */
 const makePack = (name: string, probe: string) =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem
     const pack = join(yield* fs.makeTempDirectoryScoped({ prefix: "qwbe-check-bin-" }), name)
-    yield* fs.makeDirectory(join(pack, "cubes", "gadgets"), { recursive: true })
-    yield* fs.makeDirectory(join(pack, "probes"))
-    yield* fs.writeFileString(
-      join(pack, "qwbe-package.json"),
-      JSON.stringify({ name, kind: "plugin", cubes: ["gadgets"] }),
-    )
-    yield* fs.writeFileString(join(pack, "package.json"), packageJson(name))
-    yield* fs.writeFileString(join(pack, "cubes", "gadgets", "index.ts"), CUBE)
-    yield* fs.writeFileString(join(pack, "probes", "selfcheck.mjs"), probe)
+    yield* writeFiles(pack, packFiles(name, probe))
     yield* installKernel(pack)
     return pack
   })
@@ -92,11 +104,9 @@ const leftSandboxes = Effect.flatMap(FileSystem.FileSystem, (fs) => fs.readDirec
 
 // A timeout kills the bin before its own finally runs, so the test's scope removes the sandboxes
 // this run made; the next test then judges its own run, not this one's leftovers.
-const runCheck = (pack: string) =>
-  Effect.gen(function* () {
-    const fs = yield* FileSystem.FileSystem
-    const before = yield* leftSandboxes
-    yield* Effect.addFinalizer(() =>
+const removeNewSandboxesOnClose = (before: ReadonlyArray<string>) =>
+  Effect.flatMap(FileSystem.FileSystem, (fs) =>
+    Effect.addFinalizer(() =>
       leftSandboxes.pipe(
         Effect.flatMap((after) =>
           Effect.forEach(
@@ -106,9 +116,13 @@ const runCheck = (pack: string) =>
         ),
         Effect.orDie,
       ),
-    )
-    return yield* capture([process.execPath, BIN, "check", pack], CORE).pipe(Effect.timeout("150 seconds"))
-  })
+    ),
+  )
+
+const runCheck = (pack: string) =>
+  Effect.flatMap(leftSandboxes, removeNewSandboxesOnClose).pipe(
+    Effect.zipRight(capture([process.execPath, BIN, "check", pack], CORE).pipe(Effect.timeout("150 seconds"))),
+  )
 
 layer(NodeContext.layer, { timeout: 180_000, excludeTestServices: true })((it) => {
   it.scoped("a clean pack passes all four stages with exit 0", () =>

@@ -1,11 +1,9 @@
 // Entry point: `node core/tools/e2e.ts [playwright args]`. Builds the web app against the API port
 // qwbe.spec.mjs starts (baked in at build time), then runs playwright; the first failure stops it.
 import { fileURLToPath } from "node:url"
-import * as NodeContext from "@effect/platform-node/NodeContext"
-import * as NodeRuntime from "@effect/platform-node/NodeRuntime"
-import * as Console from "effect/Console"
 import * as Effect from "effect/Effect"
 import { inheritOk } from "./process.ts"
+import { runTool } from "./run-tool.ts"
 
 const E2E_API = "http://127.0.0.1:4520"
 
@@ -16,10 +14,4 @@ const playwright = (root: string, args: ReadonlyArray<string>) =>
 
 const root = fileURLToPath(new URL("../..", import.meta.url))
 
-Effect.all([buildWeb(root), playwright(root, process.argv.slice(2))], { discard: true }).pipe(
-  Effect.tapError((error) => Console.error(`e2e: ${error.message}`)),
-  Effect.isFailure,
-  Effect.tap((failed) => Effect.sync(() => (process.exitCode = failed ? 1 : 0))),
-  Effect.provide(NodeContext.layer),
-  NodeRuntime.runMain,
-)
+runTool(Effect.as(Effect.all([buildWeb(root), playwright(root, process.argv.slice(2))]), 0), "e2e: ")

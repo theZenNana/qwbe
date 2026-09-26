@@ -7,7 +7,7 @@ import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import type { Ledger, LedgerSnapshot } from "../../src/kernel/ledger.ts"
 import type { Manifest } from "../../src/kernel/manifest.ts"
-import { tempDirectoryAs } from "./temp-env.ts"
+import { importUnderTempDirs } from "./temp-env.ts"
 
 // A package claiming the core "auth" schema as its own history: the migration the ledger stops.
 // The ownership check runs before any schema is renamed (boot-storage.ts), so its refusal is
@@ -27,13 +27,21 @@ const EVIL_CLAIM = [
   },
 ]
 
-// ledger.ts reads QWBE_DATA_DIR at import, so it loads after the variable points at a temp dir.
+// ledger.ts reads QWBE_DATA_DIR at import; the kernel comes with plain file access to its ledger.
 const loadKernel = Effect.gen(function* () {
-  const dataDir = yield* tempDirectoryAs("QWBE_DATA_DIR")
   delete process.env.QWBE_LEGACY_MIGRATIONS
-  const ledger = yield* Effect.promise(() => import("../../src/kernel/ledger.ts"))
-  const ownership = yield* Effect.promise(() => import("../../src/kernel/migrate-ownership.ts"))
-  return { ...ledger, ...ownership, ledgerFile: join(dataDir, "provenance.json") }
+  const { dirs, kernel } = yield* importUnderTempDirs(["QWBE_DATA_DIR"], () =>
+    Promise.all([import("../../src/kernel/ledger.ts"), import("../../src/kernel/migrate-ownership.ts")]),
+  )
+  const fs = yield* FileSystem.FileSystem
+  const ledgerFile = join(dirs.QWBE_DATA_DIR, "provenance.json")
+  return {
+    ...kernel[0],
+    ...kernel[1],
+    writeLedgerFile: (text: string) => fs.writeFileString(ledgerFile, text),
+    removeLedgerFile: fs.remove(ledgerFile, { force: true }),
+    readLedgerFile: fs.readFileString(ledgerFile),
+  }
 })
 
 class Kernel extends Context.Tag("checks/unit/LedgerKernel")<Kernel, Effect.Effect.Success<typeof loadKernel>>() {}
@@ -49,22 +57,11 @@ const claimRefusal = (ledger: Ledger) =>
     Effect.flip(Effect.tryPromise({ try: () => checkMigrationOwnership(EVIL_CLAIM, ledger), catch: (e) => e })),
   )
 
-const writeLedgerFile = (text: string) =>
-  Effect.flatMap(Effect.all([FileSystem.FileSystem, Kernel]), ([fs, k]) => fs.writeFileString(k.ledgerFile, text))
-
-const removeLedgerFile = Effect.flatMap(Effect.all([FileSystem.FileSystem, Kernel]), ([fs, k]) =>
-  fs.remove(k.ledgerFile, { force: true }),
-)
-
-const readLedgerFile = Effect.flatMap(Effect.all([FileSystem.FileSystem, Kernel]), ([fs, k]) =>
-  fs.readFileString(k.ledgerFile),
-)
-
 layer(Layer.scoped(Kernel, loadKernel).pipe(Layer.provideMerge(NodeContext.layer)), { excludeTestServices: true })(
   (it) => {
     it.effect("an absent ledger records nothing, so the claim on auth is refused", () =>
       Effect.gen(function* () {
-        const { readLedger, MigrationOwnershipError } = yield* Kernel
+        const { readLedger, removeLedgerFile, MigrationOwnershipError } = yield* Kernel
         yield* removeLedgerFile
         const snapshot = readLedger()
         expect(snapshot).toEqual({ state: "absent" })
@@ -80,7 +77,7 @@ layer(Layer.scoped(Kernel, loadKernel).pipe(Layer.provideMerge(NodeContext.layer
     ] as const) {
       it.effect(`a ${label} ledger stops the read and stays byte for byte`, () =>
         Effect.gen(function* () {
-          const { readLedger, LedgerCorruptError } = yield* Kernel
+          const { readLedger, writeLedgerFile, readLedgerFile, LedgerCorruptError } = yield* Kernel
           yield* writeLedgerFile(text)
           const refusal = yield* thrownBy(readLedger)
           expect(refusal).toBeInstanceOf(LedgerCorruptError)
@@ -92,7 +89,8 @@ layer(Layer.scoped(Kernel, loadKernel).pipe(Layer.provideMerge(NodeContext.layer
 
     it.effect("a ledger rewritten after the snapshot is refused and restored, and the claim still fails", () =>
       Effect.gen(function* () {
-        const { readLedger, verifyLedgerUnchanged, LedgerTamperedError, MigrationOwnershipError } = yield* Kernel
+        const { readLedger, writeLedgerFile, verifyLedgerUnchanged, LedgerTamperedError, MigrationOwnershipError } =
+          yield* Kernel
         yield* writeLedgerFile(JSON.stringify({ auth: null }))
         const snapshot = readLedger()
         yield* writeLedgerFile(JSON.stringify({ auth: "evil-plugin" }))

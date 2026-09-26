@@ -1,6 +1,6 @@
 import * as HttpClient from "@effect/platform/HttpClient"
 import * as HttpClientRequest from "@effect/platform/HttpClientRequest"
-import * as HttpClientResponse from "@effect/platform/HttpClientResponse"
+import type * as HttpClientResponse from "@effect/platform/HttpClientResponse"
 import * as Effect from "effect/Effect"
 import * as Schema from "effect/Schema"
 
@@ -48,12 +48,13 @@ export const call = (base: string, path: string, options: CallOptions = {}) =>
     Effect.orDie,
   )
 
+const isOk = (status: number): boolean => status >= 200 && status < 300
+
 /** Logs in and returns the session token; a refused login or a malformed reply fails the test. */
 export const login = (base: string, username: string, password: string) =>
-  HttpClient.execute(request(`${base}/auth/login`, { method: "POST", body: { username, password } })).pipe(
-    Effect.flatMap(HttpClientResponse.filterStatusOk),
-    Effect.flatMap(HttpClientResponse.schemaBodyJson(Session)),
+  call(base, "/auth/login", { method: "POST", body: { username, password } }).pipe(
+    Effect.filterOrDieMessage(({ status }) => isOk(status), `login of ${username} refused`),
+    Effect.flatMap(({ body }) => Schema.decodeUnknown(Session)(body)),
     Effect.map(({ token }) => token),
-    Effect.timeout("10 seconds"),
     Effect.orDie,
   )

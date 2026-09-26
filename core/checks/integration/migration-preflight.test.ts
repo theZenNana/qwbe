@@ -3,8 +3,9 @@ import { expect, layer } from "@effect/vitest"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import { MigrationConflictError, migrateDataSchemas } from "../../src/kernel/migrate.ts"
-import { closeAll, getPool, initStore } from "../../src/pg/db.ts"
+import { getPool } from "../../src/pg/db.ts"
 import { q, schemaExists, schemaName } from "../../src/pg/setup.ts"
+import { kernelStore } from "../_layers/postgres.ts"
 import { TestDb, testDb } from "../_layers/test-db.ts"
 
 // Replaces the database half of probes/booktags-migration.mjs: preflight checks the whole batch
@@ -17,19 +18,12 @@ const TAG = randomBytes(4).toString("hex")
 const flat = (name: string) => `${name}-${TAG}`
 const nested = (cube: string) => `booktags/${cube}`
 
-const openStore = (url: string) =>
-  Effect.promise(() => {
-    process.env.QWBE_DATABASE_URL = url
-    return initStore()
-  })
+const store = Layer.scopedDiscard(Effect.flatMap(TestDb, ({ url }) => kernelStore(url))).pipe(
+  Layer.provide(testDb("migration")),
+)
 
-/** The kernel store on the throwaway database: env first, the pool reads it lazily. */
-const store = Layer.scopedDiscard(
-  TestDb.pipe(Effect.flatMap(({ url }) => Effect.acquireRelease(openStore(url), () => Effect.promise(closeAll)))),
-).pipe(Layer.provide(testDb("migration")))
-
-const rowsOf = <Row extends object>(text: string) =>
-  Effect.promise(() => getPool().query<Row>(text)).pipe(Effect.map((result) => result.rows))
+const rowsOf = <Row extends object>(text: string, values: ReadonlyArray<unknown> = []) =>
+  Effect.promise(() => getPool().query<Row>(text, [...values])).pipe(Effect.map((result) => result.rows))
 
 /** A pre-ledger cube schema holding table `table` with the one row `row-1`, as a legacy install left it. */
 const plant = (schema: string, table: string) =>
@@ -55,9 +49,9 @@ const idsIn = (cube: string, table: string) =>
 
 /** Outbox entries a rename wrote for `cube`: one per moved table, so a repeated rename would show. */
 const outboxEntries = (cube: string) =>
-  Effect.promise(() =>
-    getPool().query<{ n: number }>(`SELECT count(*)::int AS n FROM qwbe.outbox WHERE cube = $1`, [cube]),
-  ).pipe(Effect.map((result) => result.rows[0]?.n))
+  rowsOf<{ n: number }>(`SELECT count(*)::int AS n FROM qwbe.outbox WHERE cube = $1`, [cube]).pipe(
+    Effect.map((rows) => rows[0]?.n),
+  )
 
 layer(store, { timeout: 60_000, excludeTestServices: true })("data migration preflight", (it) => {
   it.effect("a conflict on the second migration refuses the batch before the first rename", () =>

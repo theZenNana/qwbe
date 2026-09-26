@@ -68,6 +68,13 @@ const ready = (base: string, proc: CommandExecutor.Process, output: Ref.Ref<stri
     Effect.catchTag("TimeoutException", () => failWith(output)),
   )
 
+/** Starts core/src/main.ts with `env`; the scope stops it on close. */
+const spawn = (env: ReturnType<typeof serverEnv>) =>
+  Effect.tap(
+    Command.start(Command.make(process.execPath, "src/main.ts").pipe(Command.workingDirectory(CORE), Command.env(env))),
+    (proc) => Effect.addFinalizer(() => stop(proc)),
+  )
+
 /**
  * Boots core/src/main.ts over the workspace on a free port and returns its base URL once it
  * answers. The process lives as long as the calling scope. Needs the real clock
@@ -77,11 +84,7 @@ export const boot = (extra: Readonly<Record<string, string>> = {}) =>
   Effect.gen(function* () {
     const port = yield* freePort
     const base = `http://127.0.0.1:${port}`
-    const env = serverEnv(port, yield* Workspace, extra)
-    const proc = yield* Command.start(
-      Command.make(process.execPath, "src/main.ts").pipe(Command.workingDirectory(CORE), Command.env(env)),
-    )
-    yield* Effect.addFinalizer(() => stop(proc))
+    const proc = yield* spawn(serverEnv(port, yield* Workspace, extra))
     yield* ready(base, proc, yield* collectOutput(proc))
     return base
   })

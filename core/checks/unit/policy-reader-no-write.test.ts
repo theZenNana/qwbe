@@ -4,10 +4,8 @@ import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import type { CubeDefinition } from "../../src/cube-contract.ts"
-import type { CommandRunner, CubeTools } from "../../src/kernel/manifest.ts"
-import { tempDirectoryAs } from "./temp-env.ts"
-
-type Entry = { readonly name: string; readonly plugin: string | null; readonly definition: CubeDefinition }
+import type { CommandRunner } from "../../src/kernel/manifest.ts"
+import { mountCubes } from "./temp-env.ts"
 
 // Reviewed exceptions to "a reader never writes"; a new one fails until it is added here with a reason.
 const READER_WRITES = [
@@ -17,34 +15,29 @@ const READER_WRITES = [
 
 const PROTOTYPE_NAMES = ["toString", "__proto__", "constructor", "hasOwnProperty", "valueOf"]
 
-/** The same cube, with a `create` that hands the dispatcher it receives to `keep` first. */
-const capturingCreate = (entry: Entry, keep: (runner: CommandRunner | undefined) => void): Entry => ({
-  ...entry,
-  definition: {
-    ...entry.definition,
-    create: (tools: CubeTools) => {
-      keep(tools.runCommands)
-      return entry.definition.create(tools)
-    },
-  },
-})
+/** The same `create`, handing the dispatcher it receives to `keep` first. */
+const capturingCreate =
+  (create: CubeDefinition["create"], keep: (runner: CommandRunner | undefined) => void): CubeDefinition["create"] =>
+  (tools) => {
+    keep(tools.runCommands)
+    return create(tools)
+  }
 
 const readerWrites = (permissions: ReadonlyMap<string, ReadonlyArray<string>>): ReadonlyArray<string> =>
   [...permissions].filter(([name, roles]) => name.endsWith(":write") && roles.includes("reader")).map(([name]) => name)
 
-// Every cube on disk, mounted without a database. The kernel reads QWBE_DATA_DIR at import and
-// mount may write switches.json. The dispatcher never leaves mount except through the `create`
-// of the one cube that runs commands (cli), so that `create` is wrapped to keep it.
+// Every cube on disk. The dispatcher never leaves mount except through the `create` of the one
+// cube that runs commands (cli), so every `create` is wrapped to keep the first one it receives.
 const mountKernel = Effect.gen(function* () {
-  yield* tempDirectoryAs("QWBE_DATA_DIR")
-  const { loadDefinitions, mount } = yield* Effect.promise(() => import("../../src/kernel/discovery.ts"))
-  const { loadSpaces } = yield* Effect.promise(() => import("../../src/kernel/space.ts"))
-  let runner: CommandRunner | undefined
-  const keep = (received: CommandRunner | undefined) => {
-    runner ??= received
-  }
-  const definitions = (yield* Effect.promise(loadDefinitions)).map((entry) => capturingCreate(entry, keep))
-  const system = mount(definitions, yield* Effect.promise(loadSpaces))
+  const received: Array<CommandRunner> = []
+  const keep = (runner: CommandRunner | undefined) => runner && received.push(runner)
+  const system = yield* mountCubes((definitions) =>
+    definitions.map((entry) => ({
+      ...entry,
+      definition: { ...entry.definition, create: capturingCreate(entry.definition.create, keep) },
+    })),
+  )
+  const [runner] = received
   if (runner === undefined) return yield* Effect.dieMessage("no mounted cube received the command dispatcher")
   return { runner, permissions: system.permissions }
 })

@@ -9,14 +9,21 @@ import { TestServer, testServer, USERS } from "../_layers/test-server.ts"
 const LISTED = ["http://localhost:3000", "https://crm.example.test"] as const
 const STRANGER = "https://evil.example.test"
 
-const preflight = (base: string, origin: string) =>
-  call(base, "/notes", { method: "OPTIONS", headers: { origin, "access-control-request-method": "GET" } })
+const ALLOW_ORIGIN = "access-control-allow-origin"
 
-const actual = (base: string, origin: string) =>
-  call(base, "/auth/login", { method: "POST", headers: { origin }, body: { username: "admin", password: USERS.admin } })
+/** The allow-origin header a preflight from `origin` gets back. */
+const preflightAllows = (base: string, origin: string) =>
+  call(base, "/notes", { method: "OPTIONS", headers: { origin, "access-control-request-method": "GET" } }).pipe(
+    Effect.map((reply) => reply.headers[ALLOW_ORIGIN]),
+  )
 
-const allowOrigin = (reply: { readonly headers: Readonly<Record<string, string>> }) =>
-  reply.headers["access-control-allow-origin"]
+/** The allow-origin header an actual request (a login) from `origin` gets back. */
+const requestAllows = (base: string, origin: string) =>
+  call(base, "/auth/login", {
+    method: "POST",
+    headers: { origin },
+    body: { username: "admin", password: USERS.admin },
+  }).pipe(Effect.map((reply) => reply.headers[ALLOW_ORIGIN]))
 
 const SERVER = { timeout: 60_000, excludeTestServices: true } as const
 
@@ -25,8 +32,8 @@ layer(testServer("cors", { QWBE_ALLOWED_ORIGINS: LISTED.join(",") }), SERVER)("a
     Effect.gen(function* () {
       const { base } = yield* TestServer
       for (const origin of LISTED) {
-        expect(allowOrigin(yield* preflight(base, origin))).toBe(origin)
-        expect(allowOrigin(yield* actual(base, origin))).toBe(origin)
+        expect(yield* preflightAllows(base, origin)).toBe(origin)
+        expect(yield* requestAllows(base, origin)).toBe(origin)
       }
     }),
   )
@@ -34,8 +41,8 @@ layer(testServer("cors", { QWBE_ALLOWED_ORIGINS: LISTED.join(",") }), SERVER)("a
   it.effect("sends no allow header to an unlisted origin", () =>
     Effect.gen(function* () {
       const { base } = yield* TestServer
-      expect(allowOrigin(yield* preflight(base, STRANGER))).toBeUndefined()
-      expect(allowOrigin(yield* actual(base, STRANGER))).toBeUndefined()
+      expect(yield* preflightAllows(base, STRANGER)).toBeUndefined()
+      expect(yield* requestAllows(base, STRANGER)).toBeUndefined()
     }),
   )
 
@@ -53,8 +60,8 @@ layer(testServer("cors1", { QWBE_ALLOWED_ORIGINS: LISTED[0] }), SERVER)("a singl
   it.effect("echoes the listed origin and refuses a stranger", () =>
     Effect.gen(function* () {
       const { base } = yield* TestServer
-      expect(allowOrigin(yield* preflight(base, LISTED[0]))).toBe(LISTED[0])
-      expect(allowOrigin(yield* preflight(base, STRANGER))).toBeUndefined()
+      expect(yield* preflightAllows(base, LISTED[0])).toBe(LISTED[0])
+      expect(yield* preflightAllows(base, STRANGER)).toBeUndefined()
     }),
   )
 })

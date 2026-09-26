@@ -9,12 +9,12 @@ import { BenchReport, mediansOf, overBudget, renderMedians } from "./bench-budge
 import { readConfig } from "./config.ts"
 import { capture, GateFailed } from "./process.ts"
 
-const benchArgv = (outputJson: string) =>
-  ["npx", "vitest", "bench", "--run", "--config", "vitest.bench.config.ts", "--outputJson", outputJson] as const
-
 // A red run (a server that did not boot, a bench that threw) has no medians worth reading.
 const runBenches = (core: string, outputJson: string) =>
-  capture(benchArgv(outputJson), core).pipe(
+  capture(
+    ["npx", "vitest", "bench", "--run", "--config", "vitest.bench.config.ts", "--outputJson", outputJson],
+    core,
+  ).pipe(
     Effect.filterOrFail(
       ({ status }) => status === 0,
       ({ status, stdout, stderr }) =>
@@ -27,14 +27,15 @@ const readReport = (file: string) =>
     Effect.flatMap(Schema.decodeUnknown(Schema.parseJson(BenchReport))),
   )
 
+// The report file lives in a temp directory removed when the scope closes.
 const benchMedians = (core: string) =>
   Effect.scoped(
-    Effect.flatMap(FileSystem.FileSystem, (fs) => fs.makeTempDirectoryScoped({ prefix: "qwbe-bench-" })).pipe(
-      Effect.map((dir) => join(dir, "bench.json")),
-      Effect.tap((file) => runBenches(core, file)),
-      Effect.flatMap(readReport),
-      Effect.map(mediansOf),
-    ),
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem
+      const file = join(yield* fs.makeTempDirectoryScoped({ prefix: "qwbe-bench-" }), "bench.json")
+      yield* runBenches(core, file)
+      return mediansOf(yield* readReport(file))
+    }),
   )
 
 /** The budgets are read first, so a broken qwbe.yaml fails before minutes of benchmarks. */

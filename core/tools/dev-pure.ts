@@ -55,27 +55,27 @@ export const serviceSpecs = (
   env: Env,
   node: string,
   windows: boolean,
-): Readonly<Record<ServiceName, ServiceSpec>> => ({
-  api: {
-    argv: [node, "src/main.ts"],
-    cwd: `${root}core`,
-    env: { ...withoutAllowScripts(env), QWBE_PORT: String(ports.api) },
-    shell: false,
-    restartOnClean: true,
-    color: 36,
-  },
-  web: {
-    argv: ["npm", "run", "dev", "--", "-p", String(ports.web)],
-    cwd: `${root}web`,
-    env: {
-      ...withoutAllowScripts(env),
-      NEXT_PUBLIC_QWBE_API: env.NEXT_PUBLIC_QWBE_API ?? `http://127.0.0.1:${ports.api}`,
+): Readonly<Record<ServiceName, ServiceSpec>> => {
+  const childEnv = withoutAllowScripts(env)
+  return {
+    api: {
+      argv: [node, "src/main.ts"],
+      cwd: `${root}core`,
+      env: { ...childEnv, QWBE_PORT: String(ports.api) },
+      shell: false,
+      restartOnClean: true,
+      color: 36,
     },
-    shell: windows,
-    restartOnClean: false,
-    color: 35,
-  },
-})
+    web: {
+      argv: ["npm", "run", "dev", "--", "-p", String(ports.web)],
+      cwd: `${root}web`,
+      env: { ...childEnv, NEXT_PUBLIC_QWBE_API: env.NEXT_PUBLIC_QWBE_API ?? `http://127.0.0.1:${ports.api}` },
+      shell: windows,
+      restartOnClean: false,
+      color: 35,
+    },
+  }
+}
 
 const exitedMessage = (code: number) => `exited (code ${code}), stopping the rest`
 

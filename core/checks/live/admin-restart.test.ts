@@ -9,9 +9,9 @@ import * as Effect from "effect/Effect"
 import * as Option from "effect/Option"
 import * as Ref from "effect/Ref"
 import * as Schedule from "effect/Schedule"
-import { call, login } from "../_layers/api-client.ts"
-import { collectOutput, serverEnv, stop, USERS } from "../_layers/boot.ts"
+import { collectOutput, serverEnv, stop } from "../_layers/boot.ts"
 import { freePort } from "../_layers/free-port.ts"
+import { sessionAs } from "../_layers/session.ts"
 import { testWorkspace } from "../_layers/test-server.ts"
 import { CORE, Workspace } from "../_layers/workspace.ts"
 
@@ -25,6 +25,8 @@ const WEB = join(ROOT, "web")
 
 // Next dev with its own distDir rewrites these; they are put back as they were.
 const GENERATED = ["next-env.d.ts", "tsconfig.json", "AGENTS.md", "CLAUDE.md"].map((name) => join(WEB, name))
+
+const local = (port: number) => `http://127.0.0.1:${port}`
 
 // Listening means an answer: 401 counts, the API spec sits behind authentication.
 const answers = (url: string) =>
@@ -66,6 +68,9 @@ const removedOnClose = (dir: string) =>
     Effect.addFinalizer(() => fs.remove(dir, { recursive: true, force: true }).pipe(Effect.ignore)),
   )
 
+/** The web tree as it was before the run: generated files restored, the check's distDir removed. */
+const guardWebTree = (distDir: string) => Effect.zipRight(preserved(GENERATED), removedOnClose(join(WEB, distDir)))
+
 // Registered after the snapshot, so its SIGTERM runs first and Next is gone before the restore.
 const startDev = (env: Readonly<Record<string, string | undefined>>) =>
   Effect.gen(function* () {
@@ -79,10 +84,21 @@ const startDev = (env: Readonly<Record<string, string | undefined>>) =>
     return proc
   })
 
-const restartAndWatch = (api: string, web: string, proc: CommandExecutor.Process) =>
+const bothStarted = (api: string, web: string) =>
+  Effect.zipRight(
+    until(answers(`${api}/openapi.json`), "60 seconds", "the API starts"),
+    until(answers(web), "120 seconds", "the web frontend starts"),
+  )
+
+const requestRestart = (api: string) =>
   Effect.gen(function* () {
-    const token = yield* login(api, "admin", USERS.admin)
-    expect((yield* call(api, "/settings/restart", { method: "POST", token })).status).toBe(200)
+    const admin = yield* sessionAs(api, "admin")
+    expect((yield* admin.send("POST", "/settings/restart")).status).toBe(200)
+  })
+
+/** The API goes down and comes back; the supervisor and the web frontend never do. */
+const watchRecovery = (api: string, web: string, proc: CommandExecutor.Process) =>
+  Effect.gen(function* () {
     yield* until(
       Effect.map(answers(`${api}/openapi.json`), (up) => !up),
       "10 seconds",
@@ -93,19 +109,21 @@ const restartAndWatch = (api: string, web: string, proc: CommandExecutor.Process
     expect([yield* proc.isRunning, yield* answers(web)]).toEqual([true, true])
   })
 
+const printTail = (output: Ref.Ref<string>) =>
+  Effect.flatMap(Ref.get(output), (text) => Console.error(text.slice(-2000)))
+
 const program = Effect.gen(function* () {
   const [apiPort, webPort] = [yield* freePort, yield* freePort]
   const distDir = `.next-check-${webPort}`
-  yield* preserved(GENERATED)
-  yield* removedOnClose(join(WEB, distDir))
+  yield* guardWebTree(distDir)
   const env = serverEnv(apiPort, yield* Workspace, { QWBE_WEB_PORT: String(webPort), QWBE_WEB_DIST_DIR: distDir })
   const proc = yield* startDev(env)
   const output = yield* collectOutput(proc)
-  const [api, web] = [`http://127.0.0.1:${apiPort}`, `http://127.0.0.1:${webPort}`]
-  yield* until(answers(`${api}/openapi.json`), "60 seconds", "the API starts").pipe(
-    Effect.zipRight(until(answers(web), "120 seconds", "the web frontend starts")),
-    Effect.zipRight(restartAndWatch(api, web, proc)),
-    Effect.tapError(() => Effect.flatMap(Ref.get(output), (text) => Console.error(text.slice(-2000)))),
+  const [api, web] = [local(apiPort), local(webPort)]
+  yield* bothStarted(api, web).pipe(
+    Effect.zipRight(requestRestart(api)),
+    Effect.zipRight(watchRecovery(api, web, proc)),
+    Effect.tapError(() => printTail(output)),
   )
 })
 

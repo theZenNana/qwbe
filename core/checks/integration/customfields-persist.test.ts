@@ -2,10 +2,9 @@ import { join } from "node:path"
 import { expect, layer } from "@effect/vitest"
 import * as Effect from "effect/Effect"
 import * as Schedule from "effect/Schedule"
-import { call, login } from "../_layers/api-client.ts"
-import { boot } from "../_layers/boot.ts"
 import { copyPack } from "../_layers/pack-copy.ts"
-import { testWorkspace, USERS } from "../_layers/test-server.ts"
+import { bootedAsAdmin, type Session } from "../_layers/session.ts"
+import { testWorkspace } from "../_layers/test-server.ts"
 import { CORE, Workspace } from "../_layers/workspace.ts"
 
 // Replaces probes/customfields.mjs, customfields-walk.mjs and customfields-orphan.mjs. Values live
@@ -26,57 +25,51 @@ interface Field {
   readonly custom?: boolean
 }
 
-/** One server over the workspace for the length of `use`, with an admin session on it. */
-const withAdmin = <A, E, R>(use: (base: string, token: string) => Effect.Effect<A, E, R>) =>
-  Effect.scoped(
-    Effect.gen(function* () {
-      const base = yield* boot()
-      return yield* use(base, yield* login(base, "admin", USERS.admin))
-    }),
-  )
-
-const post = (base: string, token: string, path: string, body: unknown) =>
-  call(base, path, { method: "POST", token, body })
-
-const readRow = (base: string, token: string, id: string) =>
-  Effect.map(call(base, `/${CUBE}/${id}`, { token }), (reply) => reply.body as Row)
+const readRow = (admin: Session, id: string) => Effect.map(admin.get(`/${CUBE}/${id}`), (reply) => reply.body as Row)
 
 // The rebuilt runtime may publish the definitions a moment after it answers: bounded retry.
-const publishedField = (base: string, token: string, name: string) =>
-  call(base, `/catalog/${CUBE}/metadata`, { token }).pipe(
+const publishedField = (admin: Session, name: string) =>
+  admin.get(`/catalog/${CUBE}/metadata`).pipe(
     Effect.map((reply) => (reply.body as { fields?: ReadonlyArray<Field> }).fields?.find((f) => f.name === name)),
     Effect.filterOrFail((field): field is Field => field !== undefined),
     Effect.retry(Schedule.intersect(Schedule.spaced("300 millis"), Schedule.recurs(10))),
     Effect.orDie,
   )
 
-const firstBoot = withAdmin((base, token) =>
+/** Defines FIELD and writes one entry carrying it; returns both ids. */
+const defineAndWrite = (admin: Session) =>
   Effect.gen(function* () {
-    const definition = yield* post(base, token, "/customfields", FIELD)
+    const definition = yield* admin.send("POST", "/customfields", FIELD)
     expect(definition.status).toBe(200)
-    const entry = yield* post(base, token, `/${CUBE}`, { name: "Check Entry", cnp: "123456789" })
+    const entry = yield* admin.send("POST", `/${CUBE}`, { name: "Check Entry", cnp: "123456789" })
     expect(entry.status).toBe(200)
     const id = (entry.body as Row).id
-    expect(yield* readRow(base, token, id)).toMatchObject({ name: "Check Entry", custom: { cnp: "123456789" } })
-    const refused = yield* post(base, token, "/customfields", { ...FIELD, targetCube: "nowhere/nothing" })
+    expect(yield* readRow(admin, id)).toMatchObject({ name: "Check Entry", custom: { cnp: "123456789" } })
+    return { id, definitionId: (definition.body as Row).id }
+  })
+
+const refuseUnknownTarget = (admin: Session) =>
+  Effect.gen(function* () {
+    const refused = yield* admin.send("POST", "/customfields", { ...FIELD, targetCube: "nowhere/nothing" })
     expect(refused.status).toBe(400)
     expect((refused.body as { message: string }).message).toContain("nowhere/nothing")
-    return { id, definitionId: (definition.body as Row).id }
-  }),
-)
+  })
 
+const firstBoot = bootedAsAdmin((admin) => Effect.tap(defineAndWrite(admin), () => refuseUnknownTarget(admin)))
+
+/** The value is still there, the field is published again; removing it leaves the value as an orphan. */
 const afterRebuild = (id: string, definitionId: string) =>
-  withAdmin((base, token) =>
+  bootedAsAdmin((admin) =>
     Effect.gen(function* () {
-      expect((yield* readRow(base, token, id)).custom).toMatchObject({ cnp: "123456789" })
-      expect((yield* publishedField(base, token, "cnp")).custom).toBe(true)
-      const removed = yield* call(base, `/customfields/${definitionId}`, { method: "DELETE", token })
+      expect((yield* readRow(admin, id)).custom).toMatchObject({ cnp: "123456789" })
+      expect((yield* publishedField(admin, "cnp")).custom).toBe(true)
+      const removed = yield* admin.send("DELETE", `/customfields/${definitionId}`)
       expect(removed.body).toEqual({ removed: `${CUBE}.cnp` })
-      const orphans = yield* call(base, `/customfields/orphans?cube=${CUBE}`, { token })
+      const orphans = yield* admin.get(`/customfields/orphans?cube=${CUBE}`)
       expect((orphans.body as { orphans: ReadonlyArray<unknown> }).orphans).toContainEqual(
         expect.objectContaining({ name: "cnp", rowId: id, value: "123456789" }),
       )
-      expect((yield* readRow(base, token, id)).custom).toMatchObject({ cnp: "123456789" })
+      expect((yield* readRow(admin, id)).custom).toMatchObject({ cnp: "123456789" })
     }),
   )
 

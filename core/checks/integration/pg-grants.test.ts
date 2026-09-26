@@ -3,9 +3,9 @@ import { expect, layer } from "@effect/vitest"
 import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
-import pg from "pg"
-import { closeAll, initStore } from "../../src/pg/db.ts"
+import type pg from "pg"
 import { ensureCubeSchema, ensureTable, q, roleName } from "../../src/pg/setup.ts"
+import { connect, kernelStore, query } from "../_layers/postgres.ts"
 import { TestDb, testDb } from "../_layers/test-db.ts"
 
 // Replaces probes/store-isolation.mjs: nothing in our code checks that one cube cannot read
@@ -23,18 +23,7 @@ const ROLE_B = roleName(CUBE_B)
 const APP = `qwbe_grants_app_${TAG}`
 const PASSWORD = randomBytes(12).toString("hex")
 
-const connect = (url: string) =>
-  Effect.acquireRelease(
-    Effect.promise(async () => {
-      const client = new pg.Client({ connectionString: url })
-      await client.connect()
-      return client
-    }),
-    (client) => Effect.promise(() => client.end()),
-  )
-
-const query = (client: pg.Client, text: string) => Effect.promise(() => client.query(text))
-
+/** Pure: `url` with its credentials replaced by `user` and `password`. */
 const loginUrl = (url: string, user: string, password: string) => {
   const login = new URL(url)
   login.username = user
@@ -43,15 +32,12 @@ const loginUrl = (url: string, user: string, password: string) => {
 }
 
 /** Two cubes with one table each, through the store's own setup: the grants under test. */
-const createCubes = (url: string) =>
-  Effect.promise(async () => {
-    process.env.QWBE_DATABASE_URL = url
-    await initStore()
-    await ensureCubeSchema(CUBE_A)
-    await ensureCubeSchema(CUBE_B)
-    await ensureTable(CUBE_A, "secrets")
-    await ensureTable(CUBE_B, "notes")
-  })
+const createCubes = Effect.promise(async () => {
+  await ensureCubeSchema(CUBE_A)
+  await ensureCubeSchema(CUBE_B)
+  await ensureTable(CUBE_A, "secrets")
+  await ensureTable(CUBE_B, "notes")
+})
 
 const createAppLogin = (admin: pg.Client) =>
   query(admin, `CREATE ROLE ${q(APP)} LOGIN PASSWORD '${PASSWORD}' IN ROLE ${q(ROLE_A)}, ${q(ROLE_B)}`)
@@ -68,23 +54,22 @@ const dropTaggedRoles = (admin: pg.Client) =>
     yield* query(admin, `DROP ROLE ${roles}`)
   })
 
-const tagged = (admin: pg.Client, url: string) =>
-  Effect.acquireRelease(createCubes(url).pipe(Effect.zipRight(createAppLogin(admin))), () =>
-    Effect.promise(closeAll).pipe(Effect.zipRight(dropTaggedRoles(admin))),
-  )
-
 /** One session per login shape; both end before the finalizer drops the roles. */
 class Sessions extends Context.Tag("Sessions")<
   Sessions,
   { readonly superuser: pg.Client; readonly app: pg.Client }
 >() {}
 
+// Finalizers run in reverse: the app session ends, the kernel store closes, then the roles go.
 const sessions = Layer.scoped(
   Sessions,
   Effect.gen(function* () {
     const { url } = yield* TestDb
     const superuser = yield* connect(url)
-    yield* tagged(superuser, url)
+    yield* Effect.addFinalizer(() => dropTaggedRoles(superuser))
+    yield* kernelStore(url)
+    yield* createCubes
+    yield* createAppLogin(superuser)
     const app = yield* connect(loginUrl(url, APP, PASSWORD))
     return { superuser, app }
   }),
