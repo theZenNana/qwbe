@@ -26,6 +26,8 @@
     "typecheck:web": "node scripts/typecheck-web.mjs",
     "check": "node core/tools/check.ts",
     "check:strict": "node core/tools/check.ts --strict",
+    "check:live": "node core/tools/check.ts --live",
+    "check:bench": "node core/tools/check.ts --bench",
     "check:old": "node scripts/check.mjs",
     "probe:smoke": "node probes/smoke.mjs",
     "probe:staging": "node probes/staging.mjs && node probes/staging-life.mjs && node probes/staging-proofs.mjs && node probes/staging-perf.mjs",

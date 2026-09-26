@@ -1,17 +1,15 @@
+import * as Effect from "effect/Effect"
 import * as Schema from "effect/Schema"
 
-// No argument, or `--strict`; anything else is refused before a gate runs.
-const StrictFlag = Schema.transform(
-  Schema.Union(Schema.Tuple(), Schema.Tuple(Schema.Literal("--strict"))),
-  Schema.Boolean,
-  {
-    strict: true,
-    decode: (args) => args.length === 1,
-    encode: (strict) => (strict ? (["--strict"] as const) : ([] as const)),
-  },
-)
+// Any of `--strict`, `--live`, `--bench`; anything else is refused before a gate runs.
+const Flags = Schema.Array(Schema.Literal("--strict", "--live", "--bench"))
 
-export const strictFrom = Schema.decodeUnknown(StrictFlag)
+export const flagsFrom = (argv: ReadonlyArray<string>) =>
+  Effect.map(Schema.decodeUnknown(Flags)(argv), (flags) => ({
+    strict: flags.includes("--strict"),
+    live: flags.includes("--live"),
+    bench: flags.includes("--bench"),
+  }))
 
 // Strict excuses nothing: the `untested` list in qwbe.yaml stops counting.
 export const excused = (strict: boolean, untested: ReadonlyArray<string>) => (strict ? [] : untested)

@@ -1,7 +1,8 @@
 import type { CommandExecutor } from "@effect/platform/CommandExecutor"
 import type { FileSystem } from "@effect/platform/FileSystem"
 import * as Effect from "effect/Effect"
-import { GATES, type Step } from "./gates.ts"
+import { benchFindings } from "./bench-budget.ts"
+import type { GateSpec, Step } from "./gates.ts"
 import { type Argv, capture, captureLines } from "./process.ts"
 import { testgate } from "./testgate.ts"
 import { untracked } from "./untracked.ts"
@@ -32,6 +33,8 @@ const stepFindings = (
       return Effect.map(untracked(root), named("mounts but is not in git"))
     case "secretlint":
       return secretlintTracked(root)
+    case "bench":
+      return benchFindings(root)
     default:
       return commandFindings(root, step)
   }
@@ -44,5 +47,5 @@ export const gateFindings = (root: string, excused: ReadonlyArray<string>, steps
     (lists) => lists.flat(),
   )
 
-export const gatesAt = (root: string, excused: ReadonlyArray<string>) =>
-  GATES.map(({ name, steps }) => ({ name, findings: gateFindings(root, excused, steps) }))
+export const gatesAt = (root: string, excused: ReadonlyArray<string>, specs: ReadonlyArray<GateSpec>) =>
+  specs.map(({ name, steps }) => ({ name, findings: gateFindings(root, excused, steps) }))

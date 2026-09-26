@@ -1,7 +1,7 @@
 import type { Argv } from "./process.ts"
 
 // A step is a command to run, or the tag of a check that runs in this process.
-export type Step = Argv | "testgate" | "untracked" | "secretlint"
+export type Step = Argv | "testgate" | "untracked" | "secretlint" | "bench"
 
 export type GateSpec = { readonly name: string; readonly steps: ReadonlyArray<Step> }
 
@@ -44,4 +44,15 @@ export const GATES: ReadonlyArray<GateSpec> = [
       ["npm", "--prefix", "web", "audit"],
     ],
   },
+]
+
+// Opt-in gates, after the list above: `--live` boots real servers, `--bench` runs minutes of
+// benchmarks against the budgets in qwbe.yaml. Plain `check` runs neither.
+const LIVE: GateSpec = { name: "live", steps: [["npm", "--prefix", "core", "run", "test:live"]] }
+const BENCH: GateSpec = { name: "bench", steps: ["bench"] }
+
+export const gateList = (live: boolean, bench: boolean): ReadonlyArray<GateSpec> => [
+  ...GATES,
+  ...(live ? [LIVE] : []),
+  ...(bench ? [BENCH] : []),
 ]

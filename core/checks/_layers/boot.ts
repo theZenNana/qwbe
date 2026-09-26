@@ -1,6 +1,7 @@
 import * as Command from "@effect/platform/Command"
 import type * as CommandExecutor from "@effect/platform/CommandExecutor"
 import * as Data from "effect/Data"
+import type * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
 import * as Ref from "effect/Ref"
 import * as Schedule from "effect/Schedule"
@@ -17,7 +18,7 @@ export class ServerDidNotStart extends Data.TaggedError("ServerDidNotStart")<{ r
 
 export const USERS = { admin: "admin", reader: "reader" } as const
 
-const serverEnv = (port: number, dirs: Workspace["Type"], extra: Readonly<Record<string, string>>) => ({
+export const serverEnv = (port: number, dirs: Workspace["Type"], extra: Readonly<Record<string, string>>) => ({
   ...withoutAllowScripts(process.env),
   QWBE_PORT: String(port),
   QWBE_DATABASE_URL: dirs.url,
@@ -39,7 +40,7 @@ const answering = (base: string) =>
   )
 
 // stdout and stderr drain for the whole life of the process, so a chatty server never stalls.
-const collectOutput = (proc: CommandExecutor.Process) =>
+export const collectOutput = (proc: CommandExecutor.Process) =>
   Effect.gen(function* () {
     const output = yield* Ref.make("")
     yield* Stream.merge(proc.stdout, proc.stderr).pipe(
@@ -53,10 +54,10 @@ const collectOutput = (proc: CommandExecutor.Process) =>
 const failWith = (output: Ref.Ref<string>) =>
   Effect.flatMap(Ref.get(output), (text) => Effect.fail(new ServerDidNotStart({ output: text })))
 
-// SIGTERM, then SIGKILL after 5 s: the executor's own release waits for exit without a bound.
-const stop = (proc: CommandExecutor.Process) =>
+// SIGTERM, then SIGKILL after `grace`: the executor's own release waits for exit without a bound.
+export const stop = (proc: CommandExecutor.Process, grace: Duration.DurationInput = "5 seconds") =>
   proc.kill("SIGTERM").pipe(
-    Effect.timeout("5 seconds"),
+    Effect.timeout(grace),
     Effect.catchAll(() => proc.kill("SIGKILL")),
     Effect.ignore,
   )

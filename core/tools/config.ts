@@ -13,11 +13,20 @@ export class ConfigInvalid extends Data.TaggedError("ConfigInvalid")<{
 
 export const Port = Schema.Int.pipe(Schema.between(1, 65535))
 
+const Positive = Schema.Number.pipe(Schema.positive())
+
+// Blocking budgets for `check --bench`, held against the benchmark medians by bench-budget.ts.
+export const BenchBudgets = Schema.Struct({
+  list60k: Schema.Struct({ deepPageFloorMs: Positive, deepPageFactor: Positive, anyAnswerMs: Positive }),
+  stagingImport: Schema.Struct({ minRowsPerSecond: Positive }),
+})
+
 export const QwbeConfig = Schema.Struct({
   version: Schema.Literal(1),
   dev: Schema.Struct({ api: Port, web: Port }),
   // Units allowed to lack tests today; a work queue, ignored by `check --strict`.
   untested: Schema.Array(Schema.String),
+  bench: BenchBudgets,
 })
 
 export type QwbeConfig = typeof QwbeConfig.Type

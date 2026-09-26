@@ -4,7 +4,11 @@ import { expect, it } from "@effect/vitest"
 import * as Effect from "effect/Effect"
 import { readConfig } from "./config.ts"
 
-const valid = "version: 1\ndev:\n  api: 4500\n  web: 4510\nuntested: []\n"
+const bench = {
+  list60k: { deepPageFloorMs: 250, deepPageFactor: 4, anyAnswerMs: 1000 },
+  stagingImport: { minRowsPerSecond: 1 },
+}
+const valid = `version: 1\ndev:\n  api: 4500\n  web: 4510\nuntested: []\nbench: ${JSON.stringify(bench)}\n`
 
 const readYamlText = (text: string) =>
   Effect.gen(function* () {
@@ -19,7 +23,15 @@ const failureOf = (text: string) => Effect.flip(readYamlText(text)).pipe(Effect.
 it.layer(NodeContext.layer)("readConfig", (it) => {
   it.scoped("decodes a valid file", () =>
     Effect.gen(function* () {
-      expect(yield* readYamlText(valid)).toEqual({ version: 1, dev: { api: 4500, web: 4510 }, untested: [] })
+      expect(yield* readYamlText(valid)).toEqual({ version: 1, dev: { api: 4500, web: 4510 }, untested: [], bench })
+    }),
+  )
+
+  it.scoped("refuses a budget that is not a positive number", () =>
+    Effect.gen(function* () {
+      expect(yield* failureOf(valid.replace('"minRowsPerSecond":1', '"minRowsPerSecond":0'))).toMatch(
+        /bench\.stagingImport\.minRowsPerSecond: .*value 0/,
+      )
     }),
   )
 

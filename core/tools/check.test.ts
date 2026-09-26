@@ -2,6 +2,8 @@ import * as FileSystem from "@effect/platform/FileSystem"
 import * as NodeContext from "@effect/platform-node/NodeContext"
 import { expect, it } from "@effect/vitest"
 import * as Effect from "effect/Effect"
+import { flagsFrom } from "./args.ts"
+import { GATES, gateList } from "./gates.ts"
 import { capture } from "./process.ts"
 import { exitCodeFor, runGates } from "./run-gates.ts"
 import { gateFindings } from "./steps.ts"
@@ -37,6 +39,18 @@ it.layer(NodeContext.layer)("runGates", (it) => {
     Effect.gen(function* () {
       const failed = yield* runGates([{ name: "empty", findings: Effect.succeed([]) }])
       expect(exitCodeFor(failed)).toBe(0)
+    }),
+  )
+
+  it.effect("--live and --bench each append one gate; plain check keeps the list unchanged", () =>
+    Effect.gen(function* () {
+      const flags = yield* flagsFrom(["--bench", "--live"])
+      expect(gateList(false, false)).toEqual(GATES)
+      expect(gateList(flags.live, flags.bench).map(({ name }) => name)).toEqual([
+        ...GATES.map(({ name }) => name),
+        "live",
+        "bench",
+      ])
     }),
   )
 

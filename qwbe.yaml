@@ -5,3 +5,9 @@ dev:
   web: 4510
 untested:
   - core/plugins/example-plugin/cubes/bookmarks
+# Blocking budgets for `check --bench`, held against the medians by core/tools/bench-budget.ts.
+# list60k: the thresholds of probes/list.mjs (page 300 under max(250 ms, 4 x page 1), every answer
+# under 1 s). stagingImport: a third of the ~22,600 rows/s the reference run of ec4dd4c measured.
+bench:
+  list60k: { deepPageFloorMs: 250, deepPageFactor: 4, anyAnswerMs: 1000 }
+  stagingImport: { minRowsPerSecond: 7500 }
