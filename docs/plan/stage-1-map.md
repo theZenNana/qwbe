@@ -325,3 +325,10 @@ command result from 2026-09-26.
 18. **`dev.ts` splits** into `dev-ports.ts` (ports: read from `qwbe.yaml`, check free) and `dev.ts`
     (process supervision: start, prefix, restart on exit 0, stop on scope close), so each stays
     small enough for the Jev rule.
+19. **`setup` bootstraps through `core/tools/bootstrap.mjs`** (stdlib, 17 lines). If
+    `core/node_modules/effect` is missing it runs `npm ci --no-audit --no-fund` in `core` with
+    `npm_config_allow_scripts` dropped in any case, then runs `node tools/setup.ts`. No root
+    `effect` dependency and no lockfile change. Cost: on a fresh clone `core` installs twice, and
+    `setup.ts` reinstalls `core` while running from it (modules are already loaded). Node older than
+    22.18 cannot load `setup.ts`, so its version message shows only under `--experimental-strip-types`
+    on 22.6-22.17. The old tool stays as `npm run setup:old`.

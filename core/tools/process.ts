@@ -36,6 +36,15 @@ const drain = (child: CommandExecutor.Process) =>
 export const capture = (argv: Argv, cwd: string) =>
   Effect.scoped(Effect.flatMap(Command.start(commandFor(argv, cwd)), drain))
 
+// The child writes straight to this terminal; only its exit status comes back.
+export const inherit = (argv: Argv, cwd: string) =>
+  commandFor(argv, cwd).pipe(
+    Command.stdout("inherit"),
+    Command.stderr("inherit"),
+    Command.exitCode,
+    Effect.flatMap(Schema.decodeUnknown(ExitStatus)),
+  )
+
 export const captureLines = (argv: Argv, cwd: string) =>
   capture(argv, cwd).pipe(
     Effect.filterOrFail(

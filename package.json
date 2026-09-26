@@ -6,7 +6,8 @@
   "type": "module",
   "description": "Qwbe -- kernel that discovers cubes from disk. One cube = one directory; installing it touches no existing file.",
   "scripts": {
-    "setup": "node scripts/setup.mjs",
+    "setup": "node core/tools/bootstrap.mjs",
+    "setup:old": "node scripts/setup.mjs",
     "prepare": "husky",
     "ascii": "node scripts/check-ascii.mjs",
     "branch": "node scripts/check-branch.mjs",
