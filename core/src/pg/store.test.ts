@@ -42,7 +42,7 @@ describe("CubeStore over Postgres", () => {
       deleted: boolean
     }
     const b = await Effect_run(store.insert("items", "item", "itm", { name: "b" }))
-    assert.match(a.id as string, /^itm-[0-9a-f]{8}$/)
+    assert.match(a.id as string, /^itm-[0-9a-f]{24}$/)
     assert.equal(a.type, "item")
     assert.equal(a.deleted, false)
     assert.equal(await Effect_run(store.byId<{ name: string }>("items", a.id as string)).then((r) => r?.name), "a")

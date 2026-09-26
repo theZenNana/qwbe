@@ -7,8 +7,12 @@ import type { ListWhere } from "../kernel/pagination.ts"
 import { CustomCapError } from "./errors.ts"
 import { q } from "./setup.ts"
 
-/** Ids are random, not sequential -- see the comment this replaces from the SQLite store. */
-export const newId = (prefix: string) => `${prefix}-${randomBytes(4).toString("hex")}`
+/**
+ * Ids are random, not sequential -- see the comment this replaces from the SQLite store.
+ * 12 bytes (96 bits): 4 bytes collided with ~47% odds in one 74k-row CRM import, and an
+ * insert has no retry on a duplicate primary key.
+ */
+export const newId = (prefix: string) => `${prefix}-${randomBytes(12).toString("hex")}`
 
 export const decode = (row: Record<string, unknown>): Record<string, unknown> => ({
   id: row.id,
