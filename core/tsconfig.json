@@ -41,6 +41,6 @@
     "resolveJsonModule": true,
     "types": ["node"]
   },
-  "include": ["src/**/*.ts", "plugins/**/*.ts", "store/**/*.ts", "tools/**/*.ts", "vitest.config.ts"],
+  "include": ["src/**/*.ts", "plugins/**/*.ts", "store/**/*.ts", "tools/**/*.ts", "checks/**/*.ts", "vitest.config.ts"],
   "exclude": ["node_modules"]
 }
