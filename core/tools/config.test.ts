@@ -5,7 +5,9 @@ import * as Effect from "effect/Effect"
 import * as Either from "effect/Either"
 import { loadConfig } from "./config.ts"
 
-const valid = "version: 1\ndev:\n  api: 4500\n  web: 4510\nuntested: []\n"
+const BENCH =
+  "bench:\n  list60k: { deepPageFloorMs: 250, deepPageFactor: 4, anyAnswerMs: 1000 }\n  stagingImport: { minRowsPerSecond: 1000 }\n"
+const valid = `version: 1\ndev:\n  api: 4500\n  web: 4510\nuntested: []\n${BENCH}`
 it.layer(NodeContext.layer)((it) => {
   for (const [name, text, detail] of [
     ["unknown key", `${valid}surprise: true\n`, "surprise"],
@@ -34,7 +36,11 @@ it.layer(NodeContext.layer)((it) => {
       const fs = yield* FileSystem.FileSystem
       const dir = yield* fs.makeTempDirectoryScoped()
       yield* fs.writeFileString(`${dir}/qwbe.yaml`, valid)
-      expect(yield* loadConfig(`${dir}/qwbe.yaml`)).toEqual({ version: 1, dev: { api: 4500, web: 4510 }, untested: [] })
+      expect(yield* loadConfig(`${dir}/qwbe.yaml`)).toMatchObject({
+        version: 1,
+        dev: { api: 4500, web: 4510 },
+        untested: [],
+      })
     }),
   )
 })

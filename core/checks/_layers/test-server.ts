@@ -12,7 +12,13 @@ export { ServerDidNotStart, USERS } from "./boot.ts"
 /** The real server (core/src/main.ts) on a free port, with its own database and directories. */
 export class TestServer extends Context.Tag("TestServer")<
   TestServer,
-  { readonly base: string; readonly pluginsDir: string; readonly storeDir: string; readonly dataDir: string }
+  {
+    readonly base: string
+    readonly url: string
+    readonly pluginsDir: string
+    readonly storeDir: string
+    readonly dataDir: string
+  }
 >() {}
 
 export interface ServerOptions {
@@ -32,7 +38,7 @@ const server = (options: ServerOptions) =>
     const dirs = yield* Workspace
     yield* copyPacks(options.packs ?? [], dirs.pluginsDir)
     const base = yield* boot(options.env)
-    return { base, pluginsDir: dirs.pluginsDir, storeDir: dirs.storeDir, dataDir: dirs.dataDir }
+    return { base, url: dirs.url, pluginsDir: dirs.pluginsDir, storeDir: dirs.storeDir, dataDir: dirs.dataDir }
   })
 
 /**

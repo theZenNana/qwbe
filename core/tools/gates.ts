@@ -41,3 +41,15 @@ export const gateList = (
     ),
   },
 ]
+
+/** The benchmarks, slow on purpose: only `check --bench` adds this gate. */
+export const benchGate = (root: string): Gate<NodeContext.NodeContext> => ({
+  name: "bench",
+  problems: commands(root, [
+    "node",
+    "core/node_modules/vitest/vitest.mjs",
+    "run",
+    "--config",
+    "core/vitest.bench.config.ts",
+  ]),
+})

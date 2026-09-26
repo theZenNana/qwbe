@@ -16,6 +16,15 @@ export const Config = Schema.Struct({
   version: Schema.Literal(1),
   dev: Schema.Struct({ api: port, web: port }),
   untested: Schema.Array(Schema.NonEmptyString),
+  // Budgets for `check --bench`, set from the median of reference runs.
+  bench: Schema.Struct({
+    list60k: Schema.Struct({
+      deepPageFloorMs: Schema.Positive,
+      deepPageFactor: Schema.Positive,
+      anyAnswerMs: Schema.Positive,
+    }),
+    stagingImport: Schema.Struct({ minRowsPerSecond: Schema.Positive }),
+  }),
 })
 
 /** A duplicate key, an unknown key or a wrong value in `text` is a ConfigInvalid naming `file`. */

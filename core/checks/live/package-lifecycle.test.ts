@@ -1,11 +1,11 @@
 import * as NodeContext from "@effect/platform-node/NodeContext"
 import { expect, layer } from "@effect/vitest"
-import * as Console from "effect/Console"
 import * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import { call, login } from "../_layers/api-client.ts"
 import { boot, USERS } from "../_layers/boot.ts"
+import { benchLine } from "../_layers/measure.ts"
 import { PKG, PKG_CUBE, plantPackage } from "../_layers/pack-copy.ts"
 import { Workspace, workspace } from "../_layers/workspace.ts"
 
@@ -25,7 +25,7 @@ const booted = <A, E, R>(label: string, step: (base: string, token: string) => E
   Effect.scoped(
     Effect.gen(function* () {
       const [elapsed, base] = yield* Effect.timed(boot())
-      yield* Console.log(`bench package-lifecycle ${label}: ready in ${Math.round(Duration.toMillis(elapsed))} ms`)
+      yield* benchLine(`package-lifecycle ${label}: ready in ${Math.round(Duration.toMillis(elapsed))} ms`)
       return yield* step(base, yield* login(base, "admin", USERS.admin))
     }),
   )

@@ -6,3 +6,8 @@ dev:
 # a new unit without tests fails `check`; `check --strict` ignores this list.
 untested:
   - core/plugins/example-plugin/cubes/bookmarks
+# Budgets for `check --bench`. list60k starts from the thresholds probes/list.mjs used;
+# stagingImport: the reference run on 2026-09-26 imported 22685 rows/s; the floor is a third of it.
+bench:
+  list60k: { deepPageFloorMs: 250, deepPageFactor: 4, anyAnswerMs: 1000 }
+  stagingImport: { minRowsPerSecond: 7500 }

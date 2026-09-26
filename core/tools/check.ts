@@ -4,14 +4,15 @@ import * as NodeRuntime from "@effect/platform-node/NodeRuntime"
 import * as Effect from "effect/Effect"
 import { loadConfig } from "./config.ts"
 import { runGates } from "./gate.ts"
-import { gateList } from "./gates.ts"
+import { benchGate, gateList } from "./gates.ts"
 
 const root = resolve(import.meta.dirname, "../..")
 const strict = process.argv.includes("--strict")
+const bench = process.argv.includes("--bench")
 
 // Entry point: load qwbe.yaml, run every gate, turn any red gate into exit code 1.
 const main = loadConfig(join(root, "qwbe.yaml")).pipe(
-  Effect.map((config) => gateList(root, strict ? [] : config.untested)),
+  Effect.map((config) => [...gateList(root, strict ? [] : config.untested), ...(bench ? [benchGate(root)] : [])]),
   Effect.flatMap(runGates),
   Effect.tap((red) => Effect.sync(() => (process.exitCode = red.length > 0 ? 1 : 0))),
 )

@@ -17,7 +17,8 @@ export const USERS = { admin: "admin", reader: "reader" } as const
 
 // Listening means /openapi.json answers: 401 counts, the spec sits behind authentication.
 const answering = (base: string) =>
-  Effect.tryPromise(() => fetch(`${base}/openapi.json`)).pipe(
+  Effect.tryPromise((signal) => fetch(`${base}/openapi.json`, { signal })).pipe(
+    Effect.timeout("2 seconds"),
     Effect.filterOrFail((response) => response.status === 200 || response.status === 401),
     Effect.retry(Schedule.spaced("250 millis").pipe(Schedule.intersect(Schedule.recurs(119)))),
   )

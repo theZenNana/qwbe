@@ -11,7 +11,15 @@ export const testDb = (label: string) =>
   Layer.scoped(
     TestDb,
     Effect.acquireRelease(
-      Effect.promise(() => createTestDatabase(label)),
+      // Bounded: a Postgres out of connections must fail this layer before vitest kills the worker,
+      // or the finalizers that stop servers and drop databases never run.
+      Effect.promise(() => createTestDatabase(label)).pipe(
+        Effect.timeoutFail({
+          duration: "20 seconds",
+          onTimeout: () => new Error(`creating the test database "${label}" took over 20 s`),
+        }),
+        Effect.orDie,
+      ),
       (db) => Effect.promise(() => db.drop()),
     ).pipe(Effect.map((db) => ({ url: db.url }))),
   )
