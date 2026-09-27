@@ -196,7 +196,7 @@ export const cube = defineCube(group, {
             // The spawning lives in the kernel, borrowed through `installer` -- a cube may not
             // touch `node:child_process`, and this was the repository's last such violation.
             installer.restart()
-            return { restarting: true, message: "API repornește — revino în câteva secunde." }
+            return { restarting: true, message: "API is restarting -- check back in a few seconds." }
           }),
       },
     }

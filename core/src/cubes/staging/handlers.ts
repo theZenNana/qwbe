@@ -91,7 +91,7 @@ export const stagingHandlers = (tools: CubeTools, batched: BatchStore) => {
           // still surfaces as a defect -- the caller sees the 500, the set sees the state.
           yield* batched
             .batch(applied.statements)
-            .pipe(Effect.tapError(() => store.update(TABLES.sets, set.id, { state: "failed" })))
+            .pipe(Effect.tapErrorCause(() => store.update(TABLES.sets, set.id, { state: "failed" })))
           return { parsed: applied.parsed, malformed: applied.malformed }
         }),
 

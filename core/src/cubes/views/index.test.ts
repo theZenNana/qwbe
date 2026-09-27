@@ -6,6 +6,7 @@
 // that are the cube's own code: the config trust boundary and the published routes.
 
 import assert from "node:assert/strict"
+import { HttpApi, OpenApi } from "@effect/platform"
 import { describe, it } from "vitest"
 import { deriveCubeMetadata } from "../../metadata/metadata.ts"
 import { cube } from "./index.ts"
@@ -98,5 +99,14 @@ describe("view config -- the trust boundary", () => {
     rejects(() => encodeTargetCube(""), /targetCube/)
     rejects(() => encodeTargetCube("crm/organizations extra"), /targetCube/)
     assert.equal(encodeTargetCube("crm/organizations"), "crm/organizations")
+  })
+})
+
+describe("views OpenAPI -- the config trust boundary is published", () => {
+  // HttpApi always publishes a 400 for payload decoding; the config check's BadRequest must be in it too.
+  it("lists BadRequest under 400 on create and update", () => {
+    const spec = OpenApi.fromApi(HttpApi.make("views").add(cube.create(tools).group as never))
+    assert.match(JSON.stringify(spec.paths["/views"]?.post?.responses["400"]), /BadRequest/)
+    assert.match(JSON.stringify(spec.paths["/views/{id}"]?.patch?.responses["400"]), /BadRequest/)
   })
 })

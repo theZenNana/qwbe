@@ -84,7 +84,7 @@ export const cube = defineCube(group, {
       const adminPassword = readAdminPassword() || randomBytes(24).toString("base64url")
       yield* store.insert(TABLE, ENTITY, "acc", {
         username: "admin",
-        passwordHash: hashPassword(adminPassword),
+        passwordHash: yield* hashPassword(adminPassword),
         displayName: "Administrator",
         email: "",
         roles: ["admin"],
@@ -96,7 +96,7 @@ export const cube = defineCube(group, {
       if (readerPassword) {
         yield* store.insert(TABLE, ENTITY, "acc", {
           username: "reader",
-          passwordHash: hashPassword(readerPassword),
+          passwordHash: yield* hashPassword(readerPassword),
           displayName: "Read Only",
           email: "",
           roles: ["reader"],
@@ -113,13 +113,13 @@ export const cube = defineCube(group, {
             yield* seed
             const rows = yield* store.all<AccountRow>(TABLE)
             const found = rows.find((a) => a.username === username)
-            const expected = found?.passwordHash ?? hashPassword(randomBytes(24).toString("base64url"))
+            const expected = found?.passwordHash ?? (yield* hashPassword(randomBytes(24).toString("base64url")))
             const legacy = /^[a-f0-9]{64}$/.test(expected)
             const matches = legacy
               ? constantTimeEquals(legacyHash(password), expected)
-              : verifyPassword(password, expected)
+              : yield* verifyPassword(password, expected)
             if (!found || !matches) return undefined
-            if (legacy) yield* store.update(TABLE, found.id, { passwordHash: hashPassword(password) })
+            if (legacy) yield* store.update(TABLE, found.id, { passwordHash: yield* hashPassword(password) })
             return { id: found.id, username: found.username, roles: found.roles ?? [] }
           }),
       },
@@ -172,7 +172,7 @@ export const cube = defineCube(group, {
             const { password, ...rest } = payload
             const a = (yield* store.insert(TABLE, ENTITY, "acc", {
               ...rest,
-              passwordHash: hashPassword(password),
+              passwordHash: yield* hashPassword(password),
             })) as AccountRow
             yield* bus.publish("account.created", { id: a.id, title: a.username })
             return publicShape(a)

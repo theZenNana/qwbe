@@ -31,7 +31,7 @@ import { Effect, Schema } from "effect"
 import { Authorization, CurrentUser, requirePermission } from "qwbe-core/auth"
 import { type CubeTools, defineCube } from "qwbe-core/cube"
 import { EntityMeta } from "qwbe-core/entity"
-import { Forbidden, NotFound } from "qwbe-core/errors"
+import { BadRequest, Forbidden, NotFound } from "qwbe-core/errors"
 import { PageOf } from "qwbe-core/http"
 import { PageParams, pageRequest } from "qwbe-core/pagination"
 import { encodeTargetCube, encodeViewConfig, encodeViewName } from "./view-config.ts"
@@ -91,11 +91,18 @@ const group = HttpApiGroup.make("views")
       .addError(NotFound)
       .addError(Forbidden),
   )
-  .add(HttpApiEndpoint.post("create")`/views`.setPayload(ViewCreate).addSuccess(SavedView).addError(Forbidden))
+  .add(
+    HttpApiEndpoint.post("create")`/views`
+      .setPayload(ViewCreate)
+      .addSuccess(SavedView)
+      .addError(BadRequest)
+      .addError(Forbidden),
+  )
   .add(
     HttpApiEndpoint.patch("update")`/views/${HttpApiSchema.param("id", Schema.String)}`
       .setPayload(ViewPatch)
       .addSuccess(SavedView)
+      .addError(BadRequest)
       .addError(NotFound)
       .addError(Forbidden),
   )
