@@ -121,7 +121,6 @@ module.exports = {
           "\\.test\\.ts$",
           // Permanent (audit section 4): none today; no permanent exception imports these modules.
           // To migrate (audit E4/E8/E2), delete the entry when the file moves to @effect/platform.
-          "^src/pg/db\\.ts$",
         ],
       },
       to: { path: "^(node:)?(fs|fs/promises|child_process)$" },

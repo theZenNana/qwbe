@@ -3,8 +3,8 @@
 
 import assert from "node:assert/strict"
 import { HttpServerRequest, HttpServerResponse } from "@effect/platform"
+import { describe, it } from "@effect/vitest"
 import { Effect, Logger, Option } from "effect"
-import { describe, it } from "vitest"
 
 import { logRefusals, refusalLine, tokenHandle } from "./refusal-log.ts"
 
@@ -67,11 +67,11 @@ describe("the refusal log", () => {
     assert.ok(!line.includes("leak"), line)
   })
 
-  it("writes one line when the app refuses, and none when it does not", async () => {
-    const run = async (response: HttpServerResponse.HttpServerResponse) => {
-      const lines: Array<string> = []
-      await Effect.runPromise(
-        logRefusals(Effect.succeed(response)).pipe(
+  it.effect("writes one line when the app refuses, and none when it does not", () =>
+    Effect.gen(function* () {
+      const run = (response: HttpServerResponse.HttpServerResponse) => {
+        const lines: Array<string> = []
+        return logRefusals(Effect.succeed(response)).pipe(
           Effect.provideService(HttpServerRequest.HttpServerRequest, request({ authorization: "Bearer tok" })),
           Effect.provide(
             Logger.replace(
@@ -79,13 +79,13 @@ describe("the refusal log", () => {
               Logger.make(({ message }) => lines.push(String(message))),
             ),
           ),
-        ) as Effect.Effect<HttpServerResponse.HttpServerResponse, never, never>,
-      )
-      return lines
-    }
-    const refused = await run(HttpServerResponse.unsafeJson({ message: "unknown token" }, { status: 401 }))
-    assert.equal(refused.length, 1)
-    assert.match(refused[0] ?? "", /auth-refused status=401 .*reason="unknown token"/)
-    assert.deepEqual(await run(HttpServerResponse.unsafeJson({ ok: true })), [])
-  })
+          Effect.as(lines),
+        )
+      }
+      const refused = yield* run(HttpServerResponse.unsafeJson({ message: "unknown token" }, { status: 401 }))
+      assert.equal(refused.length, 1)
+      assert.match(refused[0] ?? "", /auth-refused status=401 .*reason="unknown token"/)
+      assert.deepEqual(yield* run(HttpServerResponse.unsafeJson({ ok: true })), [])
+    }),
+  )
 })

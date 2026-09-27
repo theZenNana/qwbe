@@ -1,7 +1,8 @@
 import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
 import pg from "pg"
-import { closeAll, initStore } from "../../src/pg/db.ts"
+import { closeAll, initStoreWith } from "../../src/pg/db.ts"
+import { testConfigLayer } from "../../src/test-config.ts"
 
 export class PostgresFailed extends Data.TaggedError("PostgresFailed")<{ readonly cause: unknown }> {
   override get message() {
@@ -28,18 +29,9 @@ export const connect = (url: string) =>
 export const query = (client: pg.Client, text: string) =>
   Effect.tryPromise({ try: () => client.query(text), catch: failed })
 
-// ponytail: the pool reads QWBE_DATABASE_URL from the environment when it is built, so the url
-// still goes through process.env; an initStore(url) in src/pg/db.ts removes this once the config
-// rewrite lands.
 /** The kernel's own store on `url`, closed with the scope. */
 export const kernelStore = (url: string) =>
   Effect.acquireRelease(
-    Effect.tryPromise({
-      try: () => {
-        process.env.QWBE_DATABASE_URL = url
-        return initStore()
-      },
-      catch: failed,
-    }),
+    Effect.tryPromise({ try: () => initStoreWith(testConfigLayer({ QWBE_DATABASE_URL: url })), catch: failed }),
     () => Effect.promise(closeAll),
   )

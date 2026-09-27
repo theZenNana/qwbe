@@ -3,31 +3,30 @@
 // version refuses; a bumped version passes and re-records.
 
 import assert from "node:assert/strict"
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
-import { tmpdir } from "node:os"
+import { existsSync, readFileSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
+import { FileSystem } from "@effect/platform"
 import { NodeContext } from "@effect/platform-node"
-import { Effect, Either } from "effect"
-import { afterAll, beforeEach, describe, it } from "vitest"
+import { layer } from "@effect/vitest"
+import { Effect } from "effect"
 import { testConfigLayer } from "../test-config.ts"
+import { CubeVersionsCorruptError, checkSchemaDrift as check, SchemaDriftError } from "./schema-drift.ts"
 import type { CubeMetadata } from "./schemas.ts"
 
 type Stored = Record<string, { version: string; hash: string }>
 
-const readStored = (): Stored => JSON.parse(readFileSync(join(dataDir, "cube-versions.json"), "utf8")) as Stored
+const readStored = (dataDir: string): Stored =>
+  JSON.parse(readFileSync(join(dataDir, "cube-versions.json"), "utf8")) as Stored
 
-import { CubeVersionsCorruptError, checkSchemaDrift as check, SchemaDriftError } from "./schema-drift.ts"
+/** A directory removed when the test's scope closes, even on failure. */
+const tempDir = (prefix: string) =>
+  Effect.flatMap(FileSystem.FileSystem, (fs) => fs.makeTempDirectoryScoped({ prefix }))
 
-let baselineFile: string | undefined
-
-/** Runs the gate over the test's data directory; a typed failure is thrown so asserts read as before. */
-const checkSchemaDrift = async (metadata: ReadonlyArray<CubeMetadata>) => {
+/** The gate over one data directory (and an optional committed baseline). */
+const gateOn = (dataDir: string, baselineFile?: string) => (metadata: ReadonlyArray<CubeMetadata>) => {
   const env: Record<string, string> = { QWBE_DATA_DIR: dataDir }
   if (baselineFile) env.QWBE_CUBE_VERSIONS_BASELINE = baselineFile
-  const result = await Effect.runPromise(
-    Effect.either(check(metadata).pipe(Effect.provide(testConfigLayer(env)), Effect.provide(NodeContext.layer))),
-  )
-  if (Either.isLeft(result)) throw result.left
+  return check(metadata).pipe(Effect.provide(testConfigLayer(env)))
 }
 
 const meta = (cube: string, version: string | null, hash: string): CubeMetadata => ({
@@ -40,86 +39,110 @@ const meta = (cube: string, version: string | null, hash: string): CubeMetadata 
   fields: [],
 })
 
-let dataDir: string
+/** A fresh data directory per test and the gate over it. */
+const fresh = Effect.map(tempDir("qwb41-drift-"), (dataDir) => ({ dataDir, checkSchemaDrift: gateOn(dataDir) }))
 
-beforeEach(() => {
-  dataDir = mkdtempSync(join(tmpdir(), "qwb41-drift-"))
-  baselineFile = undefined
-})
+layer(NodeContext.layer)("checkSchemaDrift", (it) => {
+  it.scoped("records the first sight of a versioned cube without failing", () =>
+    Effect.gen(function* () {
+      const { dataDir, checkSchemaDrift } = yield* fresh
+      yield* checkSchemaDrift([meta("thing", "1.0.0", "aaa")])
+      const stored = readStored(dataDir)
+      assert.deepEqual(stored.thing, { version: "1.0.0", hash: "aaa" })
+    }),
+  )
 
-describe("checkSchemaDrift", () => {
-  it("records the first sight of a versioned cube without failing", async () => {
-    await checkSchemaDrift([meta("thing", "1.0.0", "aaa")])
-    const stored = readStored()
-    assert.deepEqual(stored.thing, { version: "1.0.0", hash: "aaa" })
-  })
+  it.scoped("does not track cubes that declare no version", () =>
+    Effect.gen(function* () {
+      const { dataDir, checkSchemaDrift } = yield* fresh
+      yield* checkSchemaDrift([meta("bare", null, "aaa")])
+      assert.equal(existsSync(join(dataDir, "cube-versions.json")), false)
+    }),
+  )
 
-  it("does not track cubes that declare no version", async () => {
-    await checkSchemaDrift([meta("bare", null, "aaa")])
-    assert.equal(existsSync(join(dataDir, "cube-versions.json")), false)
-  })
+  it.scoped("passes when the version and the hash are unchanged", () =>
+    Effect.gen(function* () {
+      const { checkSchemaDrift } = yield* fresh
+      yield* checkSchemaDrift([meta("thing", "1.0.0", "aaa")])
+      yield* checkSchemaDrift([meta("thing", "1.0.0", "aaa")])
+    }),
+  )
 
-  it("passes when the version and the hash are unchanged", async () => {
-    await checkSchemaDrift([meta("thing", "1.0.0", "aaa")])
-    await checkSchemaDrift([meta("thing", "1.0.0", "aaa")])
-  })
+  it.scoped("refuses a changed schema under the same version", () =>
+    Effect.gen(function* () {
+      const { checkSchemaDrift } = yield* fresh
+      yield* checkSchemaDrift([meta("thing", "1.0.0", "aaa")])
+      assert.ok((yield* Effect.flip(checkSchemaDrift([meta("thing", "1.0.0", "bbb")]))) instanceof SchemaDriftError)
+    }),
+  )
 
-  it("refuses a changed schema under the same version", async () => {
-    await checkSchemaDrift([meta("thing", "1.0.0", "aaa")])
-    await assert.rejects(() => checkSchemaDrift([meta("thing", "1.0.0", "bbb")]), SchemaDriftError)
-  })
+  it.scoped("accepts a changed schema when the version was bumped, and re-records", () =>
+    Effect.gen(function* () {
+      const { dataDir, checkSchemaDrift } = yield* fresh
+      yield* checkSchemaDrift([meta("thing", "1.0.0", "aaa")])
+      yield* checkSchemaDrift([meta("thing", "1.1.0", "bbb")])
+      const stored = readStored(dataDir)
+      assert.deepEqual(stored.thing, { version: "1.1.0", hash: "bbb" })
+    }),
+  )
 
-  it("accepts a changed schema when the version was bumped, and re-records", async () => {
-    await checkSchemaDrift([meta("thing", "1.0.0", "aaa")])
-    await checkSchemaDrift([meta("thing", "1.1.0", "bbb")])
-    const stored = readStored()
-    assert.deepEqual(stored.thing, { version: "1.1.0", hash: "bbb" })
-  })
+  it.scoped("refuses any hash change under the unchanged current version, even a revert", () =>
+    Effect.gen(function* () {
+      const { checkSchemaDrift } = yield* fresh
+      // v1 hash aaa, bump to v2 with hash bbb; going back to aaa under v2 is still a change
+      // clients under v2 have not seen -- the gate compares against the CURRENT version only.
+      yield* checkSchemaDrift([meta("thing", "1.0.0", "aaa")])
+      yield* checkSchemaDrift([meta("thing", "1.1.0", "bbb")])
+      assert.ok((yield* Effect.flip(checkSchemaDrift([meta("thing", "1.1.0", "aaa")]))) instanceof SchemaDriftError)
+    }),
+  )
 
-  it("refuses any hash change under the unchanged current version, even a revert", async () => {
-    // v1 hash aaa, bump to v2 with hash bbb; going back to aaa under v2 is still a change
-    // clients under v2 have not seen -- the gate compares against the CURRENT version only.
-    await checkSchemaDrift([meta("thing", "1.0.0", "aaa")])
-    await checkSchemaDrift([meta("thing", "1.1.0", "bbb")])
-    await assert.rejects(() => checkSchemaDrift([meta("thing", "1.1.0", "aaa")]), SchemaDriftError)
-  })
+  it.scoped("keeps records of other cubes while checking one", () =>
+    Effect.gen(function* () {
+      const { dataDir, checkSchemaDrift } = yield* fresh
+      yield* checkSchemaDrift([meta("a", "1.0.0", "aaa"), meta("b", "1.0.0", "bbb")])
+      yield* checkSchemaDrift([meta("a", "1.1.0", "xxx")])
+      const stored = readStored(dataDir)
+      assert.deepEqual(stored.b, { version: "1.0.0", hash: "bbb" })
+    }),
+  )
 
-  it("keeps records of other cubes while checking one", async () => {
-    await checkSchemaDrift([meta("a", "1.0.0", "aaa"), meta("b", "1.0.0", "bbb")])
-    await checkSchemaDrift([meta("a", "1.1.0", "xxx")])
-    const stored = readStored()
-    assert.deepEqual(stored.b, { version: "1.0.0", hash: "bbb" })
-  })
+  it.scoped("compares against the committed baseline on a fresh data directory", () =>
+    Effect.gen(function* () {
+      const { dataDir } = yield* fresh
+      // A fresh checkout has no data/cube-versions.json; the shipped baseline must still catch
+      // a schema that changed under an unchanged version.
+      const baseline = yield* tempDir("qwb41-baseline-")
+      writeFileSync(join(baseline, "cube-versions.json"), JSON.stringify({ thing: { version: "1.0.0", hash: "aaa" } }))
+      const checkSchemaDrift = gateOn(dataDir, join(baseline, "cube-versions.json"))
+      assert.ok((yield* Effect.flip(checkSchemaDrift([meta("thing", "1.0.0", "bbb")]))) instanceof SchemaDriftError)
+      // A bumped version passes and is recorded in the writable data file, not the baseline.
+      yield* checkSchemaDrift([meta("thing", "1.1.0", "bbb")])
+      assert.deepEqual(readStored(dataDir).thing, { version: "1.1.0", hash: "bbb" })
+    }),
+  )
 
-  it("compares against the committed baseline on a fresh data directory", async () => {
-    // A fresh checkout has no data/cube-versions.json; the shipped baseline must still catch
-    // a schema that changed under an unchanged version.
-    const baseline = mkdtempSync(join(tmpdir(), "qwb41-baseline-"))
-    writeFileSync(join(baseline, "cube-versions.json"), JSON.stringify({ thing: { version: "1.0.0", hash: "aaa" } }))
-    baselineFile = join(baseline, "cube-versions.json")
-    await assert.rejects(() => checkSchemaDrift([meta("thing", "1.0.0", "bbb")]), SchemaDriftError)
-    // A bumped version passes and is recorded in the writable data file, not the baseline.
-    await checkSchemaDrift([meta("thing", "1.1.0", "bbb")])
-    assert.deepEqual(readStored().thing, { version: "1.1.0", hash: "bbb" })
-  })
+  it.scoped("the writable data file wins over the baseline", () =>
+    Effect.gen(function* () {
+      const { dataDir } = yield* fresh
+      const baseline = yield* tempDir("qwb41-baseline-")
+      writeFileSync(join(baseline, "cube-versions.json"), JSON.stringify({ thing: { version: "0.9.0", hash: "old" } }))
+      const checkSchemaDrift = gateOn(dataDir, join(baseline, "cube-versions.json"))
+      yield* checkSchemaDrift([meta("thing", "1.0.0", "aaa")])
+      // Re-mount: same version and hash, but the baseline names 0.9.0 -- the data record won.
+      yield* checkSchemaDrift([meta("thing", "1.0.0", "aaa")])
+    }),
+  )
 
-  it("the writable data file wins over the baseline", async () => {
-    const baseline = mkdtempSync(join(tmpdir(), "qwb41-baseline-"))
-    writeFileSync(join(baseline, "cube-versions.json"), JSON.stringify({ thing: { version: "0.9.0", hash: "old" } }))
-    baselineFile = join(baseline, "cube-versions.json")
-    await checkSchemaDrift([meta("thing", "1.0.0", "aaa")])
-    // Re-mount: same version and hash, but the baseline names 0.9.0 -- the data record won.
-    await checkSchemaDrift([meta("thing", "1.0.0", "aaa")])
-  })
-
-  it("refuses a corrupt record file as a typed failure, never an empty record", async () => {
-    writeFileSync(join(dataDir, "cube-versions.json"), "{not json", "utf8")
-    await assert.rejects(() => checkSchemaDrift([meta("thing", "1.0.0", "aaa")]), CubeVersionsCorruptError)
-    // The corrupt file is left as it was for the operator to repair.
-    assert.equal(readFileSync(join(dataDir, "cube-versions.json"), "utf8"), "{not json")
-  })
-})
-
-afterAll(() => {
-  if (dataDir) rmSync(dataDir, { recursive: true, force: true })
+  it.scoped("refuses a corrupt record file as a typed failure, never an empty record", () =>
+    Effect.gen(function* () {
+      const { dataDir, checkSchemaDrift } = yield* fresh
+      writeFileSync(join(dataDir, "cube-versions.json"), "{not json", "utf8")
+      assert.ok(
+        (yield* Effect.flip(checkSchemaDrift([meta("thing", "1.0.0", "aaa")]))) instanceof CubeVersionsCorruptError,
+      )
+      // The corrupt file is left as it was for the operator to repair.
+      assert.equal(readFileSync(join(dataDir, "cube-versions.json"), "utf8"), "{not json")
+    }),
+  )
 })

@@ -3,96 +3,106 @@
 // real directory, which is the only kind that happens in production.
 
 import { strict as assert } from "node:assert"
-import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs"
-import { tmpdir } from "node:os"
+import { chmodSync, readFileSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
+import { FileSystem } from "@effect/platform"
 import { NodeContext } from "@effect/platform-node"
-import { Effect, Exit } from "effect"
-import { afterAll, test } from "vitest"
-import { runNode } from "../files.ts"
+import { layer } from "@effect/vitest"
+import { Effect } from "effect"
 import { testConfigLayer } from "../test-config.ts"
 import { RequiredCubeError, StateFileError, switchesFrom as switchesIn, UnknownCubeError } from "./state.ts"
 
-const dataDir = mkdtempSync(join(tmpdir(), "qwbe-switches-"))
-const stateFile = join(dataDir, "switches.json")
+/** A fresh data directory per test, removed when the test's scope closes, even on failure. */
+const dataDir = Effect.flatMap(FileSystem.FileSystem, (fs) => fs.makeTempDirectoryScoped({ prefix: "qwbe-switches-" }))
+const stateFileIn = (dir: string) => join(dir, "switches.json")
 
 // The data directory reaches the kernel through its config, not through process.env.
-const switchesFrom = (mounted: Parameters<typeof switchesIn>[0]) =>
-  Effect.provide(switchesIn(mounted), testConfigLayer({ QWBE_DATA_DIR: dataDir }))
+const switchesFrom = (dir: string, mounted: Parameters<typeof switchesIn>[0]) =>
+  Effect.provide(switchesIn(mounted), testConfigLayer({ QWBE_DATA_DIR: dir }))
 
 const mounted = [
   { name: "auth", required: true },
   { name: "notes", required: false },
 ]
 
-afterAll(() => chmodSync(dataDir, 0o700))
+layer(NodeContext.layer)("switches", (it) => {
+  it.scoped("switching a cube off is written to disk and seen at once", () =>
+    Effect.gen(function* () {
+      const dir = yield* dataDir
+      const s = yield* switchesFrom(dir, mounted)
+      assert.equal(s.isEnabled("notes"), true)
 
-test("switching a cube off is written to disk and seen at once", async () => {
-  const s = await runNode(switchesFrom(mounted))
-  assert.equal(s.isEnabled("notes"), true)
+      yield* s.set("notes", false)
 
-  await Effect.runPromise(s.set("notes", false))
+      assert.equal(s.isEnabled("notes"), false)
+      assert.deepEqual(JSON.parse(readFileSync(stateFileIn(dir), "utf8")), { disabled: ["notes"] })
+    }),
+  )
 
-  assert.equal(s.isEnabled("notes"), false)
-  assert.deepEqual(JSON.parse(readFileSync(stateFile, "utf8")), { disabled: ["notes"] })
-})
+  it.scoped("a required cube is refused as a typed failure, not a thrown error", () =>
+    Effect.gen(function* () {
+      const s = yield* switchesFrom(yield* dataDir, mounted)
+      const e = yield* Effect.flip(s.set("auth", false))
 
-test("a required cube is refused as a typed failure, not a thrown error", async () => {
-  const s = await runNode(switchesFrom(mounted))
-  const exit = await Effect.runPromiseExit(s.set("auth", false))
+      assert.ok(e instanceof RequiredCubeError)
+      assert.equal(e.cube, "auth")
+      assert.equal(s.isEnabled("auth"), true)
+    }),
+  )
 
-  assert.equal(Exit.isFailure(exit), true)
-  const e = Exit.isFailure(exit) ? (exit.cause as unknown as { error?: unknown }).error : null
-  assert.ok(e instanceof RequiredCubeError)
-  assert.equal((e as InstanceType<typeof RequiredCubeError>).cube, "auth")
-  assert.equal(s.isEnabled("auth"), true)
-})
+  it.scoped("a cube that is not mounted is its own failure, distinguishable from the one above", () =>
+    Effect.gen(function* () {
+      const s = yield* switchesFrom(yield* dataDir, mounted)
+      const e = yield* Effect.flip(s.set("ghost", false))
 
-test("a cube that is not mounted is its own failure, distinguishable from the one above", async () => {
-  const s = await runNode(switchesFrom(mounted))
-  const exit = await Effect.runPromiseExit(s.set("ghost", false))
+      assert.ok(e instanceof UnknownCubeError)
+      assert.match(e.message, /not mounted/)
+    }),
+  )
 
-  assert.equal(Exit.isFailure(exit), true)
-  const e = Exit.isFailure(exit) ? (exit.cause as unknown as { error?: unknown }).error : null
-  assert.ok(e instanceof UnknownCubeError)
-  assert.match((e as InstanceType<typeof UnknownCubeError>).message, /not mounted/)
-})
+  it.scoped("a write the disk refuses leaves the running state untouched", () =>
+    Effect.gen(function* () {
+      const dir = yield* dataDir
+      const stateFile = stateFileIn(dir)
+      writeFileSync(stateFile, `${JSON.stringify({ disabled: [] })}\n`, "utf8")
+      const s = yield* switchesFrom(dir, mounted)
+      chmodSync(stateFile, 0o400) // read-only: the write is refused, the file stays as it was
 
-test("a write the disk refuses leaves the running state untouched", async () => {
-  writeFileSync(stateFile, `${JSON.stringify({ disabled: [] })}\n`, "utf8")
-  const s = await runNode(switchesFrom(mounted))
-  chmodSync(stateFile, 0o400) // read-only: the write is refused, the file stays as it was
+      const e = yield* Effect.flip(s.set("notes", false)).pipe(
+        Effect.ensuring(Effect.sync(() => chmodSync(stateFile, 0o600))),
+      )
 
-  const exit = await Effect.runPromiseExit(s.set("notes", false))
-  chmodSync(stateFile, 0o600)
+      assert.ok(e instanceof StateFileError)
+      // The part that matters: the switch did NOT flip in memory. Otherwise the screen would say
+      // "off" while the file says "on", and the next boot would silently undo the user's click.
+      assert.equal(s.isEnabled("notes"), true)
+      assert.deepEqual(JSON.parse(readFileSync(stateFile, "utf8")), { disabled: [] })
+    }),
+  )
 
-  assert.equal(Exit.isFailure(exit), true)
-  const e = Exit.isFailure(exit) ? (exit.cause as unknown as { error?: unknown }).error : null
-  assert.ok(e instanceof StateFileError)
-  // The part that matters: the switch did NOT flip in memory. Otherwise the screen would say
-  // "off" while the file says "on", and the next boot would silently undo the user's click.
-  assert.equal(s.isEnabled("notes"), true)
-  assert.deepEqual(JSON.parse(readFileSync(stateFile, "utf8")), { disabled: [] })
-})
+  it.scoped("a corrupt state file is a typed failure naming the file, never an empty list", () =>
+    Effect.gen(function* () {
+      const dir = yield* dataDir
+      // An empty list would switch every disabled cube back on at the next boot.
+      writeFileSync(stateFileIn(dir), "{ not json", "utf8")
 
-test("a corrupt state file is a typed failure naming the file, never an empty list", async () => {
-  // An empty list would switch every disabled cube back on at the next boot.
-  writeFileSync(stateFile, "{ not json", "utf8")
+      const e = yield* Effect.flip(switchesFrom(dir, mounted))
 
-  const exit = await Effect.runPromiseExit(Effect.provide(switchesFrom(mounted), NodeContext.layer))
+      assert.ok(e instanceof StateFileError)
+      assert.equal(e.path, stateFileIn(dir))
+      assert.match(e.message, /switches\.json is corrupt/)
+    }),
+  )
 
-  assert.equal(Exit.isFailure(exit), true)
-  const e = Exit.isFailure(exit) ? (exit.cause as unknown as { error?: unknown }).error : null
-  assert.ok(e instanceof StateFileError)
-  assert.equal((e as InstanceType<typeof StateFileError>).path, stateFile)
-  assert.match((e as InstanceType<typeof StateFileError>).message, /switches\.json is corrupt/)
-})
+  it.scoped("a disabled cube that no longer exists on disk is dropped from the file", () =>
+    Effect.gen(function* () {
+      const dir = yield* dataDir
+      writeFileSync(stateFileIn(dir), `${JSON.stringify({ disabled: ["notes", "removed-long-ago"] })}\n`, "utf8")
 
-test("a disabled cube that no longer exists on disk is dropped from the file", async () => {
-  writeFileSync(stateFile, `${JSON.stringify({ disabled: ["notes", "removed-long-ago"] })}\n`, "utf8")
+      const s = yield* switchesFrom(dir, mounted)
 
-  const s = await runNode(switchesFrom(mounted))
-
-  assert.equal(s.isEnabled("notes"), false)
-  assert.deepEqual(JSON.parse(readFileSync(stateFile, "utf8")), { disabled: ["notes"] })
+      assert.equal(s.isEnabled("notes"), false)
+      assert.deepEqual(JSON.parse(readFileSync(stateFileIn(dir), "utf8")), { disabled: ["notes"] })
+    }),
+  )
 })

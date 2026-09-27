@@ -12,14 +12,15 @@
 // in the same transaction as the write itself (ADR-0001 section 5). Nothing consumes the
 // outbox in phase 1.
 
-import { readdirSync, readFileSync } from "node:fs"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
+import { FileSystem } from "@effect/platform"
+import { NodeFileSystem } from "@effect/platform-node"
 import { SqlClient, SqlError } from "@effect/sql"
 import { PgClient } from "@effect/sql-pg"
 import { Effect, Layer, ManagedRuntime, Redacted, Runtime } from "effect"
 import pg from "pg"
-import { QwbeConfig, QwbeConfigLive } from "../config.ts"
+import { type ConfigInvalid, QwbeConfig, QwbeConfigLive } from "../config.ts"
 import { type Setup, SetupLive } from "./setup.ts"
 
 const here = dirname(fileURLToPath(import.meta.url))
@@ -42,24 +43,23 @@ export const databaseUrl = Effect.flatMap(QwbeConfig, ({ databaseUrl: url }) =>
 /** The driver's own message, not the wrapper's "Failed to execute statement". */
 export const reason = (e: SqlError.SqlError): string => (e.cause instanceof Error ? e.cause.message : e.message)
 
-const pool = Effect.acquireRelease(
-  Effect.gen(function* () {
-    const runtime = yield* Effect.runtime<never>()
-    // The config layer is built here, from the environment of the moment the pool is made.
-    const url = yield* databaseUrl.pipe(Effect.provide(QwbeConfigLive), Effect.orDie)
-    const p = new pg.Pool({ connectionString: url, max: 10 })
-    // PgClient's own pool listener swallows the error silently; this one says what happened.
-    p.on("error", (e: NodeJS.ErrnoException) => {
-      // ponytail: one line, no reconnect logic -- the pool replaces a lost client on the next
-      // query; without this listener an idle-client error (57P01) is an uncaught exception.
-      Runtime.runFork(runtime)(
-        Effect.logError(`qwbe: idle Postgres connection lost (${e.code ?? "no code"}): ${e.message}`),
-      )
-    })
-    return p
-  }),
-  (p) => Effect.promise(() => p.end()),
-)
+const pool = (url: string) =>
+  Effect.acquireRelease(
+    Effect.gen(function* () {
+      const runtime = yield* Effect.runtime<never>()
+      const p = new pg.Pool({ connectionString: url, max: 10 })
+      // PgClient's own pool listener swallows the error silently; this one says what happened.
+      p.on("error", (e: NodeJS.ErrnoException) => {
+        // ponytail: one line, no reconnect logic -- the pool replaces a lost client on the next
+        // query; without this listener an idle-client error (57P01) is an uncaught exception.
+        Runtime.runFork(runtime)(
+          Effect.logError(`qwbe: idle Postgres connection lost (${e.code ?? "no code"}): ${e.message}`),
+        )
+      })
+      return p
+    }),
+    (p) => Effect.promise(() => p.end()),
+  )
 
 /**
  * Kernel-owned SQL, applied in order, recorded in `qwbe.migrations`. Applied at boot: an
@@ -72,10 +72,10 @@ const runMigrations = Effect.gen(function* () {
   yield* sql`SELECT 1`.pipe(
     Effect.mapError((e) => new SqlError.SqlError({ cause: e.cause, message: `Postgres unreachable: ${reason(e)}` })),
   )
+  const fs = yield* FileSystem.FileSystem
   const dir = join(here, "migrations")
-  const files = readdirSync(dir)
-    .filter((f) => f.endsWith(".sql"))
-    .sort()
+  // A missing or unreadable migrations directory is a broken install, not a database error.
+  const files = (yield* Effect.orDie(fs.readDirectory(dir))).filter((f) => f.endsWith(".sql")).sort()
   // One session-level advisory lock around the whole loop: two processes booting against the
   // same database must not both run the same file -- the second would die on the
   // qwbe.migrations primary key. Session-scoped locks live per connection, so the lock is
@@ -98,13 +98,9 @@ const runMigrations = Effect.gen(function* () {
       ),
     )
     if (applied.length === 1) continue
+    const text = yield* Effect.orDie(fs.readFileString(join(dir, file)))
     yield* sql
-      .withTransaction(
-        Effect.zipRight(
-          sql.unsafe(readFileSync(join(dir, file), "utf8")),
-          sql`INSERT INTO qwbe.migrations (name) VALUES (${file})`,
-        ),
-      )
+      .withTransaction(Effect.zipRight(sql.unsafe(text), sql`INSERT INTO qwbe.migrations (name) VALUES (${file})`))
       .pipe(
         Effect.mapError(
           (e) =>
@@ -119,10 +115,13 @@ const runMigrations = Effect.gen(function* () {
 
 /**
  * The store's whole world: one pool, the kernel schema migrated, the per-cube setup caches.
- * Scoped: the pool ends when the layer's scope closes.
+ * Scoped: the pool ends when the layer's scope closes. The database URL comes from QwbeConfig.
  */
 export const PgLive = Layer.mergeAll(SetupLive, Layer.effectDiscard(runMigrations)).pipe(
-  Layer.provideMerge(PgClient.layerFromPool({ acquire: pool })),
+  Layer.provideMerge(
+    Layer.unwrapEffect(Effect.map(databaseUrl, (url) => PgClient.layerFromPool({ acquire: pool(url) }))),
+  ),
+  Layer.provide(NodeFileSystem.layer),
 )
 
 export type Pg = SqlClient.SqlClient | Setup
@@ -132,7 +131,12 @@ export type Pg = SqlClient.SqlClient | Setup
 // travel as a requirement; every store effect reaches it through `run` below. The runtime
 // builds PgLive on first use (one pool per process); `closeAll` disposes it and leaves a fresh,
 // unbuilt one behind. Replace with a provided layer once the contract carries a requirement.
-let runtime = ManagedRuntime.make(PgLive)
+// The config layer is built with the runtime, from the environment of that moment unless the
+// caller of `initStore` hands its own.
+const make = (config: Layer.Layer<QwbeConfig, ConfigInvalid>) =>
+  ManagedRuntime.make(PgLive.pipe(Layer.provide(Layer.orDie(config))))
+
+let runtime = make(QwbeConfigLive)
 
 /**
  * The contract boundary, in exactly one place: the store's error channel is `never` (see the
@@ -154,9 +158,17 @@ export const initStore = async (): Promise<void> => {
   await runtime.runtime()
 }
 
+/** `initStore` under a config of the caller's (a test database), instead of the environment's. */
+export const initStoreWith = async (config: Layer.Layer<QwbeConfig, ConfigInvalid>): Promise<void> => {
+  const old = runtime
+  runtime = make(config)
+  await old.dispose()
+  await initStore()
+}
+
 /** Close everything. Used by the probes and tests so a run leaves no connections behind. */
 export const closeAll = (): Promise<void> => {
   const old = runtime
-  runtime = ManagedRuntime.make(PgLive)
+  runtime = make(QwbeConfigLive)
   return old.dispose()
 }

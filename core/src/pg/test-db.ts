@@ -9,10 +9,11 @@
 
 import { randomBytes } from "node:crypto"
 import { SqlClient } from "@effect/sql"
-import { Data, Effect } from "effect"
+import { Data, Effect, Layer } from "effect"
 import pg from "pg"
+import { testConfigLayer } from "../test-config.ts"
 import { adminUrl } from "./admin-url.ts"
-import { closeAll, initStore, type Pg, run } from "./db.ts"
+import { closeAll, initStoreWith, type Pg, run } from "./db.ts"
 
 export class TestDbUnavailable extends Data.TaggedError("TestDbUnavailable")<{ readonly cause: unknown }> {
   override get message() {
@@ -59,15 +60,20 @@ export const testDatabase = (label: string) =>
   }).pipe(Effect.timeoutFail({ duration: "20 seconds", onTimeout: () => unavailable("timed out") }))
 
 /**
- * The kernel store on a new test database for one plain vitest file: env first (the pool reads
- * it when it is built), store closed before the database is dropped.
+ * The kernel store on a new test database, as a layer for `@effect/vitest`'s `layer(...)`: the
+ * store is closed before the database is dropped.
  */
 export const testStore = (label: string) =>
-  Effect.gen(function* () {
-    process.env.QWBE_DATABASE_URL = yield* testDatabase(label)
-    yield* Effect.acquireRelease(Effect.promise(initStore), () => Effect.promise(closeAll))
-  })
+  Layer.scopedDiscard(
+    Effect.gen(function* () {
+      const url = yield* testDatabase(label)
+      yield* Effect.acquireRelease(
+        Effect.promise(() => initStoreWith(testConfigLayer({ QWBE_DATABASE_URL: url }))),
+        () => Effect.promise(closeAll),
+      )
+    }),
+  )
 
 /** SQL on the store's pool, for assertions and fixtures. */
-export const withSql = <A>(f: (sql: SqlClient.SqlClient) => Effect.Effect<A, unknown, Pg>): Promise<A> =>
-  Effect.runPromise(run(Effect.flatMap(SqlClient.SqlClient, f)))
+export const withSql = <A, E>(f: (sql: SqlClient.SqlClient) => Effect.Effect<A, E, Pg>): Effect.Effect<A> =>
+  run(Effect.flatMap(SqlClient.SqlClient, f))
