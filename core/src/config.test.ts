@@ -1,18 +1,18 @@
-import { ConfigProvider, Effect, Either, Redacted } from "effect"
-import { describe, expect, it } from "vitest"
+import { describe, expect, it } from "@effect/vitest"
+import { ConfigProvider, Effect, Redacted } from "effect"
 import { loadConfig } from "./config.ts"
 import { testConfig } from "./test-config.ts"
 
 describe("config", () => {
-  it("rejects a non-numeric QWBE_PORT as a typed failure", () => {
-    const result = Effect.runSync(
-      Effect.either(
+  it.effect("rejects a non-numeric QWBE_PORT as a typed failure", () =>
+    Effect.gen(function* () {
+      const error = yield* Effect.flip(
         loadConfig.pipe(Effect.withConfigProvider(ConfigProvider.fromMap(new Map([["QWBE_PORT", "abc"]])))),
-      ),
-    )
-    expect(Either.isLeft(result) && result.left._tag).toBe("ConfigInvalid")
-    expect(Either.isLeft(result) && result.left.message).toMatch(/QWBE_PORT/)
-  })
+      )
+      expect(error._tag).toBe("ConfigInvalid")
+      expect(error.message).toMatch(/QWBE_PORT/)
+    }),
+  )
 
   it("falls back to defaults when nothing is set", () => {
     const config = testConfig()

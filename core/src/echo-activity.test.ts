@@ -11,8 +11,8 @@
 //      captured -- identity directory never, auxiliary types never.
 
 import assert from "node:assert/strict"
+import { describe, it } from "@effect/vitest"
 import { Effect, Exit, FiberRef } from "effect"
-import { describe, it } from "vitest"
 import { captureEntity } from "./entity-enforcement.ts"
 import { CurrentActor } from "./kernel/actor.ts"
 import { CurrentUser } from "./kernel/auth-contract.ts"
@@ -68,7 +68,7 @@ describe("diffBody", () => {
 const user = { id: "u1", username: "lucian", roles: [], permissions: [], sessionId: "s1" }
 
 const actorSeenBy = (handler: (request: unknown) => Effect.Effect<unknown, unknown, CurrentUser>) =>
-  Effect.runPromiseExit(
+  Effect.exit(
     handler({ maliciousActor: "spoof" }).pipe(
       Effect.locally(CurrentActor, { id: "spoof", username: "spoof" }),
       Effect.provideService(CurrentUser, user),
@@ -80,46 +80,52 @@ const actorSeenBy = (handler: (request: unknown) => Effect.Effect<unknown, unkno
 // duration from `CurrentUser`, so the spoof never reaches a store read.
 
 describe("withActor", () => {
-  it("copies the authenticated identity into CurrentActor", async () => {
-    const wrapped = withActor(() =>
-      Effect.gen(function* () {
-        return yield* FiberRef.get(CurrentActor)
-      }),
-    )
-    const exit = await Effect.runPromiseExit(
-      (wrapped(undefined) as Effect.Effect<unknown, unknown, CurrentUser>).pipe(
-        Effect.provideService(CurrentUser, user),
-      ),
-    )
-    assert.ok(Exit.isSuccess(exit))
-    assert.deepEqual(exit.value, { id: "u1", username: "lucian" })
-  })
+  it.effect("copies the authenticated identity into CurrentActor", () =>
+    Effect.gen(function* () {
+      const wrapped = withActor(() =>
+        Effect.gen(function* () {
+          return yield* FiberRef.get(CurrentActor)
+        }),
+      )
+      const exit = yield* Effect.exit(
+        (wrapped(undefined) as Effect.Effect<unknown, unknown, CurrentUser>).pipe(
+          Effect.provideService(CurrentUser, user),
+        ),
+      )
+      assert.ok(Exit.isSuccess(exit))
+      assert.deepEqual(exit.value, { id: "u1", username: "lucian" })
+    }),
+  )
 
-  it("ignores a caller-scoped CurrentActor (no spoof path)", async () => {
-    let seen: unknown = "not-read"
-    const wrapped = withActor(() =>
-      Effect.gen(function* () {
-        seen = yield* FiberRef.get(CurrentActor)
-        return null
-      }),
-    )
-    const result = await actorSeenBy(wrapped as (request: unknown) => Effect.Effect<unknown, unknown, CurrentUser>)
-    assert.ok(Exit.isSuccess(result))
-    // The spoof was overwritten: the handler saw the authenticated user, not the caller's.
-    assert.deepEqual(seen, { id: "u1", username: "lucian" })
-  })
+  it.effect("ignores a caller-scoped CurrentActor (no spoof path)", () =>
+    Effect.gen(function* () {
+      let seen: unknown = "not-read"
+      const wrapped = withActor(() =>
+        Effect.gen(function* () {
+          seen = yield* FiberRef.get(CurrentActor)
+          return null
+        }),
+      )
+      const result = yield* actorSeenBy(wrapped as (request: unknown) => Effect.Effect<unknown, unknown, CurrentUser>)
+      assert.ok(Exit.isSuccess(result))
+      // The spoof was overwritten: the handler saw the authenticated user, not the caller's.
+      assert.deepEqual(seen, { id: "u1", username: "lucian" })
+    }),
+  )
 
-  it("leaves the actor unset when there is no authenticated user (system write)", async () => {
-    let seen: unknown = "not-read"
-    const wrapped = withActor(() =>
-      Effect.gen(function* () {
-        seen = yield* FiberRef.get(CurrentActor)
-        return null
-      }),
-    )
-    await Effect.runPromiseExit(wrapped(undefined) as Effect.Effect<unknown, unknown, never>)
-    assert.equal(seen, undefined)
-  })
+  it.effect("leaves the actor unset when there is no authenticated user (system write)", () =>
+    Effect.gen(function* () {
+      let seen: unknown = "not-read"
+      const wrapped = withActor(() =>
+        Effect.gen(function* () {
+          seen = yield* FiberRef.get(CurrentActor)
+          return null
+        }),
+      )
+      yield* Effect.exit(wrapped(undefined) as Effect.Effect<unknown, unknown, never>)
+      assert.equal(seen, undefined)
+    }),
+  )
 })
 
 // --- 3. single-holder privileges, incl. readsActivity ---

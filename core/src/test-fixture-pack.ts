@@ -5,24 +5,27 @@
 import { dirname, join } from "node:path"
 import { FileSystem } from "@effect/platform"
 import { Effect } from "effect"
-import { runNode } from "./files.ts"
 
 export const writePack = (
   dir: string,
   { name, cubes, extra }: { name: string; cubes: Record<string, string>; extra?: Record<string, string> },
-): Promise<string> =>
-  runNode(
-    Effect.gen(function* () {
-      const fs = yield* FileSystem.FileSystem
-      const files: Record<string, string> = {
-        "qwbe-package.json": JSON.stringify({ name, kind: "plugin", cubes: Object.keys(cubes) }),
-        ...Object.fromEntries(Object.entries(cubes).map(([cube, source]) => [join("cubes", cube, "index.ts"), source])),
-        ...extra,
-      }
-      for (const [rel, body] of Object.entries(files)) {
-        yield* fs.makeDirectory(dirname(join(dir, rel)), { recursive: true })
-        yield* fs.writeFileString(join(dir, rel), body)
-      }
-      return dir
-    }),
+) =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem
+    const files: Record<string, string> = {
+      "qwbe-package.json": JSON.stringify({ name, kind: "plugin", cubes: Object.keys(cubes) }),
+      ...Object.fromEntries(Object.entries(cubes).map(([cube, source]) => [join("cubes", cube, "index.ts"), source])),
+      ...extra,
+    }
+    for (const [rel, body] of Object.entries(files)) {
+      yield* fs.makeDirectory(dirname(join(dir, rel)), { recursive: true })
+      yield* fs.writeFileString(join(dir, rel), body)
+    }
+    return dir
+  })
+
+/** A temp directory removed when the caller's scope closes, whether the test passed, failed or was interrupted. */
+export const tempDir = (prefix: string, directory?: string) =>
+  Effect.flatMap(FileSystem.FileSystem, (fs) =>
+    fs.makeTempDirectoryScoped(directory === undefined ? { prefix } : { prefix, directory }),
   )

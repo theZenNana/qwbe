@@ -4,9 +4,9 @@
 // wrong credentials are refused, and logout drops exactly the caller's own session.
 
 import assert from "node:assert/strict"
+import { describe, it } from "@effect/vitest"
 import { Effect } from "effect"
 import type { CubeTools } from "qwbe-core/cube"
-import { describe, it } from "vitest"
 import { CurrentUser } from "../../kernel/auth-contract.ts"
 import { Unauthorized } from "../../kernel/errors.ts"
 import { routeContracts } from "../../metadata/metadata.ts"
@@ -54,81 +54,79 @@ describe("auth cube contract (QWB-69)", () => {
     })
   })
 
-  it("refuses login when the credentials capability verifies nothing", async () => {
-    // The negative branch: with no identity returned, login must fail with Unauthorized.
-    const tools = authTools() as Record<string, unknown>
-    tools.credentials = { verify: () => Effect.succeed(undefined) }
-    const failing = (
-      cube.create(tools as unknown as CubeTools).handlers.login as (a: {
-        payload: { username: string; password: string }
-      }) => Effect.Effect<LoginResult, Unauthorized>
-    )({ payload: { username: "ghost", password: "x" } })
-    const err = await Effect.runPromise(Effect.flip(failing))
-    assert.ok(err instanceof Unauthorized)
-    assert.equal(err.message, "wrong username or password")
-  })
-
-  it("issues a token, stores only its hash, and records the login event", async () => {
-    const bus = recordingBus()
-    const tools = authTools() as Record<string, unknown>
-    tools.bus = bus
-    const store = memoryStore()
-    tools.store = store
-    const ok = (await Effect.runPromise(
-      (
+  it.effect("refuses login when the credentials capability verifies nothing", () =>
+    Effect.gen(function* () {
+      // The negative branch: with no identity returned, login must fail with Unauthorized.
+      const tools = authTools() as Record<string, unknown>
+      tools.credentials = { verify: () => Effect.succeed(undefined) }
+      const failing = (
         cube.create(tools as unknown as CubeTools).handlers.login as (a: {
           payload: { username: string; password: string }
         }) => Effect.Effect<LoginResult, Unauthorized>
-      )({ payload: { username: "ana", password: "pw" } }),
-    )) as LoginResult
+      )({ payload: { username: "ghost", password: "x" } })
+      const err = yield* Effect.flip(failing)
+      assert.ok(err instanceof Unauthorized)
+      assert.equal(err.message, "wrong username or password")
+    }),
+  )
 
-    // Token is opaque base64url of 32 bytes, and the raw token is never stored.
-    assert.equal(ok.token.length, 43)
-    const rows = (await Effect.runPromise(store.all<Record<string, unknown>>("sessions"))) as ReadonlyArray<
-      Record<string, unknown>
-    >
-    assert.equal(rows.length, 1)
-    assert.ok(!("token" in rows[0]!))
-    assert.ok(typeof rows[0]!.tokenHash === "string")
-    assert.equal(bus.events[0]?.topic, "auth.loggedIn")
-  })
+  it.effect("issues a token, stores only its hash, and records the login event", () =>
+    Effect.gen(function* () {
+      const bus = recordingBus()
+      const tools = authTools() as Record<string, unknown>
+      tools.bus = bus
+      const store = memoryStore()
+      tools.store = store
+      const ok = (yield* (
+        cube.create(tools as unknown as CubeTools).handlers.login as (a: {
+          payload: { username: string; password: string }
+        }) => Effect.Effect<LoginResult, Unauthorized>
+      )({ payload: { username: "ana", password: "pw" } })) as LoginResult
 
-  it("drops exactly the caller's own session on logout", async () => {
-    const store = memoryStore()
-    const bus = recordingBus()
-    const tools = authTools() as Record<string, unknown>
-    tools.store = store
-    tools.bus = bus
-    const p = cube.create(tools as unknown as CubeTools)
-    // Two sessions of the same account, as a second device would create.
-    await Effect.runPromise(
-      store.insert("sessions", "Session", "ses", {
+      // Token is opaque base64url of 32 bytes, and the raw token is never stored.
+      assert.equal(ok.token.length, 43)
+      const rows = (yield* store.all<Record<string, unknown>>("sessions")) as ReadonlyArray<Record<string, unknown>>
+      assert.equal(rows.length, 1)
+      assert.ok(!("token" in rows[0]!))
+      assert.ok(typeof rows[0]!.tokenHash === "string")
+      assert.equal(bus.events[0]?.topic, "auth.loggedIn")
+    }),
+  )
+
+  it.effect("drops exactly the caller's own session on logout", () =>
+    Effect.gen(function* () {
+      const store = memoryStore()
+      const bus = recordingBus()
+      const tools = authTools() as Record<string, unknown>
+      tools.store = store
+      tools.bus = bus
+      const p = cube.create(tools as unknown as CubeTools)
+      // Two sessions of the same account, as a second device would create.
+      yield* store.insert("sessions", "Session", "ses", {
         accountId: "acc-1",
         tokenHash: "a",
         expiresAt: new Date(Date.now() + 1000).toISOString(),
-      }),
-    )
-    await Effect.runPromise(
-      store.insert("sessions", "Session", "ses", {
+      })
+      yield* store.insert("sessions", "Session", "ses", {
         accountId: "acc-1",
         tokenHash: "b",
         expiresAt: new Date(Date.now() + 1000).toISOString(),
-      }),
-    )
-    const logout = p.handlers.logout as () => Effect.Effect<{ ok: boolean }, never, CurrentUser>
-    await Effect.runPromise(Effect.provideService(logout(), CurrentUser, user("ses-1", [])))
-    const rows = (await Effect.runPromise(store.all<Record<string, unknown>>("sessions"))) as ReadonlyArray<{
-      id: string
-      deleted: boolean
-    }>
-    // Only the session carried by the middleware is soft-deleted; the other device survives.
-    assert.deepEqual(
-      rows.map((r) => ({ id: r.id, deleted: r.deleted })),
-      [
-        { id: "ses-1", deleted: true },
-        { id: "ses-2", deleted: false },
-      ],
-    )
-    assert.equal(bus.events[0]?.topic, "auth.loggedOut")
-  })
+      })
+      const logout = p.handlers.logout as () => Effect.Effect<{ ok: boolean }, never, CurrentUser>
+      yield* Effect.provideService(logout(), CurrentUser, user("ses-1", []))
+      const rows = (yield* store.all<Record<string, unknown>>("sessions")) as ReadonlyArray<{
+        id: string
+        deleted: boolean
+      }>
+      // Only the session carried by the middleware is soft-deleted; the other device survives.
+      assert.deepEqual(
+        rows.map((r) => ({ id: r.id, deleted: r.deleted })),
+        [
+          { id: "ses-1", deleted: true },
+          { id: "ses-2", deleted: false },
+        ],
+      )
+      assert.equal(bus.events[0]?.topic, "auth.loggedOut")
+    }),
+  )
 })

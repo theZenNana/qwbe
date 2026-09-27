@@ -7,10 +7,10 @@
 
 import assert from "node:assert/strict"
 import { HttpApiBuilder, HttpApiEndpoint, HttpApiGroup, HttpApiSchema, HttpServer } from "@effect/platform"
-import { Cause, type Context, Effect, Exit, Layer, Logger, LogLevel, Redacted, Schema } from "effect"
+import { describe, it } from "@effect/vitest"
+import { type Context, Effect, Layer, Logger, LogLevel, Redacted, Schema } from "effect"
 import type { CubeTools } from "qwbe-core/cube"
 import { PermissionForbidden, PermissionInvalid, PermissionNotFound } from "qwbe-core/permissions"
-import { describe, it } from "vitest"
 import { cube as authCube } from "./cubes/auth/index.ts"
 import { cube as permissionsCube } from "./cubes/permissions/index.ts"
 import { CustomFields, customFieldsRegistry } from "./custom-defs-reader.ts"
@@ -142,10 +142,9 @@ const world = (declaredNow: ReadonlyMap<string, ReadonlyArray<string>> = declare
     Effect.flatMap(currentUser(userId, roles), (user) =>
       handlers[name](request).pipe(Effect.provideService(CurrentUser, user)),
     )
-  const failure = async (effect: Effect.Effect<unknown, unknown, never>) => {
-    const exit = await Effect.runPromiseExit(effect)
-    return Exit.isSuccess(exit) ? null : ((Array.from(Cause.failures(exit.cause))[0] as { needed?: string }) ?? null)
-  }
+  // The gate's refusal; a call that succeeds fails the test through `flip`.
+  const failure = (effect: Effect.Effect<unknown, unknown, never>) =>
+    Effect.map(Effect.flip(effect), (error) => (error instanceof Forbidden ? error : undefined))
   // The HTTP surface, composed by the kernel's own `buildApi` / `buildHandlers` over the same
   // three cubes: the real router, the real `Authorization` middleware from the auth cube's
   // layer, the real permissions endpoints (schemas, error mapping), the route gate and the
@@ -173,26 +172,28 @@ const world = (declaredNow: ReadonlyMap<string, ReadonlyArray<string>> = declare
     webHandler = HttpApiBuilder.toWebHandler(Layer.mergeAll(ApiLive, HttpServer.layerContext))
     return webHandler
   }
-  const http = async (method: string, path: string, token?: string, body?: unknown) => {
-    const response = await web().handler(
-      new Request(`http://qwbe.test${path}`, {
-        method,
-        headers: {
-          ...(token ? { authorization: `Bearer ${token}` } : {}),
-          ...(body !== undefined ? { "content-type": "application/json" } : {}),
-        },
-        ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
-      }),
-    )
-    const text = await response.text()
-    return { status: response.status, body: text ? (JSON.parse(text) as Record<string, unknown>) : null }
-  }
-  const token = async (userId: string, roles: ReadonlyArray<string>) => {
-    rolesOf.set(userId, roles)
-    const login = await http("POST", "/auth/login", undefined, { username: userId, password: "" })
-    assert.equal(login.status, 200)
-    return (login.body as { token: string }).token
-  }
+  const http = (method: string, path: string, token?: string, body?: unknown) =>
+    Effect.promise(async () => {
+      const response = await web().handler(
+        new Request(`http://qwbe.test${path}`, {
+          method,
+          headers: {
+            ...(token ? { authorization: `Bearer ${token}` } : {}),
+            ...(body !== undefined ? { "content-type": "application/json" } : {}),
+          },
+          ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+        }),
+      )
+      const text = await response.text()
+      return { status: response.status, body: text ? (JSON.parse(text) as Record<string, unknown>) : null }
+    })
+  const token = (userId: string, roles: ReadonlyArray<string>) =>
+    Effect.gen(function* () {
+      rolesOf.set(userId, roles)
+      const login = yield* http("POST", "/auth/login", undefined, { username: userId, password: "" })
+      assert.equal(login.status, 200)
+      return (login.body as { token: string }).token
+    })
   return { service, ran, call, failure, effective, http, token, dispose: () => web().dispose() }
 }
 
@@ -200,271 +201,284 @@ const root = { userId: "root", roles: ["admin"] }
 const listRequest = { urlParams: { offset: 0, limit: 10 } }
 
 describe("runtime cube capability grants -- route gate and entity gate stay two gates (QWB-63)", () => {
-  it("ordinary reader is denied by the route gate before the handler runs", async () => {
-    const w = world()
-    const denied = await w.failure(w.call("mihai", ["reader"], "create", { payload: { id: "x", title: "x" } }))
-    assert.equal(denied?.needed, "fixture:write")
-    assert.deepEqual(w.ran, [])
-  })
+  it.effect("ordinary reader is denied by the route gate before the handler runs", () =>
+    Effect.gen(function* () {
+      const w = world()
+      const denied = yield* w.failure(w.call("mihai", ["reader"], "create", { payload: { id: "x", title: "x" } }))
+      assert.equal(denied?.needed, "fixture:write")
+      assert.deepEqual(w.ran, [])
+    }),
+  )
 
-  it("a read grant gives exactly read, and the list still shows only visible entities", async () => {
-    const w = world()
-    await Effect.runPromise(w.service.grantCapability(root, { kind: "user", userId: "ana" }, "fixture:read"))
-    assert.deepEqual(await Effect.runPromise(w.effective("ana", [])), ["fixture:read"])
-    const empty = (await Effect.runPromise(w.call("ana", [], "list", listRequest))) as {
-      rows: unknown[]
-      total: number
-    }
-    assert.deepEqual([empty.rows.length, empty.total], [0, 0])
-    await Effect.runPromise(
-      w.service.claim({ userId: "ana", roles: [] }, { cube: "fixture", entityType: "Thing", entityId: "t2" }),
-    )
-    const page = (await Effect.runPromise(w.call("ana", [], "list", listRequest))) as {
-      rows: Array<{ id: string }>
-      total: number
-    }
-    assert.deepEqual([page.rows.map((r) => r.id), page.total], [["t2"], 1])
-    assert.equal((await w.failure(w.call("ana", [], "get", { path: { id: "t1" } })))?.needed, "fixture:entity")
-    assert.equal((await w.failure(w.call("ana", [], "create", { payload: {} })))?.needed, "fixture:write")
-  })
+  it.effect("a read grant gives exactly read, and the list still shows only visible entities", () =>
+    Effect.gen(function* () {
+      const w = world()
+      yield* w.service.grantCapability(root, { kind: "user", userId: "ana" }, "fixture:read")
+      assert.deepEqual(yield* w.effective("ana", []), ["fixture:read"])
+      const empty = (yield* w.call("ana", [], "list", listRequest)) as {
+        rows: unknown[]
+        total: number
+      }
+      assert.deepEqual([empty.rows.length, empty.total], [0, 0])
+      yield* w.service.claim({ userId: "ana", roles: [] }, { cube: "fixture", entityType: "Thing", entityId: "t2" })
+      const page = (yield* w.call("ana", [], "list", listRequest)) as {
+        rows: Array<{ id: string }>
+        total: number
+      }
+      assert.deepEqual([page.rows.map((r) => r.id), page.total], [["t2"], 1])
+      assert.equal((yield* w.failure(w.call("ana", [], "get", { path: { id: "t1" } })))?.needed, "fixture:entity")
+      assert.equal((yield* w.failure(w.call("ana", [], "create", { payload: {} })))?.needed, "fixture:write")
+    }),
+  )
 
-  it("cube write plus entity edit permits update; cube write alone does not", async () => {
-    const w = world()
-    await Effect.runPromise(w.service.grantCapability(root, { kind: "user", userId: "ana" }, "fixture:write"))
-    const ref = { cube: "fixture", entityType: "Thing", entityId: "t1" }
-    await Effect.runPromise(w.service.claim(root, ref))
-    assert.equal(
-      (await w.failure(w.call("ana", [], "update", { path: { id: "t1" }, payload: {} })))?.needed,
-      "fixture:entity",
-    )
-    assert.deepEqual(w.ran, [])
-    await Effect.runPromise(w.service.grantUser(root, ref, "ana", ["edit"]))
-    await Effect.runPromise(w.call("ana", [], "update", { path: { id: "t1" }, payload: {} }))
-    assert.deepEqual(w.ran, ["update"])
-  })
+  it.effect("cube write plus entity edit permits update; cube write alone does not", () =>
+    Effect.gen(function* () {
+      const w = world()
+      yield* w.service.grantCapability(root, { kind: "user", userId: "ana" }, "fixture:write")
+      const ref = { cube: "fixture", entityType: "Thing", entityId: "t1" }
+      yield* w.service.claim(root, ref)
+      assert.equal(
+        (yield* w.failure(w.call("ana", [], "update", { path: { id: "t1" }, payload: {} })))?.needed,
+        "fixture:entity",
+      )
+      assert.deepEqual(w.ran, [])
+      yield* w.service.grantUser(root, ref, "ana", ["edit"])
+      yield* w.call("ana", [], "update", { path: { id: "t1" }, payload: {} })
+      assert.deepEqual(w.ran, ["update"])
+    }),
+  )
 
-  it("an entity grant without the cube capability is stopped by the route gate", async () => {
-    const w = world()
-    const ref = { cube: "fixture", entityType: "Thing", entityId: "t1" }
-    await Effect.runPromise(w.service.claim(root, ref))
-    await Effect.runPromise(w.service.grantUser(root, ref, "ana"))
-    assert.equal(
-      (await w.failure(w.call("ana", [], "update", { path: { id: "t1" }, payload: {} })))?.needed,
-      "fixture:write",
-    )
-    assert.deepEqual(w.ran, [])
-  })
+  it.effect("an entity grant without the cube capability is stopped by the route gate", () =>
+    Effect.gen(function* () {
+      const w = world()
+      const ref = { cube: "fixture", entityType: "Thing", entityId: "t1" }
+      yield* w.service.claim(root, ref)
+      yield* w.service.grantUser(root, ref, "ana")
+      assert.equal(
+        (yield* w.failure(w.call("ana", [], "update", { path: { id: "t1" }, payload: {} })))?.needed,
+        "fixture:write",
+      )
+      assert.deepEqual(w.ran, [])
+    }),
+  )
 
-  it("group grant applies to members and stops on removal or revoke, on the next request", async () => {
-    const w = world()
-    const sales = await Effect.runPromise(w.service.createGroup(root, "fixture", "Sales"))
-    await Effect.runPromise(w.service.addGroupMember(root, sales.id, "ioana"))
-    const grant = await Effect.runPromise(
-      w.service.grantCapability(root, { kind: "group", groupId: sales.id }, "fixture:read"),
-    )
-    assert.deepEqual(await Effect.runPromise(w.effective("ioana", [])), ["fixture:read"])
-    await Effect.runPromise(w.service.removeGroupMember(root, sales.id, "ioana"))
-    assert.deepEqual(await Effect.runPromise(w.effective("ioana", [])), [])
-    await Effect.runPromise(w.service.addGroupMember(root, sales.id, "ioana"))
-    await Effect.runPromise(w.service.revokeCapabilityGrant(root, grant.id))
-    assert.deepEqual(await Effect.runPromise(w.effective("ioana", [])), [])
-    assert.equal((await w.failure(w.call("ioana", [], "list", listRequest)))?.needed, "fixture:read")
-    const audit = await Effect.runPromise(w.service.audit({ cube: "fixture", action: "capability.revoke" }))
-    assert.equal(audit.length, 1)
-  })
+  it.effect("group grant applies to members and stops on removal or revoke, on the next request", () =>
+    Effect.gen(function* () {
+      const w = world()
+      const sales = yield* w.service.createGroup(root, "fixture", "Sales")
+      yield* w.service.addGroupMember(root, sales.id, "ioana")
+      const grant = yield* w.service.grantCapability(root, { kind: "group", groupId: sales.id }, "fixture:read")
+      assert.deepEqual(yield* w.effective("ioana", []), ["fixture:read"])
+      yield* w.service.removeGroupMember(root, sales.id, "ioana")
+      assert.deepEqual(yield* w.effective("ioana", []), [])
+      yield* w.service.addGroupMember(root, sales.id, "ioana")
+      yield* w.service.revokeCapabilityGrant(root, grant.id)
+      assert.deepEqual(yield* w.effective("ioana", []), [])
+      assert.equal((yield* w.failure(w.call("ioana", [], "list", listRequest)))?.needed, "fixture:read")
+      const audit = yield* w.service.audit({ cube: "fixture", action: "capability.revoke" })
+      assert.equal(audit.length, 1)
+    }),
+  )
 
-  it("only superadmin or the cube admin of THAT cube may grant; grantees cannot re-delegate", async () => {
-    const w = world()
-    const attempt = (actor: { userId: string; roles: ReadonlyArray<string> }, capability = "fixture:write") =>
-      Effect.runPromise(Effect.flip(w.service.grantCapability(actor, { kind: "user", userId: "eve" }, capability)))
-    assert.ok((await attempt({ userId: "mihai", roles: ["reader"] })) instanceof PermissionForbidden)
-    await Effect.runPromise(w.service.grantCapability(root, { kind: "user", userId: "ana" }, "fixture:write"))
-    assert.ok((await attempt({ userId: "ana", roles: [] })) instanceof PermissionForbidden)
-    assert.ok(
-      (await Effect.runPromise(
-        Effect.flip(w.service.revokeCapabilityGrant({ userId: "ana", roles: [] }, "cap-1")),
-      )) instanceof PermissionForbidden,
-    )
-    await Effect.runPromise(w.service.assignCubeAdmin(root, "other", "cuby"))
-    assert.ok((await attempt({ userId: "cuby", roles: [] })) instanceof PermissionForbidden)
-    await Effect.runPromise(w.service.assignCubeAdmin(root, "fixture", "cuby"))
-    assert.equal(
-      (
-        await Effect.runPromise(
-          w.service.grantCapability({ userId: "cuby", roles: [] }, { kind: "user", userId: "eve" }, "fixture:write"),
-        )
-      ).capability,
-      "fixture:write",
-    )
-  })
+  it.effect("only superadmin or the cube admin of THAT cube may grant; grantees cannot re-delegate", () =>
+    Effect.gen(function* () {
+      const w = world()
+      const attempt = (actor: { userId: string; roles: ReadonlyArray<string> }, capability = "fixture:write") =>
+        Effect.flip(w.service.grantCapability(actor, { kind: "user", userId: "eve" }, capability))
+      assert.ok((yield* attempt({ userId: "mihai", roles: ["reader"] })) instanceof PermissionForbidden)
+      yield* w.service.grantCapability(root, { kind: "user", userId: "ana" }, "fixture:write")
+      assert.ok((yield* attempt({ userId: "ana", roles: [] })) instanceof PermissionForbidden)
+      assert.ok(
+        (yield* Effect.flip(w.service.revokeCapabilityGrant({ userId: "ana", roles: [] }, "cap-1"))) instanceof
+          PermissionForbidden,
+      )
+      yield* w.service.assignCubeAdmin(root, "other", "cuby")
+      assert.ok((yield* attempt({ userId: "cuby", roles: [] })) instanceof PermissionForbidden)
+      yield* w.service.assignCubeAdmin(root, "fixture", "cuby")
+      assert.equal(
+        (yield* w.service.grantCapability(
+          { userId: "cuby", roles: [] },
+          { kind: "user", userId: "eve" },
+          "fixture:write",
+        )).capability,
+        "fixture:write",
+      )
+    }),
+  )
 
-  it("rejects undeclared capabilities and groups of another cube", async () => {
-    const w = world()
-    const undeclared = await Effect.runPromise(
-      Effect.flip(w.service.grantCapability(root, { kind: "user", userId: "eve" }, "fixture:delete")),
-    )
-    assert.ok(undeclared instanceof PermissionInvalid)
-    const foreign = await Effect.runPromise(w.service.createGroup(root, "other", "Ops"))
-    const crossed = await Effect.runPromise(
-      Effect.flip(w.service.grantCapability(root, { kind: "group", groupId: foreign.id }, "fixture:write")),
-    )
-    assert.ok(crossed instanceof PermissionInvalid)
-    assert.deepEqual(await Effect.runPromise(w.service.listCapabilityGrants(root, "fixture")), [])
-  })
+  it.effect("rejects undeclared capabilities and groups of another cube", () =>
+    Effect.gen(function* () {
+      const w = world()
+      const undeclared = yield* Effect.flip(
+        w.service.grantCapability(root, { kind: "user", userId: "eve" }, "fixture:delete"),
+      )
+      assert.ok(undeclared instanceof PermissionInvalid)
+      const foreign = yield* w.service.createGroup(root, "other", "Ops")
+      const crossed = yield* Effect.flip(
+        w.service.grantCapability(root, { kind: "group", groupId: foreign.id }, "fixture:write"),
+      )
+      assert.ok(crossed instanceof PermissionInvalid)
+      assert.deepEqual(yield* w.service.listCapabilityGrants(root, "fixture"), [])
+    }),
+  )
 
-  it("revoking an unknown grant id is not found; a repeated grant is idempotent and audited", async () => {
-    const w = world()
-    const missing = await Effect.runPromise(Effect.flip(w.service.revokeCapabilityGrant(root, "cap-404")))
-    assert.ok(missing instanceof PermissionNotFound)
-    const subject = { kind: "user", userId: "ana" } as const
-    const first = await Effect.runPromise(w.service.grantCapability(root, subject, "fixture:read"))
-    const again = await Effect.runPromise(w.service.grantCapability(root, subject, "fixture:read"))
-    assert.equal(again.id, first.id)
-    assert.equal((await Effect.runPromise(w.service.listCapabilityGrants(root, "fixture"))).length, 1)
-    const audit = await Effect.runPromise(w.service.audit({ cube: "fixture", action: "capability.grant.user" }))
-    assert.deepEqual(
-      audit.map((event) => (event.before === null ? "new" : "repeat")),
-      ["new", "repeat"],
-    )
-  })
+  it.effect("revoking an unknown grant id is not found; a repeated grant is idempotent and audited", () =>
+    Effect.gen(function* () {
+      const w = world()
+      const missing = yield* Effect.flip(w.service.revokeCapabilityGrant(root, "cap-404"))
+      assert.ok(missing instanceof PermissionNotFound)
+      const subject = { kind: "user", userId: "ana" } as const
+      const first = yield* w.service.grantCapability(root, subject, "fixture:read")
+      const again = yield* w.service.grantCapability(root, subject, "fixture:read")
+      assert.equal(again.id, first.id)
+      assert.equal((yield* w.service.listCapabilityGrants(root, "fixture")).length, 1)
+      const audit = yield* w.service.audit({ cube: "fixture", action: "capability.grant.user" })
+      assert.deepEqual(
+        audit.map((event) => (event.before === null ? "new" : "repeat")),
+        ["new", "repeat"],
+      )
+    }),
+  )
 
-  it("a grant of a cube that is no longer mounted names nothing", async () => {
-    const mounted = new Map(declared)
-    const w = world(mounted)
-    await Effect.runPromise(w.service.grantCapability(root, { kind: "user", userId: "ana" }, "other:write"))
-    assert.deepEqual(await Effect.runPromise(w.effective("ana", [])), ["other:write"])
-    mounted.delete("other:write")
-    assert.deepEqual(await Effect.runPromise(w.effective("ana", [])), [])
-  })
+  it.effect("a grant of a cube that is no longer mounted names nothing", () =>
+    Effect.gen(function* () {
+      const mounted = new Map(declared)
+      const w = world(mounted)
+      yield* w.service.grantCapability(root, { kind: "user", userId: "ana" }, "other:write")
+      assert.deepEqual(yield* w.effective("ana", []), ["other:write"])
+      mounted.delete("other:write")
+      assert.deepEqual(yield* w.effective("ana", []), [])
+    }),
+  )
 
-  it("concurrent duplicate grants: one revoke, by either id, retires the capability", async () => {
-    // A store whose reads take a tick, like Postgres: both fibers read "no grant" before either
-    // inserts. No unique constraint in the store contract, so both land; access must still end
-    // on revoke.
-    const sync = memoryStore()
-    const racy: CubeTools["store"] = {
-      ...sync,
-      page: (...args: Parameters<CubeTools["store"]["page"]>) => Effect.delay(sync.page(...args), 0),
-    }
-    const w = world(declared, racy)
-    const grant = w.service.grantCapability(root, { kind: "user", userId: "ana" }, "fixture:read")
-    const [left, right] = await Effect.runPromise(Effect.all([grant, grant], { concurrency: "unbounded" }))
-    assert.notEqual(left.id, right.id, "the race must produce two rows, or this test proves nothing")
-    assert.deepEqual(await Effect.runPromise(w.effective("ana", [])), ["fixture:read"])
-    await Effect.runPromise(w.service.revokeCapabilityGrant(root, right.id))
-    assert.deepEqual(await Effect.runPromise(w.effective("ana", [])), [])
-    assert.deepEqual(await Effect.runPromise(w.service.listCapabilityGrants(root, "fixture")), [])
-    const gone = await Effect.runPromise(Effect.flip(w.service.revokeCapabilityGrant(root, left.id)))
-    assert.ok(gone instanceof PermissionNotFound)
-  })
+  it.live("concurrent duplicate grants: one revoke, by either id, retires the capability", () =>
+    Effect.gen(function* () {
+      // A store whose reads take a tick, like Postgres: both fibers read "no grant" before either
+      // inserts. No unique constraint in the store contract, so both land; access must still end
+      // on revoke. Live clock: under the TestClock the zero delay never yields, so no race.
+      const sync = memoryStore()
+      const racy: CubeTools["store"] = {
+        ...sync,
+        page: (...args: Parameters<CubeTools["store"]["page"]>) => Effect.delay(sync.page(...args), 0),
+      }
+      const w = world(declared, racy)
+      const grant = w.service.grantCapability(root, { kind: "user", userId: "ana" }, "fixture:read")
+      const [left, right] = yield* Effect.all([grant, grant], { concurrency: "unbounded" })
+      assert.notEqual(left.id, right.id, "the race must produce two rows, or this test proves nothing")
+      assert.deepEqual(yield* w.effective("ana", []), ["fixture:read"])
+      yield* w.service.revokeCapabilityGrant(root, right.id)
+      assert.deepEqual(yield* w.effective("ana", []), [])
+      assert.deepEqual(yield* w.service.listCapabilityGrants(root, "fixture"), [])
+      const gone = yield* Effect.flip(w.service.revokeCapabilityGrant(root, left.id))
+      assert.ok(gone instanceof PermissionNotFound)
+    }),
+  )
 
-  it("roles stay as they were: revoking a grant leaves the role permission in place", async () => {
-    const w = world()
-    const grant = await Effect.runPromise(
-      w.service.grantCapability(root, { kind: "user", userId: "mihai" }, "fixture:read"),
-    )
-    assert.deepEqual(await Effect.runPromise(w.effective("mihai", ["reader"])), ["fixture:read"])
-    await Effect.runPromise(w.service.revokeCapabilityGrant(root, grant.id))
-    assert.deepEqual(await Effect.runPromise(w.effective("mihai", ["reader"])), ["fixture:read"])
-    assert.deepEqual(await Effect.runPromise(w.effective("root", ["admin"])), [
-      "fixture:read",
-      "fixture:write",
-      "other:write",
-    ])
-  })
+  it.effect("roles stay as they were: revoking a grant leaves the role permission in place", () =>
+    Effect.gen(function* () {
+      const w = world()
+      const grant = yield* w.service.grantCapability(root, { kind: "user", userId: "mihai" }, "fixture:read")
+      assert.deepEqual(yield* w.effective("mihai", ["reader"]), ["fixture:read"])
+      yield* w.service.revokeCapabilityGrant(root, grant.id)
+      assert.deepEqual(yield* w.effective("mihai", ["reader"]), ["fixture:read"])
+      assert.deepEqual(yield* w.effective("root", ["admin"]), ["fixture:read", "fixture:write", "other:write"])
+    }),
+  )
 })
 
 describe("the same matrix over HTTP: real router, real Authorization middleware, one token per user (QWB-63)", () => {
-  it("grant and revoke change what the SAME token may do; the entity gate stays independent", async () => {
-    const w = world()
-    const root = await w.token("root", ["admin"])
-    const ana = await w.token("ana", [])
-    const needed = async (response: { status: number; body: Record<string, unknown> | null }) => {
-      assert.equal(response.status, 403)
-      return response.body?.needed
-    }
-    // Ordinary user: stopped by the route gate, handler never runs.
-    assert.equal(await needed(await w.http("GET", "/fixture?offset=0&limit=10", ana)), "fixture:read")
-    // Manager grants exactly read.
-    const read = await w.http("POST", "/permissions/capabilities/user", root, {
-      capability: "fixture:read",
-      username: "ana",
-    })
-    assert.equal(read.status, 200)
-    assert.equal(read.body?.capability, "fixture:read")
-    const me = await w.http("GET", "/auth/me", ana)
-    assert.deepEqual(me.body?.permissions, ["fixture:read"])
-    const empty = await w.http("GET", "/fixture?offset=0&limit=10", ana)
-    assert.deepEqual(
-      [empty.status, (empty.body?.rows as unknown[] | undefined)?.length, empty.body?.total],
-      [200, 0, 0],
-    )
-    assert.equal(await needed(await w.http("GET", "/fixture/t1", ana)), "fixture:entity")
-    assert.equal(await needed(await w.http("POST", "/fixture", ana, { id: "x", title: "x" })), "fixture:write")
-    // Cube write alone: route gate passes, entity gate refuses; entity edit grant then permits.
-    const write = await w.http("POST", "/permissions/capabilities/user", root, {
-      capability: "fixture:write",
-      username: "ana",
-    })
-    assert.equal(write.status, 200)
-    const ref = { cube: "fixture", entityType: "Thing", entityId: "t1" }
-    await Effect.runPromise(w.service.claim({ userId: "root", roles: ["admin"] }, ref))
-    assert.equal(await needed(await w.http("PATCH", "/fixture/t1", ana, { id: "t1", title: "y" })), "fixture:entity")
-    assert.deepEqual(w.ran, [])
-    await Effect.runPromise(w.service.grantUser({ userId: "root", roles: ["admin"] }, ref, "ana", ["edit"]))
-    assert.equal((await w.http("PATCH", "/fixture/t1", ana, { id: "t1", title: "y" })).status, 200)
-    assert.deepEqual(w.ran, ["update"])
-    // Grantee is not a manager: cannot grant, revoke or list.
-    const forbidden = await w.http("POST", "/permissions/capabilities/user", ana, {
-      capability: "fixture:read",
-      username: "eve",
-    })
-    assert.equal(forbidden.status, 403)
-    assert.equal((await w.http("GET", "/permissions/capabilities?cube=fixture", ana)).status, 403)
-    assert.equal((await w.http("DELETE", `/permissions/capabilities/${write.body?.id}`, ana)).status, 403)
-    // Undeclared capability and a group of another cube are 400s; a manager sees both grants.
-    const bad = await w.http("POST", "/permissions/capabilities/user", root, {
-      capability: "fixture:delete",
-      username: "ana",
-    })
-    assert.equal(bad.status, 400)
-    const grants = await w.http("GET", "/permissions/capabilities?cube=fixture", root)
-    assert.deepEqual((grants.body as unknown as Array<{ capability: string }>).map((g) => g.capability).sort(), [
-      "fixture:read",
-      "fixture:write",
-    ])
-    // Revoke write: the same token loses update on its next request, keeps read (additive).
-    assert.equal((await w.http("DELETE", `/permissions/capabilities/${write.body?.id}`, root)).status, 200)
-    assert.equal(await needed(await w.http("PATCH", "/fixture/t1", ana, { id: "t1", title: "z" })), "fixture:write")
-    assert.equal((await w.http("GET", "/fixture?offset=0&limit=10", ana)).status, 200)
-    assert.equal((await w.http("DELETE", `/permissions/capabilities/${read.body?.id}`, root)).status, 200)
-    assert.equal(await needed(await w.http("GET", "/fixture?offset=0&limit=10", ana)), "fixture:read")
-    assert.deepEqual((await w.http("GET", "/auth/me", ana)).body?.permissions, [])
-    // Group member list over HTTP: offset/limit are honoured by the handler's slice, the
-    // total is the whole active membership, and a user without authority over the cube is 403.
-    const sales = await w.http("POST", "/permissions/groups", root, { cube: "fixture", name: "Sales" })
-    assert.equal(sales.status, 200)
-    for (const username of ["m1", "m2", "m3"]) {
-      assert.equal(
-        (await w.http("POST", `/permissions/groups/${sales.body?.id}/members`, root, { username })).status,
-        200,
+  it.effect("grant and revoke change what the SAME token may do; the entity gate stays independent", () =>
+    Effect.gen(function* () {
+      const w = world()
+      const root = yield* w.token("root", ["admin"])
+      const ana = yield* w.token("ana", [])
+      const needed = (response: { status: number; body: Record<string, unknown> | null }) => {
+        assert.equal(response.status, 403)
+        return response.body?.needed
+      }
+      // Ordinary user: stopped by the route gate, handler never runs.
+      assert.equal(needed(yield* w.http("GET", "/fixture?offset=0&limit=10", ana)), "fixture:read")
+      // Manager grants exactly read.
+      const read = yield* w.http("POST", "/permissions/capabilities/user", root, {
+        capability: "fixture:read",
+        username: "ana",
+      })
+      assert.equal(read.status, 200)
+      assert.equal(read.body?.capability, "fixture:read")
+      const me = yield* w.http("GET", "/auth/me", ana)
+      assert.deepEqual(me.body?.permissions, ["fixture:read"])
+      const empty = yield* w.http("GET", "/fixture?offset=0&limit=10", ana)
+      assert.deepEqual(
+        [empty.status, (empty.body?.rows as unknown[] | undefined)?.length, empty.body?.total],
+        [200, 0, 0],
       )
-    }
-    const membersPath = `/permissions/groups/${sales.body?.id}/members`
-    const secondPage = await w.http("GET", `${membersPath}?offset=2&limit=1`, root)
-    assert.equal(secondPage.status, 200)
-    assert.deepEqual(
-      [
-        (secondPage.body?.rows as Array<{ userId: string }> | undefined)?.map((row) => row.userId),
-        secondPage.body?.total,
-        secondPage.body?.offset,
-        secondPage.body?.limit,
-      ],
-      [["m3"], 3, 2, 1],
-    )
-    assert.equal((await w.http("GET", membersPath, ana)).status, 403)
-    assert.equal((await w.http("GET", membersPath)).status, 401)
-    assert.equal((await w.http("GET", "/permissions/groups/grp-missing/members", root)).status, 404)
-    await w.dispose()
-  })
+      assert.equal(needed(yield* w.http("GET", "/fixture/t1", ana)), "fixture:entity")
+      assert.equal(needed(yield* w.http("POST", "/fixture", ana, { id: "x", title: "x" })), "fixture:write")
+      // Cube write alone: route gate passes, entity gate refuses; entity edit grant then permits.
+      const write = yield* w.http("POST", "/permissions/capabilities/user", root, {
+        capability: "fixture:write",
+        username: "ana",
+      })
+      assert.equal(write.status, 200)
+      const ref = { cube: "fixture", entityType: "Thing", entityId: "t1" }
+      yield* w.service.claim({ userId: "root", roles: ["admin"] }, ref)
+      assert.equal(needed(yield* w.http("PATCH", "/fixture/t1", ana, { id: "t1", title: "y" })), "fixture:entity")
+      assert.deepEqual(w.ran, [])
+      yield* w.service.grantUser({ userId: "root", roles: ["admin"] }, ref, "ana", ["edit"])
+      assert.equal((yield* w.http("PATCH", "/fixture/t1", ana, { id: "t1", title: "y" })).status, 200)
+      assert.deepEqual(w.ran, ["update"])
+      // Grantee is not a manager: cannot grant, revoke or list.
+      const forbidden = yield* w.http("POST", "/permissions/capabilities/user", ana, {
+        capability: "fixture:read",
+        username: "eve",
+      })
+      assert.equal(forbidden.status, 403)
+      assert.equal((yield* w.http("GET", "/permissions/capabilities?cube=fixture", ana)).status, 403)
+      assert.equal((yield* w.http("DELETE", `/permissions/capabilities/${write.body?.id}`, ana)).status, 403)
+      // Undeclared capability and a group of another cube are 400s; a manager sees both grants.
+      const bad = yield* w.http("POST", "/permissions/capabilities/user", root, {
+        capability: "fixture:delete",
+        username: "ana",
+      })
+      assert.equal(bad.status, 400)
+      const grants = yield* w.http("GET", "/permissions/capabilities?cube=fixture", root)
+      assert.deepEqual((grants.body as unknown as Array<{ capability: string }>).map((g) => g.capability).sort(), [
+        "fixture:read",
+        "fixture:write",
+      ])
+      // Revoke write: the same token loses update on its next request, keeps read (additive).
+      assert.equal((yield* w.http("DELETE", `/permissions/capabilities/${write.body?.id}`, root)).status, 200)
+      assert.equal(needed(yield* w.http("PATCH", "/fixture/t1", ana, { id: "t1", title: "z" })), "fixture:write")
+      assert.equal((yield* w.http("GET", "/fixture?offset=0&limit=10", ana)).status, 200)
+      assert.equal((yield* w.http("DELETE", `/permissions/capabilities/${read.body?.id}`, root)).status, 200)
+      assert.equal(needed(yield* w.http("GET", "/fixture?offset=0&limit=10", ana)), "fixture:read")
+      assert.deepEqual((yield* w.http("GET", "/auth/me", ana)).body?.permissions, [])
+      // Group member list over HTTP: offset/limit are honoured by the handler's slice, the
+      // total is the whole active membership, and a user without authority over the cube is 403.
+      const sales = yield* w.http("POST", "/permissions/groups", root, { cube: "fixture", name: "Sales" })
+      assert.equal(sales.status, 200)
+      for (const username of ["m1", "m2", "m3"]) {
+        assert.equal(
+          (yield* w.http("POST", `/permissions/groups/${sales.body?.id}/members`, root, { username })).status,
+          200,
+        )
+      }
+      const membersPath = `/permissions/groups/${sales.body?.id}/members`
+      const secondPage = yield* w.http("GET", `${membersPath}?offset=2&limit=1`, root)
+      assert.equal(secondPage.status, 200)
+      assert.deepEqual(
+        [
+          (secondPage.body?.rows as Array<{ userId: string }> | undefined)?.map((row) => row.userId),
+          secondPage.body?.total,
+          secondPage.body?.offset,
+          secondPage.body?.limit,
+        ],
+        [["m3"], 3, 2, 1],
+      )
+      assert.equal((yield* w.http("GET", membersPath, ana)).status, 403)
+      assert.equal((yield* w.http("GET", membersPath)).status, 401)
+      assert.equal((yield* w.http("GET", "/permissions/groups/grp-missing/members", root)).status, 404)
+      yield* Effect.promise(() => w.dispose())
+    }),
+  )
 })

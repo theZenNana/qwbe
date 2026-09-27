@@ -4,9 +4,9 @@
 // protection are what this file pins down.
 
 import assert from "node:assert/strict"
+import { describe, it } from "@effect/vitest"
 import { Effect } from "effect"
 import type { CubeTools } from "qwbe-core/cube"
-import { describe, it } from "vitest"
 import { CurrentUser } from "../../kernel/auth-contract.ts"
 import { BadRequest, Forbidden, NotFound } from "../../kernel/errors.ts"
 import { routeContracts } from "../../metadata/metadata.ts"
@@ -74,8 +74,6 @@ const catalogueEntry = (over: Record<string, unknown> = {}): Record<string, unkn
   ...over,
 })
 
-const run = (effect: Effect.Effect<unknown, unknown, never>) => Effect.runPromise(effect)
-
 describe("settings cube contract (QWB-69)", () => {
   it("is required, holds the managesCubes privilege, and publishes admin-gated writes", () => {
     assert.equal(cube.manifest.name, "settings")
@@ -97,99 +95,110 @@ describe("settings cube contract (QWB-69)", () => {
 })
 
 describe("settings handlers over stubbed capabilities (QWB-69)", () => {
-  it("lists cubes from the catalogue", async () => {
-    const p = cube.create(settingsTools([catalogueEntry()]))
-    const eff = Effect.provideService(
-      (p.handlers.cubes as () => Effect.Effect<unknown, Forbidden, CurrentUser>)(),
-      CurrentUser,
-      user(["settings:read"]),
-    )
-    const out = (await run(eff)) as Array<Record<string, unknown>>
-    assert.equal(out.length, 1)
-    assert.equal(out[0]!.name, "notes")
-    assert.equal(out[0]!.enabled, true)
-  })
+  it.effect("lists cubes from the catalogue", () =>
+    Effect.gen(function* () {
+      const p = cube.create(settingsTools([catalogueEntry()]))
+      const eff = Effect.provideService(
+        (p.handlers.cubes as () => Effect.Effect<unknown, Forbidden, CurrentUser>)(),
+        CurrentUser,
+        user(["settings:read"]),
+      )
+      const out = (yield* eff) as Array<Record<string, unknown>>
+      assert.equal(out.length, 1)
+      assert.equal(out[0]!.name, "notes")
+      assert.equal(out[0]!.enabled, true)
+    }),
+  )
 
-  it("refuses a reader on a write route (settings:write is admin-only)", async () => {
-    const p = cube.create(settingsTools([catalogueEntry()]))
-    const eff = Effect.provideService(
-      (
-        p.handlers.toggle as (a: {
-          path: { name: string }
-          payload: { enabled: boolean }
-        }) => Effect.Effect<unknown, Forbidden, CurrentUser>
-      )({
-        path: { name: "notes" },
-        payload: { enabled: false },
-      }),
-      CurrentUser,
-      user(["settings:read"]),
-    )
-    const err = (await run(Effect.flip(eff))) as Forbidden
-    assert.ok(err instanceof Forbidden)
-    assert.equal(err.needed, "settings:write")
-  })
+  it.effect("refuses a reader on a write route (settings:write is admin-only)", () =>
+    Effect.gen(function* () {
+      const p = cube.create(settingsTools([catalogueEntry()]))
+      const eff = Effect.provideService(
+        (
+          p.handlers.toggle as (a: {
+            path: { name: string }
+            payload: { enabled: boolean }
+          }) => Effect.Effect<unknown, Forbidden, CurrentUser>
+        )({
+          path: { name: "notes" },
+          payload: { enabled: false },
+        }),
+        CurrentUser,
+        user(["settings:read"]),
+      )
+      const err = yield* Effect.flip(eff)
+      assert.ok(err instanceof Forbidden)
+      assert.equal(err.needed, "settings:write")
+    }),
+  )
 
-  it("returns a typed NotFound when toggling a cube that is not mounted", async () => {
-    const p = cube.create(settingsTools([catalogueEntry()]))
-    const eff = Effect.provideService(
-      (
-        p.handlers.toggle as (a: {
-          path: { name: string }
-          payload: { enabled: boolean }
-        }) => Effect.Effect<unknown, NotFound | Forbidden, CurrentUser>
-      )({
-        path: { name: "ghost-cube" },
-        payload: { enabled: true },
-      }),
-      CurrentUser,
-      user(["settings:write"]),
-    )
-    const err = (await run(Effect.flip(eff))) as NotFound
-    assert.ok(err instanceof NotFound)
-    assert.match(err.message, /not mounted/)
-  })
+  it.effect("returns a typed NotFound when toggling a cube that is not mounted", () =>
+    Effect.gen(function* () {
+      const p = cube.create(settingsTools([catalogueEntry()]))
+      const eff = Effect.provideService(
+        (
+          p.handlers.toggle as (a: {
+            path: { name: string }
+            payload: { enabled: boolean }
+          }) => Effect.Effect<unknown, NotFound | Forbidden, CurrentUser>
+        )({
+          path: { name: "ghost-cube" },
+          payload: { enabled: true },
+        }),
+        CurrentUser,
+        user(["settings:write"]),
+      )
+      const err = yield* Effect.flip(eff)
+      assert.ok(err instanceof NotFound)
+      assert.match(err.message, /not mounted/)
+    }),
+  )
 
-  it("restart answers, then actually runs the kernel's restart", async () => {
-    let restarted = false
-    const tools = settingsTools([catalogueEntry()])
-    const p = cube.create({
-      ...tools,
-      installer: {
-        ...tools.installer!,
-        restart: () =>
-          Effect.sync(() => {
-            restarted = true
-          }),
-      },
-    })
-    const eff = Effect.provideService(
-      (p.handlers.restart as () => Effect.Effect<unknown, Forbidden, CurrentUser>)(),
-      CurrentUser,
-      user(["settings:write"]),
-    )
-    const out = (await run(eff)) as { restarting: boolean }
-    assert.equal(out.restarting, true)
-    // Forked as a daemon: it runs after the handler returned, not never.
-    await new Promise((resolve) => setTimeout(resolve, 20))
-    assert.equal(restarted, true)
-  })
+  // Live clock: the restart is forked as a daemon and the test waits for it on real time.
+  it.live("restart answers, then actually runs the kernel's restart", () =>
+    Effect.gen(function* () {
+      let restarted = false
+      const tools = settingsTools([catalogueEntry()])
+      const p = cube.create({
+        ...tools,
+        installer: {
+          ...tools.installer!,
+          restart: () =>
+            Effect.sync(() => {
+              restarted = true
+            }),
+        },
+      })
+      const eff = Effect.provideService(
+        (p.handlers.restart as () => Effect.Effect<unknown, Forbidden, CurrentUser>)(),
+        CurrentUser,
+        user(["settings:write"]),
+      )
+      const out = (yield* eff) as { restarting: boolean }
+      assert.equal(out.restarting, true)
+      // Forked as a daemon: it runs after the handler returned, not never.
+      yield* Effect.sleep("20 millis")
+      assert.equal(restarted, true)
+    }),
+  )
 
-  it("protects a required cube from uninstall with BadRequest", async () => {
-    const p = cube.create(settingsTools([catalogueEntry({ name: "auth", required: true })]))
-    const eff = Effect.provideService(
-      (
-        p.handlers.uninstall as (a: {
-          path: { name: string }
-        }) => Effect.Effect<unknown, NotFound | BadRequest | Forbidden, CurrentUser>
-      )({
-        path: { name: "auth" },
-      }),
-      CurrentUser,
-      user(["settings:write"]),
-    )
-    const err = (await run(Effect.flip(eff))) as BadRequest
-    assert.ok(err instanceof BadRequest)
-    assert.match(err.message, /required and cannot be removed/)
-  })
+  it.effect("protects a required cube from uninstall with BadRequest", () =>
+    Effect.gen(function* () {
+      const p = cube.create(settingsTools([catalogueEntry({ name: "auth", required: true })]))
+      const eff = Effect.provideService(
+        (
+          p.handlers.uninstall as (a: {
+            path: { name: string }
+          }) => Effect.Effect<unknown, NotFound | BadRequest | Forbidden, CurrentUser>
+        )({
+          path: { name: "auth" },
+        }),
+        CurrentUser,
+        user(["settings:write"]),
+      )
+      const err = yield* Effect.flip(eff)
+      assert.ok(err instanceof BadRequest)
+      assert.match(err.message, /required and cannot be removed/)
+    }),
+  )
 })

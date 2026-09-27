@@ -5,8 +5,8 @@
 // permission always comes through `declaredPermission`, never a literal next to the call.
 
 import assert from "node:assert/strict"
-import { Cause, Effect, Exit } from "effect"
-import { describe, it } from "vitest"
+import { describe, it } from "@effect/vitest"
+import { Effect } from "effect"
 import { CurrentUser, declaredPermission } from "./kernel/auth-contract.ts"
 import type { MountedCube } from "./kernel/discovery.ts"
 import { Forbidden } from "./kernel/errors.ts"
@@ -41,29 +41,28 @@ const run = (handler: unknown, permissions: ReadonlyArray<string>): Effect.Effec
     Effect.provideService(CurrentUser, actor(permissions)),
   )
 
-/** The first typed failure, or null on success -- `runPromise` wraps errors, Exit does not. */
-const failureOf = async (effect: Effect.Effect<unknown, unknown, never>) => {
-  const exit = await Effect.runPromiseExit(effect)
-  if (Exit.isSuccess(exit)) return null
-  return (Array.from(Cause.failures(exit.cause))[0] as Forbidden | undefined) ?? null
-}
-
 describe("withDeclaredPermission -- the declaration IS the enforcement (QWB-54, 14c)", () => {
-  it("refuses a handler that never checks its own permission, with the DECLARED name", async () => {
-    const wrapped = withDeclaredPermission(cube, "create", handlers.create)
-    const error = await failureOf(run(wrapped, []))
-    assert.ok(error instanceof Forbidden)
-    assert.equal(error.needed, manifest.routes.create)
-    assert.equal(error.needed, declaredPermission(manifest.routes, manifest.name, "create"))
-  })
+  it.effect("refuses a handler that never checks its own permission, with the DECLARED name", () =>
+    Effect.gen(function* () {
+      const wrapped = withDeclaredPermission(cube, "create", handlers.create)
+      const error = yield* Effect.flip(run(wrapped, []))
+      assert.ok(error instanceof Forbidden)
+      assert.equal(error.needed, manifest.routes.create)
+      assert.equal(error.needed, declaredPermission(manifest.routes, manifest.name, "create"))
+    }),
+  )
 
-  it("runs the handler when the caller holds the declared permission", async () => {
-    const wrapped = withDeclaredPermission(cube, "create", handlers.create)
-    assert.equal(await Effect.runPromise(run(wrapped, [manifest.routes.create])), "ran")
-  })
+  it.effect("runs the handler when the caller holds the declared permission", () =>
+    Effect.gen(function* () {
+      const wrapped = withDeclaredPermission(cube, "create", handlers.create)
+      assert.equal(yield* run(wrapped, [manifest.routes.create]), "ran")
+    }),
+  )
 
-  it("leaves an endpoint with no declaration to decide per request", async () => {
-    const wrapped = withDeclaredPermission(cube, "me", handlers.me)
-    assert.equal(await Effect.runPromise(run(wrapped, [])), "ran")
-  })
+  it.effect("leaves an endpoint with no declaration to decide per request", () =>
+    Effect.gen(function* () {
+      const wrapped = withDeclaredPermission(cube, "me", handlers.me)
+      assert.equal(yield* run(wrapped, []), "ran")
+    }),
+  )
 })
