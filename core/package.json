@@ -71,7 +71,7 @@
   },
   "scripts": {
     "start": "node src/main.ts",
-    "build": "node tools/build.ts",
+    "build": "node tools/dev/build.ts",
     "prepack": "npm run build",
     "test": "vitest run",
     "test:live": "vitest run --config vitest.live.config.ts",

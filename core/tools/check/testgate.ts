@@ -1,7 +1,7 @@
 import { join } from "node:path"
 import * as FileSystem from "@effect/platform/FileSystem"
 import * as Effect from "effect/Effect"
-import { IS_TEST, walk } from "../src/package-size.ts"
+import { IS_TEST, walk } from "../../src/package-size.ts"
 
 // Where one unit is one child directory; units are found on disk, never from a list.
 const UNIT_HOLDERS = ["core/src/cubes", "core/src/spaces"]

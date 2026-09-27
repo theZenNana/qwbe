@@ -1,11 +1,11 @@
-// Entry point: `node core/tools/setup.ts`, started by `npm run setup` through bootstrap.mjs.
+// Entry point: `node core/tools/setup/setup.ts`, started by `npm run setup` through bootstrap.mjs.
 import { fileURLToPath } from "node:url"
 import * as FileSystem from "@effect/platform/FileSystem"
 import * as Console from "effect/Console"
 import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
-import { inherit } from "./process.ts"
-import { runTool } from "./run-tool.ts"
+import { inherit } from "../shared/process.ts"
+import { runTool } from "../shared/run-tool.ts"
 import {
   dataDirFor,
   INSTALL_ARGV,
@@ -37,7 +37,7 @@ const makeDataDir = (dir: string) =>
     Effect.zipRight(Console.log(`data directory: ${dir}`)),
   )
 
-const root = fileURLToPath(new URL("../..", import.meta.url))
+const root = fileURLToPath(new URL("../../..", import.meta.url))
 
 // In order; the first failure stops the rest.
 const stages = [

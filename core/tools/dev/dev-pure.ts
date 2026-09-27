@@ -1,9 +1,9 @@
 // Decisions of the dev supervisor; dev.ts and dev-ports.ts do the I/O.
 import * as Either from "effect/Either"
 import * as Schema from "effect/Schema"
-import { Port } from "./config.ts"
-import type { Argv } from "./process.ts"
-import { withoutAllowScripts } from "./process-pure.ts"
+import { Port } from "../shared/config.ts"
+import type { Argv } from "../shared/process.ts"
+import { withoutAllowScripts } from "../shared/process-pure.ts"
 
 // The API restarts on exit 0 (the admin restart). More than five clean exits in a row, each under
 // 10 s, is a loop, not a restart.

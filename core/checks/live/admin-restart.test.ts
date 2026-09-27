@@ -15,7 +15,7 @@ import { sessionAs } from "../_layers/session.ts"
 import { testWorkspace } from "../_layers/test-server.ts"
 import { CORE, Workspace } from "../_layers/workspace.ts"
 
-// Replaces probes/admin-restart.mjs: the admin restart button under core/tools/dev.ts, the dev
+// Replaces probes/admin-restart.mjs: the admin restart button under core/tools/dev/dev.ts, the dev
 // supervisor. The API exits 0, the supervisor brings it back, the web frontend stays up.
 // Opt-in, slow (Next compiles in dev mode): QWBE_CHECK_RESTART=1 npm --prefix core run test:live.
 
@@ -75,7 +75,7 @@ const guardWebTree = (distDir: string) => Effect.zipRight(preserved(GENERATED), 
 const startDev = (env: Readonly<Record<string, string | undefined>>) =>
   Effect.gen(function* () {
     const proc = yield* Command.start(
-      Command.make(process.execPath, join(CORE, "tools", "dev.ts"), "start").pipe(
+      Command.make(process.execPath, join(CORE, "tools", "dev", "dev.ts"), "start").pipe(
         Command.workingDirectory(ROOT),
         Command.env(env),
       ),

@@ -6,7 +6,7 @@ import * as Effect from "effect/Effect"
 import * as Ref from "effect/Ref"
 import * as Schedule from "effect/Schedule"
 import * as Stream from "effect/Stream"
-import { withoutAllowScripts } from "../../tools/process-pure.ts"
+import { withoutAllowScripts } from "../../tools/shared/process-pure.ts"
 import { freePort } from "./free-port.ts"
 import { CORE, Workspace } from "./workspace.ts"
 

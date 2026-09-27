@@ -1,12 +1,12 @@
 import * as Effect from "effect/Effect"
 import { bench, inject } from "vitest"
-import { BENCH } from "../../tools/bench-budget-pure.ts"
+import { BENCH } from "../../tools/check/bench-budget-pure.ts"
 import { connect, query } from "../_layers/postgres.ts"
 import { benchAdmin, okBody, runHttp } from "./client.ts"
 
 // Replaces the timing half of probes/list.mjs (its correctness half is kernel/list.test.ts): on
 // 60,000 accounts, paging and filtering run in Postgres, so a deep page costs about what the
-// first one does. tools/bench-budget.ts holds the medians to bench.list60k in qwbe.yaml.
+// first one does. tools/check/bench-budget.ts holds the medians to bench.list60k in qwbe.yaml.
 
 const ROWS = 60_000
 

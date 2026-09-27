@@ -76,7 +76,7 @@ disk. A pack placed in `plugins/` by hand keeps its own manifest and is judged a
 ## 4. Tests and probes a pack must ship
 
 - Unit tests per cube, run by `npm test` in the pack. A cube without tests is a work-queue
-  entry in qwbe's own `testgate` gate (`core/tools/testgate.ts`); a pack should not need
+  entry in qwbe's own `testgate` gate (`core/tools/check/testgate.ts`); a pack should not need
   reminding.
 - The source-contract check: a test file that calls `checkPackageSource` with the pack's
   options and asserts zero findings. See the `source-contract.test.mjs` at the root of the
