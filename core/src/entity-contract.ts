@@ -1,4 +1,4 @@
-import { Data } from "effect"
+import { Data, Predicate } from "effect"
 import type { PermissionActor } from "./permissions-contracts.ts"
 
 export type Endpoint = Readonly<{
@@ -12,8 +12,7 @@ export type Endpoint = Readonly<{
 export type EndpointGroup = Readonly<{ endpoints: Readonly<Record<string, Endpoint>> }>
 export type Handler = (request: unknown) => import("effect").Effect.Effect<unknown, unknown, unknown>
 
-export const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null
+export const { isRecord } = Predicate
 
 export const safeInt = (value: unknown, fallback: number): number => {
   const n = Number(value)

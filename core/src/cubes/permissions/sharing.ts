@@ -1,4 +1,4 @@
-import { Effect, Schema } from "effect"
+import { DateTime, Effect, Schema } from "effect"
 import type { EntityGrant, PermissionService } from "qwbe-core/permissions"
 import { EntityGrantSchema, PermissionInvalid, PermissionNotFound, TotalActions } from "qwbe-core/permissions"
 import type { Foundation } from "./foundation.ts"
@@ -16,7 +16,7 @@ export const sharingFrom = (
       if (actions.length === 0) {
         return yield* Effect.fail(new PermissionInvalid({ message: "a grant needs at least one action" }))
       }
-      const createdAt = new Date().toISOString()
+      const createdAt = DateTime.formatIso(yield* DateTime.now)
       const row = yield* state.store.insert(tables.grants, "EntityGrant", "grant", {
         ...ref,
         subject: { kind: "user", userId },
@@ -48,7 +48,7 @@ export const sharingFrom = (
       if (group.cube !== ref.cube) {
         return yield* Effect.fail(new PermissionInvalid({ message: "group belongs to another cube" }))
       }
-      const createdAt = new Date().toISOString()
+      const createdAt = DateTime.formatIso(yield* DateTime.now)
       const row = yield* state.store.insert(tables.grants, "EntityGrant", "grant", {
         ...ref,
         subject: { kind: "group", groupId },

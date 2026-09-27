@@ -30,11 +30,12 @@
 // refused at the door instead of becoming an invisible field.
 
 import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema } from "@effect/platform"
-import { Effect, Schema } from "effect"
+import { Effect, Layer, Schema } from "effect"
 import { Authorization } from "qwbe-core/auth"
 import { type CubeTools, defineCube } from "qwbe-core/cube"
 import { BadRequest, Forbidden, NotFound } from "qwbe-core/errors"
 import { PageOf } from "qwbe-core/http"
+import { requireTool, storeRelational } from "../shared.ts"
 import { definitionsFor, type PackTools, refreshSnapshot, type Snapshot } from "./context.ts"
 import { definitionHandlers } from "./handlers.ts"
 import {
@@ -134,16 +135,14 @@ export const cube = defineCube(group, {
     routes: ROUTES,
   },
 
-  create: ({ store, bus, catalogue, customFields }: CubeTools) => {
-    if (!customFields) {
-      // Unreachable when the manifest declares providesCustomFields: the kernel wires the tool
-      // exactly then. Kept as a guard so the type is honest without non-null assertions.
-      throw new Error("manifest declares providesCustomFields but the kernel handed no customFields tool")
-    }
+  create: ({ store, bus, catalogue, customFields: given }: CubeTools) => {
+    const customFields = requireTool(
+      given,
+      "manifest declares providesCustomFields but the kernel handed no customFields tool",
+    )
     const tools: PackTools = { store, bus, catalogue, customFields }
+    const stored = storeRelational<DefRow>(store, DEFS, summary)
     const snapshot: Snapshot = { current: [] }
-    // Effect.runFork: load the snapshot once at boot; the catalogue reads it synchronously.
-    Effect.runFork(refreshSnapshot(store, snapshot))
 
     // The kernel publishes these definitions as custom metadata of each target cube.
     tools.customFields.register((cube) =>
@@ -163,6 +162,9 @@ export const cube = defineCube(group, {
     )
 
     return {
+      // Load the snapshot once at boot, the catalogue reads it synchronously. The fork belongs
+      // to the server's layer scope, so shutdown interrupts it instead of leaving it detached.
+      layers: Layer.scopedDiscard(Effect.forkScoped(refreshSnapshot(store, snapshot))),
       commands: [
         {
           name: "customfields:count",
@@ -212,19 +214,7 @@ export const cube = defineCube(group, {
 
       handlers: { ...definitionHandlers(tools, snapshot), ...valuesHandlers(tools) },
 
-      relational: {
-        search: (field, value, page) =>
-          Effect.gen(function* () {
-            const p = yield* store.page<DefRow>(DEFS, page, { field, value })
-            return { rows: p.rows.map(summary), total: p.total }
-          }),
-
-        summaryById: (id) =>
-          Effect.gen(function* () {
-            const d = yield* store.byId<DefRow>(DEFS, id)
-            return d ? summary(d) : undefined
-          }),
-      },
+      relational: { search: stored.search, summaryById: stored.summaryById },
     }
   },
 })

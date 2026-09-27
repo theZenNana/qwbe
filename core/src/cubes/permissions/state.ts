@@ -1,4 +1,4 @@
-import { Effect, Schema } from "effect"
+import { DateTime, Effect, Schema } from "effect"
 import type { CubeTools } from "qwbe-core/cube"
 import type {
   AuditEvent,
@@ -82,9 +82,10 @@ export const stateFrom = (store: CubeTools["store"]) => {
       const safeAfter: AuditValue = yield* decode(after).pipe(
         Effect.mapError(() => new PermissionInvalid({ message: "audit after trace must be JSON data" })),
       )
+      const traceId = yield* Effect.sync(() => ["trace", crypto.randomUUID()].join("-"))
       yield* store.insert(tables.audit, "AuditEvent", "audit", {
-        traceId: ["trace", crypto.randomUUID()].join("-"),
-        timestamp: new Date().toISOString(),
+        traceId,
+        timestamp: DateTime.formatIso(yield* DateTime.now),
         actorUserId: actor.userId,
         ...ref,
         action,

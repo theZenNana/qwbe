@@ -1,5 +1,5 @@
 import { HttpApiGroup } from "@effect/platform"
-import { Data } from "effect"
+import { Data, Predicate } from "effect"
 import type { CubeGroup, CubeParts, CubeTools, Manifest } from "./kernel/manifest.ts"
 import type { MetadataDeclarations } from "./metadata/declarations.ts"
 
@@ -43,7 +43,7 @@ export class InvalidCubeContractError extends Data.TaggedError("InvalidCubeContr
   }
 }
 
-const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null
+const { isRecord } = Predicate
 const isCubeDefinition = (value: unknown): value is CubeDefinition =>
   isRecord(value) && isRecord(value.manifest) && typeof value.create === "function"
 

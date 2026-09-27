@@ -27,7 +27,7 @@
 // values typed into them. That is the platform's existing model (query text, never rows).
 
 import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema } from "@effect/platform"
-import { Effect, Schema } from "effect"
+import { DateTime, Effect, Schema } from "effect"
 import { Authorization, CurrentUser, requirePermission } from "qwbe-core/auth"
 import { type CubeTools, defineCube } from "qwbe-core/cube"
 import { EntityMeta } from "qwbe-core/entity"
@@ -176,10 +176,10 @@ export const cube = defineCube(group, {
           Effect.gen(function* () {
             yield* requirePermission(ROUTES.create)
             const user = yield* CurrentUser
-            const targetCube = encodeTargetCube(payload.targetCube)
-            const name = encodeViewName(payload.name)
-            const config = encodeViewConfig(payload.config)
-            const now = new Date().toISOString()
+            const targetCube = yield* encodeTargetCube(payload.targetCube)
+            const name = yield* encodeViewName(payload.name)
+            const config = yield* encodeViewConfig(payload.config)
+            const now = DateTime.formatIso(yield* DateTime.now)
             return (yield* store.insert(TABLE, ENTITY, "view", {
               targetCube,
               name,
@@ -195,9 +195,12 @@ export const cube = defineCube(group, {
             const user = yield* CurrentUser
             const v = yield* store.byId<SavedViewRow>(TABLE, path.id)
             if (!v || v.deleted) return yield* Effect.fail(new NotFound({ message: `view ${path.id} does not exist` }))
-            const patch: Record<string, unknown> = { updatedAt: new Date().toISOString(), updatedBy: user.id }
-            if (payload.name !== undefined) patch.name = encodeViewName(payload.name)
-            if (payload.config !== undefined) patch.config = encodeViewConfig(payload.config)
+            const patch: Record<string, unknown> = {
+              updatedAt: DateTime.formatIso(yield* DateTime.now),
+              updatedBy: user.id,
+            }
+            if (payload.name !== undefined) patch.name = yield* encodeViewName(payload.name)
+            if (payload.config !== undefined) patch.config = yield* encodeViewConfig(payload.config)
             const updated = yield* store.update(TABLE, path.id, patch)
             if (!updated) return yield* Effect.fail(new NotFound({ message: `view ${path.id} does not exist` }))
             return updated as SavedViewRow

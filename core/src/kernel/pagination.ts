@@ -76,8 +76,11 @@ export type Page<A> = {
  * contract and visible in the emitted OpenAPI — rather than being dropped silently, which is
  * the failure mode criticised elsewhere in this prototype.
  */
+/** A field name that can be an SQL identifier or a jsonb key without quoting games. */
+export const FIELD_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/
+
 export const SortField = Schema.String.pipe(
-  Schema.pattern(/^[A-Za-z_][A-Za-z0-9_]*$/, {
+  Schema.pattern(FIELD_NAME, {
     message: () => "sortBy must be a field name: a letter or underscore, then letters, digits or underscores",
   }),
 )
@@ -96,8 +99,6 @@ export const PageParams = Schema.Struct({
  * The cap is not politeness. Without it `?limit=999999` reintroduces the exact problem this
  * contract exists to prevent — and reintroduces it from outside, where no code review sees it.
  */
-const SAFE_FIELD = /^[A-Za-z_][A-Za-z0-9_]*$/
-
 /**
  * `Math.trunc` keeps `NaN` and `Infinity`, which is how a 500 got through.
  *
@@ -129,7 +130,7 @@ export const pageRequest = (p: PageRequestParams & { page?: number | undefined }
     limit,
     // Belt and braces: the schema already rejects a malformed field, but this function is also
     // called from cube code, where nothing forces the value through the schema first.
-    sortBy: p.sortBy && SAFE_FIELD.test(p.sortBy) ? p.sortBy : undefined,
+    sortBy: p.sortBy && FIELD_NAME.test(p.sortBy) ? p.sortBy : undefined,
     descending: p.descending ?? false,
   }
 }

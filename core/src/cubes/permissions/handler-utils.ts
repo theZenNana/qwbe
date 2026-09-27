@@ -1,25 +1,17 @@
-import { Effect } from "effect"
+import { Effect, Match } from "effect"
 import type { CurrentUser } from "qwbe-core/auth"
 import { BadRequest, Conflict, Forbidden, NotFound } from "qwbe-core/errors"
 import type { PageResponse } from "qwbe-core/http"
-import {
-  type IdentityDirectory,
-  type PermissionActor,
-  PermissionConflict,
-  PermissionForbidden,
-  PermissionInvalid,
-  PermissionNotFound,
-  type PermissionServiceError,
-} from "qwbe-core/permissions"
+import type { IdentityDirectory, PermissionActor, PermissionServiceError } from "qwbe-core/permissions"
 
 export const actorFrom = (user: typeof CurrentUser.Service): PermissionActor => ({ userId: user.id, roles: user.roles })
-export const permissionHttpError = (needed: string) => (error: PermissionServiceError) => {
-  if (error instanceof PermissionNotFound) return new NotFound({ message: error.message })
-  if (error instanceof PermissionInvalid) return new BadRequest({ message: error.message })
-  if (error instanceof PermissionConflict) return new Conflict({ message: error.message })
-  if (error instanceof PermissionForbidden) return new Forbidden({ message: error.message, needed })
-  return error satisfies never
-}
+export const permissionHttpError = (needed: string) =>
+  Match.typeTags<PermissionServiceError>()({
+    PermissionNotFound: (error) => new NotFound({ message: error.message }),
+    PermissionInvalid: (error) => new BadRequest({ message: error.message }),
+    PermissionConflict: (error) => new Conflict({ message: error.message }),
+    PermissionForbidden: (error) => new Forbidden({ message: error.message, needed }),
+  })
 export const mapPermissionError =
   (needed: string) =>
   <A, R>(effect: Effect.Effect<A, PermissionServiceError, R>) =>

@@ -1,9 +1,23 @@
-export const EntityActions = ["read", "create", "edit", "delete", "share", "transfer"] as const
-export type EntityAction = (typeof EntityActions)[number]
+// Every type that has a schema is derived from it; the rest have no wire shape.
+import {
+  type CapabilityGrantSchema,
+  type CubeAdminSchema,
+  EntityActions,
+  type EntityGrantSchema,
+  type EntityVisibilitySchema,
+  type GrantAction,
+  type GrantSubjectSchema,
+  type GroupMembershipSchema,
+  type OwnershipSchema,
+  type PermissionGroupSchema,
+  type VisibilityViewSchema,
+} from "./permissions-schemas.ts"
+
+export type EntityAction = GrantAction
 
 export type PermissionActor = Readonly<{ userId: string; roles: ReadonlyArray<string> }>
 export type EntityRef = Readonly<{ cube: string; entityType: string; entityId: string }>
-export type Ownership = EntityRef & Readonly<{ ownerId: string; createdBy: string; createdAt: string }>
+export type Ownership = typeof OwnershipSchema.Type
 export type AccessDecision = Readonly<{
   allowed: boolean
   source: "superadmin" | "cube-admin" | "owner" | "grant" | "none"
@@ -42,60 +56,20 @@ export type AuditQuery = Readonly<{
   offset?: number | undefined
   limit?: number | undefined
 }>
-export type PermissionGroup = Readonly<{ id: string; cube: string; name: string; createdBy: string; createdAt: string }>
-export type CubeAdmin = Readonly<{ id: string; cube: string; userId: string }>
-export type GroupMembership = Readonly<{
-  id: string
-  groupId: string
-  userId: string
-  createdBy: string
-  createdAt: string
-}>
-export type GrantSubject = Readonly<{ kind: "user"; userId: string }> | Readonly<{ kind: "group"; groupId: string }>
-export const TotalActions: ReadonlyArray<EntityAction> = [...EntityActions]
-export type EntityGrant = EntityRef &
-  Readonly<{
-    id: string
-    subject: GrantSubject
-    actions: ReadonlyArray<EntityAction>
-    createdBy: string
-    createdAt: string
-  }>
+export type PermissionGroup = typeof PermissionGroupSchema.Type
+export type CubeAdmin = typeof CubeAdminSchema.Type
+export type GroupMembership = typeof GroupMembershipSchema.Type
+export type GrantSubject = typeof GrantSubjectSchema.Type
+export type EntityGrant = typeof EntityGrantSchema.Type
 /**
  * A runtime grant of one DECLARED cube permission (`notes:write`) to a user or a group. It
  * adds to what the static roles give and satisfies only the route gate; entity access still
  * needs owner, entity grant, cube admin or superadmin.
  */
-export type CapabilityGrant = Readonly<{
-  id: string
-  cube: string
-  capability: string
-  subject: GrantSubject
-  createdBy: string
-  createdAt: string
-}>
-export type VisibilityView =
-  | "all"
-  | "owned-by-me"
-  | "created-by-me"
-  | "only-mine"
-  | "shared-by-me"
-  | "shared-with-me"
-  | "hidden-by-me"
-export type AccessProvenance = Readonly<{
-  source: "owner" | "creator" | "user-grant" | "group-grant" | "cube-admin" | "superadmin"
-  name: string
-  actions: ReadonlyArray<EntityAction>
-}>
-export type EntityVisibility = EntityRef &
-  Readonly<{
-    ownerId: string
-    createdBy: string
-    createdAt: string
-    access: AccessProvenance
-    hidden: boolean
-    sharedWithCount: number
-  }>
+export type CapabilityGrant = typeof CapabilityGrantSchema.Type
+export type VisibilityView = typeof VisibilityViewSchema.Type
+export type EntityVisibility = typeof EntityVisibilitySchema.Type
+export type AccessProvenance = EntityVisibility["access"]
 
 export const grantAccess = (
   userId: string,

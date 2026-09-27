@@ -24,6 +24,7 @@ import { type CubeTools, defineCube } from "qwbe-core/cube"
 import { CommandInfo, CommandResult, Invocation } from "../../http-contracts.ts"
 import { Authorization, CurrentUser, requirePermission } from "../../kernel/auth-contract.ts"
 import { BadRequest, Forbidden } from "../../kernel/errors.ts"
+import { requireTool } from "../shared.ts"
 
 const group = HttpApiGroup.make("cli")
   .add(HttpApiEndpoint.get("commands")`/cli/commands`.addSuccess(Schema.Array(CommandInfo)).addError(Forbidden))
@@ -75,12 +76,11 @@ export const cube = defineCube(group, {
   // cubes that has already leaked an executable capability once (see `manifest.ts`).
   //
   // The full reasoning lives next to the type, in `kernel/manifest.ts`, not here.
-  create: ({ commands, runCommands }: CubeTools) => {
-    if (!runCommands) {
-      // Cannot happen: the manifest asks for it and the kernel grants it on that basis. If it
-      // does, failing at startup beats a 500 on the first command.
-      throw new Error("cli asked for `runsCommands: true` but received no dispatcher — kernel bug")
-    }
+  create: ({ commands, runCommands: given }: CubeTools) => {
+    const runCommands = requireTool(
+      given,
+      "cli asked for `runsCommands: true` but received no dispatcher -- kernel bug",
+    )
 
     return {
       commands: [

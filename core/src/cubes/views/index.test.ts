@@ -7,6 +7,8 @@
 
 import assert from "node:assert/strict"
 import { HttpApi, OpenApi } from "@effect/platform"
+import { Effect } from "effect"
+import type { BadRequest } from "qwbe-core/errors"
 import { describe, it } from "vitest"
 import { deriveCubeMetadata } from "../../metadata/metadata.ts"
 import { cube } from "./index.ts"
@@ -20,12 +22,12 @@ const md = deriveCubeMetadata(
   [],
 )
 
-const rejects = (fn: () => unknown, pattern: RegExp) => {
-  assert.throws(fn, (e: unknown) => {
-    const message = (e as { message?: string }).message ?? ""
-    return String(e).includes("BadRequest") && pattern.test(message)
-  })
+const rejects = (effect: Effect.Effect<string, BadRequest>, pattern: RegExp) => {
+  const error = Effect.runSync(Effect.flip(effect))
+  assert.equal(error._tag, "BadRequest")
+  assert.match(error.message, pattern)
 }
+const encoded = (effect: Effect.Effect<string, BadRequest>) => Effect.runSync(effect)
 
 describe("views metadata -- routes published from the one declaration", () => {
   it("publishes each route's permission from the manifest's routes map", () => {
@@ -53,35 +55,35 @@ describe("views metadata -- routes published from the one declaration", () => {
 
 describe("view config -- the trust boundary", () => {
   it("decodes, bounds and re-encodes a valid config (raw JSON is never stored)", () => {
-    const encoded = encodeViewConfig({ columns: ["name", "q"], filters: { status: "open" }, pageSize: 50 })
-    assert.equal(encoded, '{"columns":["name","q"],"filters":{"status":"open"},"pageSize":50}')
+    const config = encoded(encodeViewConfig({ columns: ["name", "q"], filters: { status: "open" }, pageSize: 50 }))
+    assert.equal(config, '{"columns":["name","q"],"filters":{"status":"open"},"pageSize":50}')
   })
 
   it("a reserved query name is a legal COLUMN but an illegal FILTER KEY", () => {
     // The brief's correction: reserved names constrain filters, not valid visible columns.
-    assert.doesNotThrow(() => encodeViewConfig({ columns: ["sort", "page"] }))
-    rejects(() => encodeViewConfig({ filters: { page: "2" } }), /reserved/)
-    rejects(() => encodeViewConfig({ filters: { sortBy: "x" } }), /reserved/)
+    encoded(encodeViewConfig({ columns: ["sort", "page"] }))
+    rejects(encodeViewConfig({ filters: { page: "2" } }), /reserved/)
+    rejects(encodeViewConfig({ filters: { sortBy: "x" } }), /reserved/)
   })
 
   it("rejects unknown top-level keys", () => {
-    rejects(() => encodeViewConfig({ grouping: true }), /unexpected/)
+    rejects(encodeViewConfig({ grouping: true }), /unexpected/)
   })
 
   it("rejects out-of-bounds values", () => {
-    rejects(() => encodeViewConfig({ pageSize: 0 }), /pageSize/)
-    rejects(() => encodeViewConfig({ pageSize: 999 }), /pageSize/)
-    rejects(() => encodeViewConfig({ pageSize: 2.5 }), /pageSize/)
-    rejects(() => encodeViewConfig({ filters: { a: "x".repeat(201) } }), /200 chars/)
-    rejects(() => encodeViewConfig({ q: "x".repeat(201) }), /q over/)
-    rejects(() => encodeViewConfig({ columns: Array.from({ length: 61 }, (_, i) => `f${i}`) }), /60 columns/)
+    rejects(encodeViewConfig({ pageSize: 0 }), /pageSize/)
+    rejects(encodeViewConfig({ pageSize: 999 }), /pageSize/)
+    rejects(encodeViewConfig({ pageSize: 2.5 }), /pageSize/)
+    rejects(encodeViewConfig({ filters: { a: "x".repeat(201) } }), /200 chars/)
+    rejects(encodeViewConfig({ q: "x".repeat(201) }), /q over/)
+    rejects(encodeViewConfig({ columns: Array.from({ length: 61 }, (_, i) => `f${i}`) }), /60 columns/)
     rejects(
-      () => encodeViewConfig({ filters: Object.fromEntries(Array.from({ length: 31 }, (_, i) => [`f${i}`, "x"])) }),
+      encodeViewConfig({ filters: Object.fromEntries(Array.from({ length: 31 }, (_, i) => [`f${i}`, "x"])) }),
       /30 filters/,
     )
-    rejects(() => encodeViewConfig({ columns: ["a", "a"] }), /duplicate/)
-    rejects(() => encodeViewConfig({ columns: ["has space"] }), /field name/)
-    rejects(() => encodeViewConfig({ filters: { "a-b": "x" } }), /field name/)
+    rejects(encodeViewConfig({ columns: ["a", "a"] }), /duplicate/)
+    rejects(encodeViewConfig({ columns: ["has space"] }), /field name/)
+    rejects(encodeViewConfig({ filters: { "a-b": "x" } }), /field name/)
   })
 
   it("rejects a config over 8 KB", () => {
@@ -89,16 +91,16 @@ describe("view config -- the trust boundary", () => {
       columns: Array.from({ length: 60 }, (_, i) => `f${i}`.padEnd(64, "x")),
       filters: Object.fromEntries(Array.from({ length: 30 }, (_, i) => [`f${i}`.padEnd(64, "y"), "v".repeat(200)])),
     }
-    rejects(() => encodeViewConfig(bloated), /8192 bytes/)
+    rejects(encodeViewConfig(bloated), /8192 bytes/)
   })
 
   it("bounds name and targetCube; PATCH-style payloads cannot move targetCube", () => {
-    rejects(() => encodeViewName("   "), /1\.\.80/)
-    rejects(() => encodeViewName("x".repeat(81)), /1\.\.80/)
-    assert.equal(encodeViewName("  Mine  "), "Mine")
-    rejects(() => encodeTargetCube(""), /targetCube/)
-    rejects(() => encodeTargetCube("crm/organizations extra"), /targetCube/)
-    assert.equal(encodeTargetCube("crm/organizations"), "crm/organizations")
+    rejects(encodeViewName("   "), /1\.\.80/)
+    rejects(encodeViewName("x".repeat(81)), /1\.\.80/)
+    assert.equal(encoded(encodeViewName("  Mine  ")), "Mine")
+    rejects(encodeTargetCube(""), /targetCube/)
+    rejects(encodeTargetCube("crm/organizations extra"), /targetCube/)
+    assert.equal(encoded(encodeTargetCube("crm/organizations")), "crm/organizations")
   })
 })
 

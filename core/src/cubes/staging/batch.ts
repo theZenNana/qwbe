@@ -19,6 +19,7 @@
 
 import type { Effect } from "effect"
 import type { CubeTools } from "qwbe-core/cube"
+import { requireTool } from "../shared.ts"
 
 export type SqlStatement = {
   readonly text: string
@@ -36,9 +37,8 @@ export type BatchStore = {
  * a blind cast. The kernel builds the store from `storeFor` with the batch ONLY when the
  * manifest declares `usesBatch`; the check keeps the cube honest if that ever stops being true.
  */
-export const asBatchStore = (store: CubeTools["store"]): BatchStore => {
-  if (!("batch" in store)) {
-    throw new Error("staging requires a store with the batch capability (the Postgres store)")
-  }
-  return store as unknown as BatchStore
-}
+export const asBatchStore = (store: CubeTools["store"]): BatchStore =>
+  requireTool(
+    "batch" in store ? (store as unknown as BatchStore) : undefined,
+    "staging requires a store with the batch capability (the Postgres store)",
+  )

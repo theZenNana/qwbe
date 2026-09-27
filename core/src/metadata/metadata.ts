@@ -17,6 +17,7 @@
 // enums from literal unions, nullability from the AST itself.
 
 import { createHash } from "node:crypto"
+import { Option } from "effect"
 import type { PropertySignature } from "effect/SchemaAST"
 import { Authorization, declaredPermission } from "../kernel/auth-contract.ts"
 import { EntityMeta } from "../kernel/entity.ts"
@@ -111,9 +112,7 @@ export const deriveCubeMetadata = (
   // `payloadSchema` is an Option -- unwrap it before reading its AST.
   const rawPayload = groupEndpoints(cube.parts.group).create?.payloadSchema
   const payload = encodedLiteralOf(
-    rawPayload && (rawPayload as { _tag?: string })._tag === "Some"
-      ? (rawPayload as { value: unknown }).value
-      : undefined,
+    Option.isOption(rawPayload) && Option.isSome(rawPayload) ? rawPayload.value : undefined,
   )
 
   const firstPass = struct.propertySignatures.map((p: PropertySignature) => ({
