@@ -4,7 +4,7 @@ import { createServer } from "node:net"
 import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
 import * as Either from "effect/Either"
-import { ConfigInvalid, readConfig } from "./config.ts"
+import { ConfigInvalid, readConfig } from "../shared/config.ts"
 import { devPorts, portTakenMessage } from "./dev-pure.ts"
 
 export class PortTaken extends Data.TaggedError("PortTaken")<{ readonly message: string }> {}

@@ -6,7 +6,7 @@
 // wrong at review, which is exactly why it is refused mechanically.
 
 import assert from "node:assert/strict"
-import { describe, it } from "node:test"
+import { describe, it } from "vitest"
 
 import { checkUniqueTables, DuplicateTableError } from "./store.ts"
 

@@ -54,3 +54,45 @@ Pattern seen on this branch: splitting code into many small exports raises `luci
 | `core/checks/unit/temp-env.ts` | lucian 68.5, codebase-design 69.2 |
 | `core/checks/_layers/pack-copy.ts` | lucian 68.6 |
 | `core/checks/integration/hierarchy.test.ts` | codebase-design 68.7 |
+
+## Stage 6 (core on EVE / Pi with GLM 5.3), 2026-09-27
+
+Scored with `agents jev--score-run <run_id>` (journal `~/.local/state/agent-run2/jev`, read by
+Glimpse II), on the changed lines only. Test migration (runs 9330ef92, 75784498, 486cffba, wiring
+863b547d, all `glm-pi` on `sub/glm-5.3-flash`): 201 scores on 67 files, median 85.9, 5 under 70.
+The changed lines are one import swap per file; the owner's rule for this stage is to record, not
+refactor, what stays under 70.
+
+| file | scores under 70 |
+|---|---|
+| `core/src/customfields-runtime.test.ts` | lucian 57.9, ponytail 65.4 |
+| `core/src/install-contract.test.ts` | lucian 64.4 |
+| `core/src/pg/echo-activity-pg.test.ts` | lucian 65.2 |
+| `core/src/kernel/state.test.ts` | lucian 69.9 |
+
+Port retry in the customfields runtime test (run 349cbd59, `glm-pi`): `startOnFreePort` retries a
+taken port and every readiness fetch has a 2 s timeout, so the hook fails fast instead of hanging.
+
+| file | scores under 70 |
+|---|---|
+| `core/src/customfields-runtime.test.ts` | lucian 49.8 (ponytail 71.9, unslop 93.4) |
+
+Earlier stage 6 commits, scored after the fact with `agents jev--score-run <run> --since <commit>^`
+on a worktree of each commit (81 scores). Folders d5c2d75 (run ae29ef10, EVE), config module
+0392480 (run 588e3320, EVE, none under 70), config callers 432aea1 (run 3a3d3b73, Pi), effect
+upgrade a3d9d38 (run 8b52d770, Pi). The callers diff is one reader call per line; `lucian` reads
+the whole surrounding function.
+
+| file | scores under 70 |
+|---|---|
+| `core/src/cubes/account/index.ts` | lucian 50.0 |
+| `core/src/kernel/install-parts.ts` | lucian 53.4, ponytail 67.8 |
+| `core/src/kernel/discovery.ts` | lucian 58.3 |
+| `core/src/origins.ts` | lucian 58.8 |
+| `core/src/main.ts` | lucian 62.7, ponytail 69.7 |
+| `core/src/kernel/install.ts` | lucian 64.2, ponytail 68.0 |
+| `core/src/kernel/migrate-ownership.ts` | lucian 64.2 |
+| `core/checks/live/admin-restart.test.ts` | ponytail 63.3 |
+| `core/checks/live/qwbe-check-bin.test.ts` | ponytail 66.1 |
+| `core/checks/bench/staging-pg.bench.ts` | ponytail 68.3 |
+| `core/checks/_layers/boot.ts` | lucian 68.4 |

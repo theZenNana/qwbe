@@ -7,14 +7,14 @@ import assert from "node:assert/strict"
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { after, describe, it } from "node:test"
+import { afterAll, describe, it } from "vitest"
 
 import { capsFromConfig, sizeCapsFindings, stripComments } from "./package-size.ts"
 
 const CAPS = { countMode: "code" as const, maxCharsPerFile: 6000, maxFilesPerUnit: 15, maxCharsPerUnit: 40000 }
 
 const tmpRoots: string[] = []
-after(() => {
+afterAll(() => {
   for (const dir of tmpRoots) rmSync(dir, { recursive: true, force: true })
 })
 

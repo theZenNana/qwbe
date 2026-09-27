@@ -5,7 +5,7 @@ import { expect, it } from "@effect/vitest"
 import * as Effect from "effect/Effect"
 import { ensureFree, readDevPorts } from "./dev-ports.ts"
 
-const qwbeYaml = fileURLToPath(new URL("../../qwbe.yaml", import.meta.url))
+const qwbeYaml = fileURLToPath(new URL("../../../qwbe.yaml", import.meta.url))
 
 const listening = Effect.acquireRelease(
   Effect.async<ReturnType<typeof createServer>>((resume) => {

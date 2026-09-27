@@ -9,8 +9,8 @@
 // declared-`custom` field (14), and prototype-smuggling keys (15).
 
 import assert from "node:assert/strict"
-import { describe, it } from "node:test"
 import { Schema } from "effect"
+import { describe, it } from "vitest"
 import { CUSTOM, checkCustomValue, foldCustom, MAX_CUSTOM_KEYS } from "./custom-values.ts"
 import { PageOf } from "./http-contracts.ts"
 import { declaredKeys, isStructSchema, widenStruct } from "./runtime-composition.ts"

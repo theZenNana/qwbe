@@ -4,7 +4,7 @@
 // and the mounted set are all the function sees.
 
 import assert from "node:assert/strict"
-import { describe, it } from "node:test"
+import { describe, it } from "vitest"
 import type { Ledger } from "./ledger.ts"
 import type { DataMigration, Manifest } from "./manifest.ts"
 import { checkMigrationOwnership, MigrationOwnershipError } from "./migrate-ownership.ts"

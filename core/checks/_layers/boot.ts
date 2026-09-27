@@ -6,7 +6,7 @@ import * as Effect from "effect/Effect"
 import * as Ref from "effect/Ref"
 import * as Schedule from "effect/Schedule"
 import * as Stream from "effect/Stream"
-import { withoutAllowScripts } from "../../tools/process-pure.ts"
+import { withoutAllowScripts } from "../../tools/shared/process-pure.ts"
 import { freePort } from "./free-port.ts"
 import { CORE, Workspace } from "./workspace.ts"
 
@@ -71,7 +71,12 @@ const ready = (base: string, proc: CommandExecutor.Process, output: Ref.Ref<stri
 /** Starts core/src/main.ts with `env`; the scope stops it on close. */
 const spawn = (env: ReturnType<typeof serverEnv>) =>
   Effect.tap(
-    Command.start(Command.make(process.execPath, "src/main.ts").pipe(Command.workingDirectory(CORE), Command.env(env))),
+    Command.start(
+      Command.make(process.execPath, "src/main.ts").pipe(
+        Command.workingDirectory(CORE),
+        Command.env(env, { extendEnv: false }),
+      ),
+    ),
     (proc) => Effect.addFinalizer(() => stop(proc)),
   )
 

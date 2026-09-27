@@ -2,7 +2,7 @@
 // tests do not need to touch process.env or boot a server: parse, assert, done.
 
 import assert from "node:assert/strict"
-import { describe, it } from "node:test"
+import { describe, it } from "vitest"
 import { allowedOrigins } from "./origins.ts"
 
 describe("allowedOrigins", () => {

@@ -6,14 +6,14 @@ import assert from "node:assert/strict"
 import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
-import { after, describe, it } from "node:test"
 import { fileURLToPath } from "node:url"
+import { afterAll, describe, it } from "vitest"
 
 import { capsSourceFindings, checkPackage, invocationFindings, kernelRoot, probesFindings } from "./check-package.ts"
 import { writePack } from "./test-fixture-pack.ts"
 
 const tmpRoots: string[] = []
-after(() => {
+afterAll(() => {
   for (const dir of tmpRoots) rmSync(dir, { recursive: true, force: true })
 })
 

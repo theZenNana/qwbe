@@ -3,9 +3,9 @@
 // times per request; a full AST walk plus sha256 per call would multiply that cost.
 
 import assert from "node:assert/strict"
-import { describe, it } from "node:test"
 import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema } from "@effect/platform"
 import { Schema } from "effect"
+import { describe, it } from "vitest"
 import { buildCatalogue, metadataDerivations } from "./catalogue.ts"
 
 const Entity = Schema.Struct({

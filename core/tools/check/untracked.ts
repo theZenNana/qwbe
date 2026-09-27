@@ -1,5 +1,5 @@
 import * as Effect from "effect/Effect"
-import { captureLines } from "./process.ts"
+import { captureLines } from "../shared/process.ts"
 
 // A directory here mounts at boot, so git has to know it: otherwise a clone runs another system.
 const MOUNT_POINTS = ["core/src/cubes/", "core/src/spaces/", "core/plugins/", "core/store/"]

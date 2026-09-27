@@ -25,8 +25,11 @@ size caps (`core/src/package-size.ts` skips `frontend/` too).
 
 - `name` -- the package slug. Under the `hierarchy` option, each cube's manifest must also
   carry the same name as its path (`crm/contacts` declares `"contacts"`).
-- `kind` -- when present, a non-empty string (the packs use `"plugin"`). Declared and
-  validated, read by nothing else today.
+- `kind` -- when present, a non-empty string (the packs use `"plugin"`). The installer reads
+  it: it must be `"cube"` or `"plugin"` (`core/src/kernel/install.ts` refuses anything else and
+  requires `kind`), and a `"cube"` package is a standalone cube -- a root `index.ts`, no `cubes/`
+  list. The source checker does not enforce this today (see
+  `docs/plan/stage-6-contract-review.md`, decision #2).
 - `cubes` -- every cube the package ships, as the kernel addresses them: a standalone cube
   is one segment (`crm`), a child is `parent/child` (`crm/contacts`). The declared list
   must match the disk exactly, in both directions: a declared cube without
@@ -37,7 +40,7 @@ size caps (`core/src/package-size.ts` skips `frontend/` too).
 
 - A cube reaches qwbe **only through public `qwbe-core/*` subpaths** -- the list lives in
   `core/package.json` `exports` (`qwbe-core/cube`, `/agent`, `/http`, `/auth`, `/entity`,
-  `/errors`, `/pagination`, `/permissions`, `/package`). Anything reaching
+  `/errors`, `/pagination`, `/list`, `/permissions`, `/package`). Anything reaching
   `../../src/...` or `qwbe-core/src/...` pins the pack to one kernel checkout and breaks
   the moment the kernel moves (rule `imports-internal`).
 - A cube imports **no** `node:fs`, `node:fs/promises`, `node:child_process`,
@@ -76,12 +79,11 @@ disk. A pack placed in `plugins/` by hand keeps its own manifest and is judged a
 ## 4. Tests and probes a pack must ship
 
 - Unit tests per cube, run by `npm test` in the pack. A cube without tests is a work-queue
-  entry in qwbe's own `testgate` gate (`core/tools/testgate.ts`); a pack should not need
+  entry in qwbe's own `testgate` gate (`core/tools/check/testgate.ts`); a pack should not need
   reminding.
 - The source-contract check: a test file that calls `checkPackageSource` with the pack's
   options and asserts zero findings. See the `source-contract.test.mjs` at the root of the
-  `plugins/crm-pack` and `plugins/agents-tools` repositories (sibling checkouts of this one)
-  for the whole pattern.
+  `plugins/crm-pack` repository (a sibling checkout of this one) for the whole pattern.
 - A runtime probe that boots the kernel on a scratch directory and attacks the installed
   cube over HTTP (crm-pack's `probes/crm.mjs` is the model).
 - Two optional rule sets, on by the pack that needs them:
@@ -122,8 +124,9 @@ caller-supplied directory. Execution is genuinely required: the manifests are ru
 exports, not text, and parsing them back out of source would be a second, drift-prone
 statement of what a manifest is. The compensating pin is in the boundary graph:
 dependency-cruiser rule `package-contract-is-the-pack-door` (`core/.dependency-cruiser.cjs`)
-allows no module in the kernel to import `package-contract` except its own test and the boot
-gate in `kernel/discovery.ts` -- which uses the checker WITHOUT `hierarchy`, so it runs no
+allows no module in the kernel to import `package-contract` except its own test, the boot gate
+in `kernel/discovery.ts`, and `qwbe check` (`check-package.ts`, which also runs it without
+`hierarchy`) -- the boot gate uses the checker WITHOUT `hierarchy`, so it runs no
 foreign code, which is the whole point of running before the imports. If another kernel module
 ever needs the checker, that rule is the visible place to argue it.
 

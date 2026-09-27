@@ -20,8 +20,8 @@
 
 import assert from "node:assert/strict"
 import { randomBytes } from "node:crypto"
-import { after, before, describe, it } from "node:test"
 import { Effect } from "effect"
+import { afterAll, beforeAll, describe, it } from "vitest"
 
 import { createTestDatabase } from "./test-db.ts"
 
@@ -75,7 +75,7 @@ const counts = async () => ({
 const roleExists = async (role: string): Promise<boolean> =>
   ((await getPool().query(`SELECT 1 FROM pg_roles WHERE rolname = $1`, [role])).rowCount ?? 0) === 1
 
-before(async () => {
+beforeAll(async () => {
   await closeAll()
   await initStore()
   // Schema and tables are created lazily by the first store operation (ensureCubeSchema
@@ -98,7 +98,7 @@ before(async () => {
       FOR EACH ROW EXECUTE FUNCTION qwbe.echo_test_fault()`)
 })
 
-after(async () => {
+afterAll(async () => {
   // Roles outlive the database; drop ours so a shared cluster does not collect one per run.
   for (const role of [readerRole, notesRole]) {
     await getPool()

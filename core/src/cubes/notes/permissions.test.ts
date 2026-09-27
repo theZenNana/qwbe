@@ -1,8 +1,8 @@
 import assert from "node:assert/strict"
-import { describe, it } from "node:test"
 import { Effect } from "effect"
 import type { CubeTools } from "qwbe-core/cube"
 import type { Ownership } from "qwbe-core/permissions"
+import { describe, it } from "vitest"
 import { LEGACY_UNOWNED, migrateLegacyNotes } from "./permissions.ts"
 
 const note = (id: string, authorId: string | null) => ({ id, authorId, deleted: false })

@@ -10,7 +10,7 @@
 //      and the row's version after the write (ADR-0001 section 5).
 
 import assert from "node:assert/strict"
-import { after, before, describe, it } from "node:test"
+import { afterAll, beforeAll, describe, it } from "vitest"
 
 import { createTestDatabase } from "./test-db.ts"
 
@@ -24,12 +24,12 @@ const { withRole } = await import("./setup.ts")
 
 const store = storeFor("pgtest", ["items", "logs"], ["name"])
 
-before(async () => {
+beforeAll(async () => {
   await closeAll()
   await initStore()
 })
 
-after(async () => {
+afterAll(async () => {
   await closeAll()
   await db.drop()
 })

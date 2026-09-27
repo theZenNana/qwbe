@@ -4,7 +4,7 @@
 // fixture renames); this file proves the real system cube publishes through the same path.
 
 import assert from "node:assert/strict"
-import { describe, it } from "node:test"
+import { describe, it } from "vitest"
 import { deriveCubeMetadata } from "../../metadata/metadata.ts"
 import { cube } from "./index.ts"
 

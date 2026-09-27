@@ -5,8 +5,8 @@
 // permission always comes through `declaredPermission`, never a literal next to the call.
 
 import assert from "node:assert/strict"
-import { describe, it } from "node:test"
 import { Cause, Effect, Exit } from "effect"
+import { describe, it } from "vitest"
 import { CurrentUser, declaredPermission } from "./kernel/auth-contract.ts"
 import type { MountedCube } from "./kernel/discovery.ts"
 import { Forbidden } from "./kernel/errors.ts"

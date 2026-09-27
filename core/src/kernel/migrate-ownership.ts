@@ -16,6 +16,7 @@
 // kernel has never recorded is refused unless the OPERATOR authorizes it
 // (QWBE_LEGACY_MIGRATIONS). The manifest does not get a vote; neither does a fresh database.
 
+import { readLegacyMigrations } from "../config.ts"
 import type { Ledger } from "./ledger.ts"
 import type { DataMigration, Manifest } from "./manifest.ts"
 
@@ -54,7 +55,7 @@ export const checkMigrationOwnership = async (
 ): Promise<Array<ValidatedMigration>> => {
   const mounted = new Map(definitions.map((d) => [d.name, d.plugin]))
   const legacyAuthorized = new Map(
-    (process.env.QWBE_LEGACY_MIGRATIONS ?? "")
+    readLegacyMigrations()
       .split(",")
       .map((s) => s.trim())
       .filter(Boolean)

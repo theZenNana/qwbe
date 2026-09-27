@@ -4,6 +4,7 @@ import { createHash, randomBytes } from "node:crypto"
 import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema } from "@effect/platform"
 import { Effect, Schema } from "effect"
 import { type CubeTools, defineCube } from "qwbe-core/cube"
+import { readAdminPassword, readReaderPassword } from "../../config.ts"
 import { Authorization, requirePermission } from "../../kernel/auth-contract.ts"
 import { Forbidden, NotFound } from "../../kernel/errors.ts"
 import { genericList, ListParams } from "../../kernel/list.ts"
@@ -80,7 +81,7 @@ export const cube = defineCube(group, {
     /** Seed once. A generated bootstrap password is printed once when no external secret exists. */
     const seed = Effect.gen(function* () {
       if ((yield* store.count(TABLE)) > 0) return
-      const adminPassword = process.env.QWBE_ADMIN_PASSWORD || randomBytes(24).toString("base64url")
+      const adminPassword = readAdminPassword() || randomBytes(24).toString("base64url")
       yield* store.insert(TABLE, ENTITY, "acc", {
         username: "admin",
         passwordHash: hashPassword(adminPassword),
@@ -88,10 +89,10 @@ export const cube = defineCube(group, {
         email: "",
         roles: ["admin"],
       })
-      if (!process.env.QWBE_ADMIN_PASSWORD) {
+      if (!readAdminPassword()) {
         console.error(`[qwbe bootstrap] admin password (shown once): ${adminPassword}`)
       }
-      const readerPassword = process.env.QWBE_READER_PASSWORD
+      const readerPassword = readReaderPassword()
       if (readerPassword) {
         yield* store.insert(TABLE, ENTITY, "acc", {
           username: "reader",

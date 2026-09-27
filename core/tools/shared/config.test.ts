@@ -55,7 +55,7 @@ it.layer(NodeContext.layer)("readConfig", (it) => {
 
   it.effect("reads the repository's own qwbe.yaml", () =>
     Effect.gen(function* () {
-      const config = yield* readConfig(new URL("../../qwbe.yaml", import.meta.url).pathname)
+      const config = yield* readConfig(new URL("../../../qwbe.yaml", import.meta.url).pathname)
       expect(config.dev).toEqual({ api: 4500, web: 4510 })
     }),
   )

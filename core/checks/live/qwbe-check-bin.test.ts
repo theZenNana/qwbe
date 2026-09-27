@@ -3,7 +3,7 @@ import * as FileSystem from "@effect/platform/FileSystem"
 import * as NodeContext from "@effect/platform-node/NodeContext"
 import { expect, layer } from "@effect/vitest"
 import * as Effect from "effect/Effect"
-import { capture } from "../../tools/process.ts"
+import { capture } from "../../tools/shared/process.ts"
 import { CORE } from "../_layers/workspace.ts"
 
 // Replaces probes/check-command.mjs: the real `qwbe check` bin, run as a process against a pack

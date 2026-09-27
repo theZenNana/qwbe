@@ -26,9 +26,10 @@ import {
 } from "node:fs"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
+import { readDataDir } from "../config.ts"
 
 const here = dirname(fileURLToPath(import.meta.url))
-const dataDir = process.env.QWBE_DATA_DIR ?? join(here, "..", "..", "..", "data")
+const dataDir = readDataDir(join(here, "..", "..", "..", "data"))
 
 const ledgerPath = join(dataDir, "provenance.json")
 

@@ -6,7 +6,7 @@ import assert from "node:assert/strict"
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { after, beforeEach, describe, it } from "node:test"
+import { afterAll, beforeEach, describe, it } from "vitest"
 import type { CubeMetadata } from "./schemas.ts"
 
 type Stored = Record<string, { version: string; hash: string }>
@@ -106,6 +106,6 @@ describe("checkSchemaDrift", () => {
   })
 })
 
-after(() => {
+afterAll(() => {
   if (dataDir) rmSync(dataDir, { recursive: true, force: true })
 })

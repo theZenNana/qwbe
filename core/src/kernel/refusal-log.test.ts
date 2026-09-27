@@ -2,9 +2,9 @@
 // being silent, or the day a token reaches the log.
 
 import assert from "node:assert/strict"
-import { describe, it } from "node:test"
 import { HttpServerRequest, HttpServerResponse } from "@effect/platform"
 import { Effect, Logger, Option } from "effect"
+import { describe, it } from "vitest"
 
 import { logRefusals, refusalLine, tokenHandle } from "./refusal-log.ts"
 

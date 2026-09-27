@@ -16,7 +16,7 @@ type Prefix = (line: string) => string
 const commandFor = (spec: ServiceSpec) =>
   Command.make(...spec.argv).pipe(
     Command.workingDirectory(spec.cwd),
-    Command.env(spec.env),
+    Command.env(spec.env, { extendEnv: false }),
     Command.runInShell(spec.shell),
   )
 

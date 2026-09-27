@@ -22,6 +22,8 @@
 // would be stamped verbatim onto every response. The caller decides how the throw surfaces;
 // the server routes it through its `fail` helper.
 
+import { readNodeEnv } from "./config.ts"
+
 const ORIGIN_PATTERN = /^https?:\/\/[A-Za-z0-9.-]+(?::\d+)?$/i
 
 export const isWildcardDefault = (origins: ReadonlyArray<string>): boolean => origins.length === 1 && origins[0] === "*"
@@ -51,7 +53,7 @@ export const originsForStartup = (env: string | undefined): ReadonlyArray<string
   try {
     const origins = allowedOrigins(env)
     if (isWildcardDefault(origins)) {
-      if (process.env.NODE_ENV === "production") {
+      if (readNodeEnv() === "production") {
         console.error(`\n${wildcardDefaultRefusal}\n`)
         process.exit(2)
       }

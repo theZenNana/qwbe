@@ -11,8 +11,8 @@
 // Each run gets a fresh throwaway database (the store.test.ts pattern); PG on :5433 must be up.
 
 import assert from "node:assert/strict"
-import { after, before, describe, it } from "node:test"
 import { Effect } from "effect"
+import { afterAll, beforeAll, describe, it } from "vitest"
 
 import { createTestDatabase } from "./test-db.ts"
 
@@ -61,12 +61,12 @@ const tuplesRead = async (schema: string, table: string): Promise<number> => {
   return (r.rows[0] as { read: number }).read
 }
 
-before(async () => {
+beforeAll(async () => {
   await closeAll()
   await initStore()
 })
 
-after(async () => {
+afterAll(async () => {
   await closeAll()
   await db.drop()
 })

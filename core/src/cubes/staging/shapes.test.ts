@@ -5,7 +5,7 @@
 // text, "INV-2024-001" is not a number even though it contains one.
 
 import assert from "node:assert/strict"
-import { describe, it } from "node:test"
+import { describe, it } from "vitest"
 import { ENUM_MAX_DISTINCT, SHAPE_PATTERNS, shapeOf } from "./shapes.ts"
 
 describe("shapeOf -- number", () => {

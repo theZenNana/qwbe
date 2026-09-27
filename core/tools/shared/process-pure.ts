@@ -1,8 +1,9 @@
 const isAllowScripts = (key: string) => key.toLowerCase() === "npm_config_allow_scripts"
 
 // `npm run` hands npm_config_allow_scripts to its children, and a child npm then fails with
-// EALLOWSCRIPTS. The key stays, set to undefined: the executor merges this over process.env,
-// and Node's spawn skips undefined values.
+// EALLOWSCRIPTS. The key stays, set to undefined: Node's spawn skips undefined values. Commands
+// pass the result with extendEnv: false, because the executor would otherwise merge process.env
+// back over this and the key would reach the child anyway.
 export const withoutAllowScripts = (env: Readonly<Record<string, string | undefined>>) =>
   Object.fromEntries(Object.entries(env).map(([key, value]) => [key, isAllowScripts(key) ? undefined : value]))
 

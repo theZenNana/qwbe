@@ -6,7 +6,7 @@
 // carries NO examples -- not fewer, none.
 
 import assert from "node:assert/strict"
-import { describe, it } from "node:test"
+import { describe, it } from "vitest"
 import { aggregateField, type FieldStats, fieldStats, fieldTop } from "./profile.ts"
 import { SHAPE_PATTERNS } from "./shapes.ts"
 

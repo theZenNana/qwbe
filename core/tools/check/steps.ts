@@ -1,9 +1,9 @@
 import type { CommandExecutor } from "@effect/platform/CommandExecutor"
 import type { FileSystem } from "@effect/platform/FileSystem"
 import * as Effect from "effect/Effect"
+import { type Argv, capture, captureLines } from "../shared/process.ts"
+import { commandName } from "../shared/process-pure.ts"
 import { benchFindings } from "./bench-budget.ts"
-import { type Argv, capture, captureLines } from "./process.ts"
-import { commandName } from "./process-pure.ts"
 import { testgate } from "./testgate.ts"
 import { untracked } from "./untracked.ts"
 

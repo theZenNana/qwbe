@@ -11,8 +11,8 @@
 //      captured -- identity directory never, auxiliary types never.
 
 import assert from "node:assert/strict"
-import { describe, it } from "node:test"
 import { Effect, Exit, FiberRef } from "effect"
+import { describe, it } from "vitest"
 import { captureEntity } from "./entity-enforcement.ts"
 import { CurrentActor } from "./kernel/actor.ts"
 import { CurrentUser } from "./kernel/auth-contract.ts"

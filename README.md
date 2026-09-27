@@ -31,8 +31,8 @@ Storage is one Postgres database with one schema per cube (ADR-0001). The server
 per cube any more.
 
 `npm start` prefixes every log line with `[api]` or `[web]`, and Ctrl-C stops both. Every npm
-command runs a small Effect program in `core/tools/` (`setup.ts`, `dev.ts`, `db.ts`, `check.ts`,
-`e2e.ts`, `build.ts`). `npm run setup` starts through `core/tools/bootstrap.mjs`, which installs
+command runs a small Effect program in `core/tools/` (`setup/setup.ts`, `dev/dev.ts`, `db/db.ts`, `check/check.ts`,
+`dev/e2e.ts`, `dev/build.ts`). `npm run setup` starts through `core/tools/setup/bootstrap.mjs`, which installs
 `core/` first on a fresh clone, because the tools need `effect` from it.
 
 Root tooling, `core/`, and `web/` are independent npm packages with one committed lockfile each.
@@ -117,14 +117,14 @@ checks at another server (default `localhost:5433`, `postgres`, `qwbe`).
 Where the checks live:
 
 ```
-core/tools/               the npm commands and the gates (check.ts, gates.ts, testgate.ts, untracked.ts)
+core/tools/               the npm commands and the gates (check/check.ts, check/gates.ts, check/testgate.ts, check/untracked.ts)
 core/checks/unit/         no server, no database
 core/checks/integration/  one Postgres database per file, no HTTP server
 core/checks/live/         real servers and processes (`check:live`)
 core/checks/bench/        vitest bench against the qwbe.yaml budgets (`check:bench`)
 core/checks/_layers/      shared Effect layers: test database, booted server, API client
 core/checks/_fixtures/    fixture packs
-core/src/**/*.test.ts     kernel and cube tests, still on node:test
+core/src/**/*.test.ts     kernel and cube tests, on vitest (packs in core/plugins stay on node:test)
 ```
 
 The live checks start whatever servers they need and stop them afterwards. That is deliberate: a
@@ -385,7 +385,7 @@ core/
   checks/          unit, integration, live and bench checks, on vitest + @effect/vitest
   qwbe.config.json size caps `qwbe check` measures a pack against
 web/               Next.js. `lib/session.ts` holds the session half of authentication
-qwbe.yaml          dev ports, the testgate exemptions, bench budgets (read by core/tools/config.ts)
+qwbe.yaml          dev ports, the testgate exemptions, bench budgets (read by core/tools/shared/config.ts)
 qwbe.spec.mjs      Playwright (5)
 data/              files the admin restart uses; the store lives in Postgres
 ```

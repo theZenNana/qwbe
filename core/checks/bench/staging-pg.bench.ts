@@ -1,12 +1,12 @@
 import * as Effect from "effect/Effect"
 import * as Schema from "effect/Schema"
 import { bench, inject } from "vitest"
-import { BENCH, STAGING_ROWS } from "../../tools/bench-budget-pure.ts"
+import { BENCH, STAGING_ROWS } from "../../tools/check/bench-budget-pure.ts"
 import type { Session } from "../_layers/session.ts"
 import { benchAdmin, okBody, runHttp } from "./client.ts"
 
 // Replaces probes/staging-perf.mjs: 100,000 JSONL rows imported through the staging API in
-// chunks of 1,000, then profiled. tools/bench-budget.ts turns the import median into rows per
+// chunks of 1,000, then profiled. tools/check/bench-budget.ts turns the import median into rows per
 // second and holds it to bench.stagingImport in qwbe.yaml; the profile is timed, not budgeted.
 
 const CHUNK = 1_000

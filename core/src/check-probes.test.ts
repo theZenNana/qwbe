@@ -6,7 +6,7 @@
 import assert from "node:assert/strict"
 import { createServer, type IncomingMessage, type Server } from "node:http"
 import type { AddressInfo } from "node:net"
-import { after, describe, it } from "node:test"
+import { afterAll, describe, it } from "vitest"
 
 import { createPayload, type DeclarationsDump, fillPath, runGenericProbes, valueFor } from "./check-probes.ts"
 
@@ -140,7 +140,7 @@ const clean = async (breaks?: Parameters<typeof mockKernel>[0], over?: Partial<D
 
 describe("generic probes -- routing the five families against the metadata", () => {
   const servers: Array<{ close: () => Promise<void> }> = []
-  after(async () => {
+  afterAll(async () => {
     for (const s of servers) await s.close()
   })
 

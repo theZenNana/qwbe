@@ -6,7 +6,7 @@
 // that are the cube's own code: the config trust boundary and the published routes.
 
 import assert from "node:assert/strict"
-import { describe, it } from "node:test"
+import { describe, it } from "vitest"
 import { deriveCubeMetadata } from "../../metadata/metadata.ts"
 import { cube } from "./index.ts"
 import { encodeTargetCube, encodeViewConfig, encodeViewName } from "./view-config.ts"

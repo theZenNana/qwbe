@@ -1,7 +1,7 @@
 // Decisions of the bench budget: the names the bench files publish, the report shape
 // `vitest bench --outputJson` writes, and each median held to its budget. bench-budget.ts does the I/O.
 import * as Schema from "effect/Schema"
-import type { BenchBudgets } from "./config.ts"
+import type { BenchBudgets } from "../shared/config.ts"
 
 /** Bench names shared by core/checks/bench and the budget; a rename on one side is a finding. */
 export const BENCH = {

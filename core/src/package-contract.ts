@@ -16,6 +16,7 @@ import { existsSync } from "node:fs"
 import { join } from "node:path"
 import { pathToFileURL } from "node:url"
 
+import { readStoreDir } from "./config.ts"
 import { pluginsDir } from "./kernel/scan.ts"
 import type { PackageFinding } from "./package-contract-scan.ts"
 import { importFindings, manifestFindings, readOnlyFindings, walkSources } from "./package-contract-scan.ts"
@@ -131,7 +132,7 @@ const manifestRootFor = (root: string, plugin: string): string | undefined => {
   if (existsSync(join(root, "qwbe-package.json"))) return undefined
   // Both stores, override first: QWBE_STORE_DIR is a probe's extra store, not a replacement
   // of the real one.
-  for (const store of [process.env.QWBE_STORE_DIR, join(pluginsDir, "..", "store")]) {
+  for (const store of [readStoreDir(), join(pluginsDir, "..", "store")]) {
     if (store === undefined) continue
     const candidate = join(store, plugin)
     if (existsSync(join(candidate, "qwbe-package.json"))) return candidate

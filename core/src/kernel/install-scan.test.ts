@@ -2,8 +2,8 @@ import assert from "node:assert/strict"
 import { cpSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { describe, it } from "node:test"
 import { Effect } from "effect"
+import { describe, it } from "vitest"
 import { InstallError } from "./manifest.ts"
 
 // The store directory is resolved at module load, so the fixture store must exist BEFORE the

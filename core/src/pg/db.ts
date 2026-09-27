@@ -16,6 +16,7 @@ import { readdirSync, readFileSync } from "node:fs"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 import pg from "pg"
+import { readDatabaseUrl } from "../config.ts"
 
 const here = dirname(fileURLToPath(import.meta.url))
 
@@ -30,7 +31,7 @@ let migrated = false
  * follows. The message names the variable, because that is what the operator can fix.
  */
 export const databaseUrl = (): string => {
-  const url = process.env.QWBE_DATABASE_URL
+  const url = readDatabaseUrl()
   if (!url) {
     throw new Error(
       "QWBE_DATABASE_URL is not set. qwbe stores every cube in one Postgres database and " +
@@ -42,7 +43,14 @@ export const databaseUrl = (): string => {
 }
 
 export const getPool = (): Pool => {
-  if (!pool) pool = new pg.Pool({ connectionString: databaseUrl(), max: 10 })
+  if (!pool) {
+    pool = new pg.Pool({ connectionString: databaseUrl(), max: 10 })
+    pool.on("error", (e: NodeJS.ErrnoException) => {
+      // ponytail: one line, no reconnect logic -- the pool replaces a lost client on the next
+      // query; without this listener an idle-client error (57P01) is an uncaught exception.
+      console.error(`qwbe: idle Postgres connection lost (${e.code ?? "no code"}): ${e.message}`)
+    })
+  }
   return pool
 }
 

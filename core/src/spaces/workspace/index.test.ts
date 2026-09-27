@@ -4,7 +4,7 @@
 // instead of silently showing empty lists.
 
 import assert from "node:assert/strict"
-import { describe, it } from "node:test"
+import { describe, it } from "vitest"
 import { danglingLinks } from "../../kernel/space.ts"
 import { space } from "./index.ts"
 

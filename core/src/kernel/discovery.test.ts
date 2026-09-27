@@ -3,7 +3,7 @@
 // belongs with the kernel, not inside a cube directory.
 
 import assert from "node:assert/strict"
-import { describe, it } from "node:test"
+import { describe, it } from "vitest"
 import { singleHolderOf } from "./discovery.ts"
 import type { Manifest } from "./manifest.ts"
 

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict"
-import { describe, it } from "node:test"
 import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema } from "@effect/platform"
 import { Effect, Schema } from "effect"
+import { describe, it } from "vitest"
 import { EntityPermissionContractError, enforceEntityHandlers } from "./entity-enforcement.ts"
 import { CurrentUser } from "./kernel/auth-contract.ts"
 import { Forbidden } from "./kernel/errors.ts"

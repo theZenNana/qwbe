@@ -13,19 +13,20 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
+import { readCubeVersionsBaseline, readDataDir } from "../config.ts"
 import type { CubeMetadata } from "./schemas.ts"
 
 const here = dirname(fileURLToPath(import.meta.url))
 // Read lazily: the environment must win at CALL time, not at import time -- unit tests point
 // this at a scratch directory and the value has to be honoured.
-const dataDir = () => process.env.QWBE_DATA_DIR ?? join(here, "..", "..", "..", "data")
+const dataDir = () => readDataDir(join(here, "..", "..", "..", "data"))
 const versionsFile = () => join(dataDir(), "cube-versions.json")
 // The COMMITTED baseline: without it, a fresh checkout or CI has no records to compare
 // against and the first thing to catch a missing version bump would be a customer's server
 // refusing to boot after an upgrade. The baseline ships with the cubes it describes, so the
 // gates see the drift instead of the restart. The writable data file (per-machine records,
 // updated on every mount) wins over it.
-const baselineFile = () => process.env.QWBE_CUBE_VERSIONS_BASELINE ?? join(here, "cube-versions.baseline.json")
+const baselineFile = () => readCubeVersionsBaseline() ?? join(here, "cube-versions.baseline.json")
 
 export class SchemaDriftError extends Error {
   constructor(cube: string, version: string, expected: string, got: string) {

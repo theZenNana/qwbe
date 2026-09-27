@@ -20,7 +20,7 @@ import effect from "@effect/eslint-plugin"
 import tseslint from "typescript-eslint"
 
 export default tseslint.config(
-  // .mjs is out of scope: bin/qwbe.mjs, core/tools/bootstrap.mjs and the Playwright spec are plain
+  // .mjs is out of scope: bin/qwbe.mjs, core/tools/setup/bootstrap.mjs and the Playwright spec are plain
   // node scripts with no tsconfig behind them, so a type-aware rule cannot run on them at all. web/ is excluded until it gets its own project
   // service — its tsconfig is Next's, and pulling it in here would typecheck the whole app twice.
   //

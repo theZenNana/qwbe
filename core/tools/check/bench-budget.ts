@@ -5,9 +5,9 @@ import * as FileSystem from "@effect/platform/FileSystem"
 import * as Console from "effect/Console"
 import * as Effect from "effect/Effect"
 import * as Schema from "effect/Schema"
+import { readConfig } from "../shared/config.ts"
+import { capture, GateFailed } from "../shared/process.ts"
 import { BenchReport, mediansOf, overBudget, renderMedians } from "./bench-budget-pure.ts"
-import { readConfig } from "./config.ts"
-import { capture, GateFailed } from "./process.ts"
 
 // A red run (a server that did not boot, a bench that threw) has no medians worth reading.
 const runBenches = (core: string, outputJson: string) =>

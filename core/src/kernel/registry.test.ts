@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
-import { describe, it } from "node:test"
 import { Effect } from "effect"
+import { describe, it } from "vitest"
 import { registryFrom } from "../registry-runtime.ts"
 import { Registry } from "./registry.ts"
 

@@ -27,7 +27,9 @@ type Env = Readonly<Record<string, string | undefined>>
 const commandFor = (argv: Argv, cwd: string, env: Env = {}) =>
   Command.make(...argv).pipe(
     Command.workingDirectory(cwd),
-    Command.env({ ...withoutAllowScripts(process.env), ...env }),
+    // extendEnv: false, or the executor merges process.env back over this and the removed key
+    // (npm_config_allow_scripts) reaches the child again.
+    Command.env({ ...withoutAllowScripts(process.env), ...env }, { extendEnv: false }),
     Command.stdin(Stream.empty),
   )
 

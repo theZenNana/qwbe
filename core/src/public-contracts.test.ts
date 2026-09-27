@@ -1,9 +1,9 @@
 import assert from "node:assert/strict"
-import { describe, it } from "node:test"
 import { Authorization, CurrentUser, requirePermission } from "qwbe-core/auth"
 import { EntityMeta } from "qwbe-core/entity"
 import { BadRequest, Forbidden, NotFound, Unauthorized } from "qwbe-core/errors"
 import { PageParams, pageRequest } from "qwbe-core/pagination"
+import { describe, it } from "vitest"
 
 describe("public plugin contracts", () => {
   it("resolve without importing private kernel paths", () => {

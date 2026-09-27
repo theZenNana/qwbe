@@ -5,10 +5,9 @@
 // the second silently vanished. The tests keep the holes closed.
 
 import assert from "node:assert/strict"
-import { describe, it } from "node:test"
-
 import { HttpApiEndpoint, HttpApiGroup } from "@effect/platform"
 import { Effect, Schema } from "effect"
+import { describe, it } from "vitest"
 
 import { Authorization } from "./auth-contract.ts"
 import { Forbidden } from "./errors.ts"

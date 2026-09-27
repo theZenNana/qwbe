@@ -6,8 +6,8 @@ import { strict as assert } from "node:assert"
 import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { after, test } from "node:test"
 import { Effect, Exit } from "effect"
+import { afterAll, test } from "vitest"
 
 const dataDir = mkdtempSync(join(tmpdir(), "qwbe-switches-"))
 process.env.QWBE_DATA_DIR = dataDir
@@ -21,7 +21,7 @@ const mounted = [
   { name: "notes", required: false },
 ]
 
-after(() => chmodSync(dataDir, 0o700))
+afterAll(() => chmodSync(dataDir, 0o700))
 
 test("switching a cube off is written to disk and seen at once", async () => {
   const s = switchesFrom(mounted)

@@ -2,7 +2,7 @@ import assert from "node:assert/strict"
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { describe, it } from "node:test"
+import { describe, it } from "vitest"
 import { contractValidationParent, isOutsideDiscoveryRoots } from "./install-contract.ts"
 import { InstallError, stageAndInstall } from "./kernel/install-from.ts"
 import type { CubePackage } from "./kernel/manifest.ts"
@@ -56,6 +56,7 @@ describe("install-from static contract gate", () => {
     }
   })
 
+  // ponytail: spawns a real tsc, ~5s; vitest default is 5s so give it headroom
   it("refuses deterministic lint defects before publishing", async () => {
     const bench = mkdtempSync(join(tmpdir(), "qwbe-install-lint-"))
     const source = join(bench, "unsafe-cube")
@@ -99,7 +100,7 @@ export const unsafe: any = 1
     } finally {
       rmSync(bench, { recursive: true, force: true })
     }
-  })
+  }, 60_000)
 
   it("refuses a package that breaks the source contract, with the checker's own findings", async () => {
     const bench = mkdtempSync(join(tmpdir(), "qwbe-install-source-contract-"))
