@@ -51,7 +51,11 @@ size caps (`core/src/package-size.ts` skips `frontend/` too).
   kernel's, not the cube's, and so is the network.
 - The scan is recursive: a helper two directories below `cubes/<name>/` is judged exactly
   like `index.ts`. Skipped at any depth: dotted directories and `node_modules`; skipped at
-  the TOP level of the package only: `frontend/`, `probes/`, `store/`, `dist/`, `build/`.
+  the TOP level of the package only: `frontend/`, `probes/`, `tools/`, `checks/`, `store/`,
+  `dist/`, `build/`. `tools/` and `checks/` are reserved for development: install-from does
+  not ship them and the TypeScript contract gate does not compile them, so they may import
+  what the kernel does not carry (vitest, test helpers). A nested `cubes/<name>/tools/` is
+  ordinary cube source.
 
 ## 3. Size caps
 
@@ -67,7 +71,7 @@ dropped in stage 5, `docs/plan/stage-1-map.md`).
 `loadDefinitions` (`core/src/kernel/discovery.ts`) calls `assertPackageContracts` over every
 package it is about to mount -- in dev, in test, in production, before the first plugin module
 is imported. A finding stops the boot with the checker's message and exit code 2; nothing of
-the failing package ever runs. The pack's own `source-contract.test.mjs` stays useful (it fails
+the failing package ever runs. The pack's own `checks/unit/source-contract.test.ts` stays useful (it fails
 in the pack's CI, where the author is), but it is no longer what makes the rule true.
 
 One wrinkle worth knowing: an INSTALLED package has no `qwbe-package.json` beside its cubes --
@@ -82,15 +86,17 @@ disk. A pack placed in `plugins/` by hand keeps its own manifest and is judged a
   entry in qwbe's own `testgate` gate (`core/tools/check/testgate.ts`); a pack should not need
   reminding.
 - The source-contract check: a test file that calls `checkPackageSource` with the pack's
-  options and asserts zero findings. See the `source-contract.test.mjs` at the root of the
+  options and asserts zero findings. See `checks/unit/source-contract.test.ts` in the
   `plugins/crm-pack` repository (a sibling checkout of this one) for the whole pattern.
-- A runtime probe that boots the kernel on a scratch directory and attacks the installed
-  cube over HTTP (crm-pack's `probes/crm.mjs` is the model).
+- A runtime proof that boots the kernel on a scratch directory and attacks the installed
+  cube over HTTP. crm-pack is the model: the checks live in `checks/live/*.test.ts`, and the
+  one-line `probes/crm.mjs` (the probe entry the kernel expects) runs them through vitest.
 - Two optional rule sets, on by the pack that needs them:
   - `readOnly` -- no mutating endpoint (`HttpApiEndpoint.post/put/patch/del`) and no
     `writeFile`/`appendFile` in package source (rules `readonly-endpoint`, `readonly-write`).
     Exemptions, on purpose: `*.test.*` and `*.spec.*` files (a test's job is to name the
-    forbidden thing), and the top-level `probes/`, `store/`, `dist/` and `build/` directories.
+    forbidden thing), and the top-level `probes/`, `tools/`, `checks/`, `store/`, `dist/` and
+    `build/` directories.
     For packs that only read.
   - `hierarchy` -- child cubes declare `parent`, the parent declares `screen: true` (rule
     `hierarchy`). A child without a `dataMigration` declares honestly that it has no

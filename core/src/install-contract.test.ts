@@ -151,6 +151,63 @@ export const unsafe: any = 1
     }),
   )
 
+  // A pack's top-level tools/ and checks/ are its developer tooling (crm-pack's checks/live/*.test.ts
+  // import vitest and helpers the kernel does not carry): the gate must not typecheck them and the
+  // shelf must not carry them. A nested cubes/<name>/tools/ is cube source like any other.
+  it.scoped(
+    "installs a pack whose top-level tools/ and checks/ import modules the kernel lacks",
+    () =>
+      Effect.gen(function* () {
+        const bench = yield* tempDir("qwbe-install-dev-dirs-")
+        const source = join(bench, "tooled")
+        const store = join(bench, "store")
+        const lacking = `import { missing } from "qwbe-kernel-lacks-this"\nexport const x = missing\n`
+        for (const dir of ["tools", join("checks", "live"), join("cubes", "tooled", "tools")]) {
+          mkdirSync(join(source, dir), { recursive: true })
+        }
+        writeFileSync(
+          join(source, "qwbe-package.json"),
+          JSON.stringify({ name: "tooled", kind: "plugin", cubes: ["tooled"] }),
+        )
+        writeFileSync(join(source, "tools", "x.ts"), lacking)
+        writeFileSync(join(source, "checks", "live", "boot.test.ts"), lacking)
+        writeFileSync(join(source, "cubes", "tooled", "tools", "helper.ts"), "export const helper = 1\n")
+        writeFileSync(
+          join(source, "cubes", "tooled", "index.ts"),
+          `import { HttpApiGroup } from "@effect/platform"
+import { defineCube } from "qwbe-core/cube"
+const group = HttpApiGroup.make("tooled")
+export const cube = defineCube(group, {
+  manifest: { name: "tooled", tables: [], requiresAuth: false },
+  create: () => ({ handlers: {} }),
+})
+`,
+        )
+        const pkg: CubePackage = {
+          name: "tooled",
+          kind: "plugin",
+          summary: "pack with developer tooling",
+          cubes: ["tooled"],
+          installed: false,
+          bytes: 1,
+          conflicts: [],
+        }
+
+        const install = stageAndInstall({
+          storeDir: store,
+          readPackageAt: () => Effect.succeed(pkg),
+          installExisting: () => Effect.succeed({ ...pkg, installed: true }),
+          checkPackageSource: async () => [], // no source findings: this case is about the stage, not the checker
+        })
+        const result = yield* Effect.provide(install(source), testConfigLayer())
+        assert.equal(result.staged, true)
+        assert.equal(existsSync(join(store, "tooled", "tools")), false)
+        assert.equal(existsSync(join(store, "tooled", "checks")), false)
+        assert.equal(existsSync(join(store, "tooled", "cubes", "tooled", "tools", "helper.ts")), true)
+      }),
+    60_000,
+  )
+
   it.scoped("publishes source without local dependency and repository metadata", () =>
     Effect.gen(function* () {
       const bench = yield* tempDir("qwbe-install-clean-source-")

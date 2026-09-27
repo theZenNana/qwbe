@@ -13,7 +13,20 @@ import { walk } from "./files.ts"
 // Hidden entries (`.pi`, `.claude`, `.githooks`, ...) are the authoring checkout's agent and git
 // tool state - the same family as `node_modules`, never package content. They are skipped by the
 // leading-dot rule below rather than by name, so the next tool's directory ships no surprises.
-const LOCAL_SOURCE_DIRECTORIES = new Set(["node_modules", "docs", "probes", "test", "frontend", "dist", "build"])
+// `tools` and `checks` are a pack's developer tooling and tests, like `probes` and `test`.
+// ponytail: a name denylist; the next developer directory needs another edit here and in
+// SKIP_DIRECTORIES. Upgrade path: compile only what qwbe-package.json declares (an allowlist).
+const LOCAL_SOURCE_DIRECTORIES = new Set([
+  "node_modules",
+  "docs",
+  "probes",
+  "test",
+  "tools",
+  "checks",
+  "frontend",
+  "dist",
+  "build",
+])
 const LOCAL_SOURCE_FILES = new Set(["package.json", "package-lock.json", "tsconfig.json"])
 const LOCAL_SOURCE_FILE_PATTERN = /\.(test|spec)\.(mjs|js|jsx)$/
 const PACKAGE_NAME = /^[a-z][a-z0-9-]{0,31}$/
