@@ -18,6 +18,7 @@ import { pathToFileURL } from "node:url"
 import { Effect } from "effect"
 import { capabilityRuntime } from "../capability-runtime.ts"
 import { buildCatalogue } from "../catalogue.ts"
+import { readMounted } from "../config.ts"
 import { type CubeDefinition, decodeCubeExport, validateCubeParts } from "../cube-contract.ts"
 import { assertPackageContracts, checkPackageSource } from "../package-contract.ts"
 import { busFrom } from "./bus.ts"
@@ -67,8 +68,10 @@ export const loadDefinitions = async (): Promise<
 > => {
   const onDisk = discover()
 
-  const requested = process.env.QWBE_MOUNTED
-    ? process.env.QWBE_MOUNTED.split(",")
+  const mounted = readMounted()
+  const requested = mounted
+    ? mounted
+        .split(",")
         .map((s) => s.trim())
         .filter(Boolean)
     : onDisk.map((c) => c.name)

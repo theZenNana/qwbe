@@ -42,6 +42,7 @@
 
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs"
 import { dirname, join, resolve } from "node:path"
+import { readStoreDir } from "../config.ts"
 import { includePackageSourcePath, isBookkeeping, MANIFEST } from "../package-source.ts"
 import { InstallError, stageAndInstall as stageAndInstallFor } from "./install-from.ts"
 import {
@@ -62,7 +63,7 @@ import type { CubePackage } from "./manifest.ts"
 export { InstallError }
 
 /** Where installable packages sit. Overridable so the probes can point at a scratch copy. */
-const storeDir = resolve(process.env.QWBE_STORE_DIR ?? join(srcDir, "..", "store"))
+const storeDir = resolve(readStoreDir() ?? join(srcDir, "..", "store"))
 
 /** The metadata file that makes a directory in the store a package rather than scratch. */
 

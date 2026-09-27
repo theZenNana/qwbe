@@ -18,6 +18,7 @@
 
 import type { Ledger } from "./ledger.ts"
 import type { DataMigration, Manifest } from "./manifest.ts"
+import { readLegacyMigrations } from "../config.ts"
 
 export class MigrationOwnershipError extends Error {
   constructor(reason: string) {
@@ -54,7 +55,7 @@ export const checkMigrationOwnership = async (
 ): Promise<Array<ValidatedMigration>> => {
   const mounted = new Map(definitions.map((d) => [d.name, d.plugin]))
   const legacyAuthorized = new Map(
-    (process.env.QWBE_LEGACY_MIGRATIONS ?? "")
+    readLegacyMigrations()
       .split(",")
       .map((s) => s.trim())
       .filter(Boolean)

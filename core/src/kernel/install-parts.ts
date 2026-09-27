@@ -10,6 +10,7 @@ import { existsSync, rmSync } from "node:fs"
 import { dirname, join, resolve, sep } from "node:path"
 import { fileURLToPath } from "node:url"
 import { Effect } from "effect"
+import { readPluginsDir, readRestartCmd, readRestartMode } from "../config.ts"
 import { isPackageCubeIdentity } from "../package-source.ts"
 import type { CubeInstaller } from "./manifest.ts"
 import { InstallError } from "./manifest.ts"
@@ -20,7 +21,7 @@ export const srcDir = resolve(dirname(fileURLToPath(import.meta.url)), "..")
 export const cubesDir = resolve(join(srcDir, "cubes"))
 /** Same override as kernel/scan.ts reads: `qwbe check` points discovery AND the install
  *  destination at one sandbox, so a check never writes into a real plugins directory. */
-export const pluginsDir = resolve(process.env.QWBE_PLUGINS_DIR ?? join(srcDir, "..", "plugins"))
+export const pluginsDir = resolve(readPluginsDir(join(srcDir, "..", "plugins")))
 
 /** Package and plugin slugs. Cube identities use `isPackageCubeIdentity` in `checkName`. */
 export const NAME = /^[a-z][a-z0-9-]{0,31}$/
@@ -88,8 +89,8 @@ export const lifecycleInstaller = (): Pick<CubeInstaller, "cubeOnDisk" | "remove
   // clicking the button.
   restart: () => {
     setTimeout(() => {
-      if ((process.env.QWBE_RESTART_MODE ?? "inband") === "command") {
-        const cmd = process.env.QWBE_RESTART_CMD ?? "systemctl --user restart qwbe"
+      if (readRestartMode() === "command") {
+        const cmd = readRestartCmd()
         exec(cmd, (e) => {
           if (e) console.error(`[install] restart command failed: ${e.message}`)
         })

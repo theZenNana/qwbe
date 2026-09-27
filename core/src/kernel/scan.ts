@@ -7,6 +7,7 @@
 import { existsSync, readdirSync } from "node:fs"
 import { dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
+import { readPluginsDir } from "../config.ts"
 import { BrokenCubeError, DuplicateCubeError } from "./errors-discovery.ts"
 
 const here = dirname(fileURLToPath(import.meta.url))
@@ -31,7 +32,7 @@ const entryOf = (dir: string, plugin: string | null): string | null =>
  *  directory discovery mounts from -- two spellings of this path would drift. Overridable the
  *  way the store is (QWBE_STORE_DIR): `qwbe check` points it at a sandbox holding exactly the
  *  one package being checked, so a check never touches the packages a checkout really has. */
-export const pluginsDir = resolve(process.env.QWBE_PLUGINS_DIR ?? join(here, "..", "..", "plugins"))
+export const pluginsDir = resolve(readPluginsDir(join(here, "..", "..", "plugins")))
 
 export const subdirectories = (dir: string): ReadonlyArray<string> => {
   if (!existsSync(dir)) return []

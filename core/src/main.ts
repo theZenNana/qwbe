@@ -21,6 +21,7 @@ import { NodeHttpServer, NodeRuntime } from "@effect/platform-node"
 import { Effect, Layer } from "effect"
 import { bootStorage } from "./boot-storage.ts"
 import { catalogueMetadata } from "./catalogue.ts"
+import { readAllowedOrigins, readPort } from "./config.ts"
 import { captureEntity } from "./entity-enforcement.ts"
 import { Authorization } from "./kernel/auth-contract.ts"
 import { loadDefinitions, mount } from "./kernel/discovery.ts"
@@ -34,7 +35,7 @@ import { checkSchemaDrift } from "./metadata/schema-drift.ts"
 import { corsOriginMatcher, originsForStartup } from "./origins.ts"
 import { registryFrom } from "./registry-runtime.ts"
 
-const PORT = Number(process.env.QWBE_PORT ?? 4500)
+const PORT = readPort()
 
 const fail = (e: Error, code: number): never => {
   console.error(`\n${e.message}\n`)
@@ -43,7 +44,7 @@ const fail = (e: Error, code: number): never => {
 
 // Browser origins for CORS: parse, warn on the unset default, exit on malformed
 // values -- all in origins.ts.
-const ALLOWED_ORIGINS: ReadonlyArray<string> = originsForStartup(process.env.QWBE_ALLOWED_ORIGINS)
+const ALLOWED_ORIGINS: ReadonlyArray<string> = originsForStartup(readAllowedOrigins())
 
 // --- 1. discovery: level 0 (cubes + plugins) and level 1 (spaces) ---
 //
