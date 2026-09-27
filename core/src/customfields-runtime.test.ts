@@ -51,6 +51,8 @@ const freePort = (): Promise<number> =>
 
 type Server = { proc: ReturnType<typeof spawn>; port: number; output: string }
 
+class PortTaken extends Error {}
+
 const startServer = async (port: number, env: Record<string, string>): Promise<Server> => {
   const proc = spawn(process.execPath, ["src/main.ts"], {
     cwd: core,
@@ -63,8 +65,13 @@ const startServer = async (port: number, env: Record<string, string>): Promise<S
   for (let i = 0; i < 60; i++) {
     await wait(250)
     if (proc.exitCode !== null) throw new Error(`server on :${port} died:\n${server.output}`)
+    if (server.output.includes("EADDRINUSE")) {
+      proc.kill("SIGTERM")
+      throw new PortTaken(`server on :${port} hit EADDRINUSE:\n${server.output}`)
+    }
     try {
-      const r = await fetch(`http://127.0.0.1:${port}/openapi.json`)
+      // Without the timeout, a stolen port can hang the poll until the hook dies at 60 s.
+      const r = await fetch(`http://127.0.0.1:${port}/openapi.json`, { signal: AbortSignal.timeout(2_000) })
       // The spec is behind authentication, so 401 counts as listening too.
       if (r.status === 200 || r.status === 401) return server
     } catch {
@@ -72,6 +79,19 @@ const startServer = async (port: number, env: Record<string, string>): Promise<S
     }
   }
   throw new Error(`server on :${port} never listened:\n${server.output}`)
+}
+
+const startOnFreePort = async (env: Record<string, string>): Promise<Server> => {
+  let lastError: unknown
+  for (let i = 0; i < 3; i++) {
+    try {
+      return await startServer(await freePort(), env)
+    } catch (e) {
+      if (!(e instanceof PortTaken)) throw e
+      lastError = e
+    }
+  }
+  throw lastError
 }
 
 const call = async (port: number, path: string, options: Record<string, unknown> = {}) => {
@@ -130,7 +150,6 @@ let readerHeaders: Record<string, string>
 beforeAll(async () => {
   if (existsSync(installed)) throw new Error(`refusing: ${installed} already exists -- remove it first`)
   cpSync(fixture, installed, { recursive: true })
-  const [portA, portB] = [await freePort(), await freePort()]
   const env = {
     QWBE_DATABASE_URL: dbUrl,
     QWBE_ADMIN_PASSWORD: "admin",
@@ -141,11 +160,11 @@ beforeAll(async () => {
   // Both instances boot BEFORE any definition is created: B must not know the definitions
   // through anything but the shared database.
   ;[serverA, serverB] = await Promise.all([
-    startServer(portA, { ...env, QWBE_DATA_DIR: dataA }),
-    startServer(portB, { ...env, QWBE_DATA_DIR: dataB }),
+    startOnFreePort({ ...env, QWBE_DATA_DIR: dataA }),
+    startOnFreePort({ ...env, QWBE_DATA_DIR: dataB }),
   ])
-  adminHeaders = await login(portA, "admin", "admin")
-  readerHeaders = await login(portB, "reader", "reader")
+  adminHeaders = await login(serverA.port, "admin", "admin")
+  readerHeaders = await login(serverB.port, "reader", "reader")
 }, 60_000)
 
 afterAll(async () => {

@@ -69,3 +69,10 @@ refactor, what stays under 70.
 | `core/src/install-contract.test.ts` | lucian 64.4 |
 | `core/src/pg/echo-activity-pg.test.ts` | lucian 65.2 |
 | `core/src/kernel/state.test.ts` | lucian 69.9 |
+
+Port retry in the customfields runtime test (run 349cbd59, `glm-pi`): `startOnFreePort` retries a
+taken port and every readiness fetch has a 2 s timeout, so the hook fails fast instead of hanging.
+
+| file | scores under 70 |
+|---|---|
+| `core/src/customfields-runtime.test.ts` | lucian 49.8 (ponytail 71.9, unslop 93.4) |
