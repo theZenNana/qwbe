@@ -101,13 +101,8 @@ export default tseslint.config(
       "**/*.test.ts",
       // To migrate (audit E9), delete the entry when the file logs through Effect.
       "core/src/check-probes.ts",
-      "core/src/cubes/account/index.ts",
-      "core/src/kernel/bus.ts",
-      "core/src/kernel/install-parts.ts",
-      "core/src/kernel/migrate.ts",
       "core/src/main.ts",
       "core/src/origins.ts",
-      "core/src/pg/db.ts",
     ],
     rules: { "no-console": "error" },
   },
