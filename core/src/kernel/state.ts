@@ -13,14 +13,9 @@
 // time rather than reaching for it in code. A declared hatch, not a hidden one.
 
 import { dirname, join } from "node:path"
-import { fileURLToPath } from "node:url"
 import { FileSystem } from "@effect/platform"
 import { Data, Effect, Schema } from "effect"
-import { readDataDir } from "../config.ts"
-
-const here = dirname(fileURLToPath(import.meta.url))
-const dataDir = readDataDir(join(here, "..", "..", "..", "data"))
-const stateFile = join(dataDir, "switches.json")
+import { QwbeConfig } from "../config.ts"
 
 const SwitchesFile = Schema.parseJson(
   Schema.Struct({ disabled: Schema.optionalWith(Schema.Array(Schema.String), { default: () => [] }) }),
@@ -59,15 +54,17 @@ export class StateFileError extends Data.TaggedError("StateFileError")<{
   readonly message: string
 }> {}
 
-const fileError = (e: { readonly message: string }) => new StateFileError({ path: stateFile, message: e.message })
+const fileErrorAt = (stateFile: string) => (e: { readonly message: string }) =>
+  new StateFileError({ path: stateFile, message: e.message })
 
 /**
  * Disabled cubes. Anything absent is enabled -- so a newly installed cube starts alive, and a
  * missing file means nothing is off. A file that is there but does not decode is a failure,
  * never an empty list: an empty list would quietly switch every disabled cube back on.
  */
-const readDisabled = (fs: FileSystem.FileSystem) =>
+const readDisabled = (fs: FileSystem.FileSystem, stateFile: string) =>
   Effect.gen(function* () {
+    const fileError = fileErrorAt(stateFile)
     if (!(yield* Effect.mapError(fs.exists(stateFile), fileError))) return new Set<string>()
     const text = yield* Effect.mapError(fs.readFileString(stateFile), fileError)
     const { disabled } = yield* Schema.decodeUnknown(SwitchesFile)(text).pipe(
@@ -76,14 +73,14 @@ const readDisabled = (fs: FileSystem.FileSystem) =>
     return new Set(disabled)
   })
 
-const writeDisabled = (fs: FileSystem.FileSystem, disabled: ReadonlySet<string>) =>
+const writeDisabled = (fs: FileSystem.FileSystem, stateFile: string, disabled: ReadonlySet<string>) =>
   fs
-    .makeDirectory(dataDir, { recursive: true })
+    .makeDirectory(dirname(stateFile), { recursive: true })
     .pipe(
       Effect.zipRight(
         fs.writeFileString(stateFile, `${JSON.stringify({ disabled: [...disabled].sort() }, null, 2)}\n`),
       ),
-      Effect.mapError(fileError),
+      Effect.mapError(fileErrorAt(stateFile)),
     )
 
 export type Switches = {
@@ -116,7 +113,8 @@ export type Switches = {
 export const switchesFrom = (mounted: ReadonlyArray<{ readonly name: string; readonly required: boolean }>) =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem
-    let disabled = yield* readDisabled(fs)
+    const stateFile = join((yield* QwbeConfig).dataDir, "switches.json")
+    let disabled = yield* readDisabled(fs, stateFile)
     const known = new Map(mounted.map((m) => [m.name, m]))
     // The kernel notifies AFTER a cube is re-enabled, so a cube whose events were missed while
     // it was off can replay them. Wired by mount(); the bus does not exist yet when this runs.
@@ -126,7 +124,7 @@ export const switchesFrom = (mounted: ReadonlyArray<{ readonly name: string; rea
     // in the file -- otherwise the disabled list grows ghosts forever.
     const cleaned = new Set([...disabled].filter((n) => known.has(n)))
     if (cleaned.size !== disabled.size) {
-      yield* writeDisabled(fs, cleaned)
+      yield* writeDisabled(fs, stateFile, cleaned)
       disabled = cleaned
     }
 
@@ -148,7 +146,7 @@ export const switchesFrom = (mounted: ReadonlyArray<{ readonly name: string; rea
           if (enabled) next.delete(cube)
           else next.add(cube)
 
-          yield* writeDisabled(fs, next)
+          yield* writeDisabled(fs, stateFile, next)
           disabled = next
           // The notification is awaited, not forked: a subscriber replaying missed events does
           // async store work, and the re-enable request must not answer before it lands --

@@ -42,7 +42,7 @@
 import { dirname, join, resolve } from "node:path"
 import { FileSystem } from "@effect/platform"
 import { Effect, Schema } from "effect"
-import { readStoreDir } from "../config.ts"
+import { QwbeConfig, type QwbeSettings } from "../config.ts"
 import { copyTree, subdirectories, walk } from "../files.ts"
 import { includePackageSourcePath, isBookkeeping, MANIFEST, PackageManifest } from "../package-source.ts"
 import { InstallError, stageAndInstall as stageAndInstallFor } from "./install-from.ts"
@@ -54,7 +54,6 @@ import {
   type InstallStep,
   lifecycleInstaller,
   NAME,
-  pluginsDir,
   srcDir,
   under,
 } from "./install-parts.ts"
@@ -63,8 +62,8 @@ import type { CubePackage } from "./manifest.ts"
 
 export { InstallError }
 
-/** Where installable packages sit. Overridable so the probes can point at a scratch copy. */
-const storeDir = resolve(readStoreDir() ?? join(srcDir, "..", "store"))
+/** Where installable packages sit. Overridable (QWBE_STORE_DIR) so the probes can point at a scratch copy. */
+const storeDirOf = (config: QwbeSettings) => resolve(config.storeDir ?? join(srcDir, "..", "store"))
 
 const sizeOf = (dir: string) =>
   Effect.map(walk(dir), (entries) => entries.reduce((total, e) => (e.type === "Directory" ? total : total + e.size), 0))
@@ -81,6 +80,7 @@ const sizeOf = (dir: string) =>
  * where it can still be answered with a refusal instead of a dead process.
  */
 const cubesOnDisk = Effect.gen(function* () {
+  const { pluginsDir } = yield* QwbeConfig
   const found: Array<{ cube: string; from: string }> = []
   for (const cube of yield* subdirectories(cubesDir)) found.push({ cube, from: "core" })
   for (const p of yield* subdirectories(pluginsDir)) {
@@ -99,6 +99,7 @@ const installExisting = (name: string): InstallStep<CubePackage> =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem
     const pkg = yield* readPackage(name)
+    const storeDir = storeDirOf(yield* QwbeConfig)
     const from = yield* under(storeDir, join(storeDir, name))
     const to = yield* destinationOf(pkg)
 
@@ -209,12 +210,19 @@ const readPackageAt = (name: string, dir: string): InstallStep<CubePackage> =>
   })
 
 const readPackage = (name: string) =>
-  Effect.flatMap(under(storeDir, join(storeDir, name)), (dir) => readPackageAt(name, dir))
+  Effect.flatMap(QwbeConfig, (config) => {
+    const storeDir = storeDirOf(config)
+    return Effect.flatMap(under(storeDir, join(storeDir, name)), (dir) => readPackageAt(name, dir))
+  })
 
 export const installerFor = (
   /** Injected by discovery.ts, the only module allowed to run the source checker (QWB-70). Required. */
   checkPackageSource: (source: string) => Promise<ReadonlyArray<{ rule: string; file: string; message: string }>>,
+  /** The config the server booted with: store, plugins directory, restart mode. */
+  config: QwbeSettings,
 ): ScanInstaller => {
+  const storeDir = storeDirOf(config)
+  const run = <A>(step: InstallStep<A>) => face(config, step)
   const stageAndInstallFrom = stageAndInstallFor({
     storeDir,
     readPackageAt,
@@ -224,10 +232,10 @@ export const installerFor = (
   const scanContext = { storeDir, readPackageAt }
 
   return {
-    ...lifecycleInstaller(),
+    ...lifecycleInstaller(config),
 
     uninstallPackage: (name: string) =>
-      face(
+      run(
         Effect.gen(function* () {
           const fs = yield* FileSystem.FileSystem
           const pkg = yield* readPackage(name)
@@ -243,7 +251,7 @@ export const installerFor = (
       ),
 
     available: () =>
-      face(
+      run(
         Effect.gen(function* () {
           const names = (yield* subdirectories(storeDir)).filter((n) => NAME.test(n))
           // A malformed package in the store must not take the whole list down -- the page has
@@ -255,12 +263,12 @@ export const installerFor = (
         }),
       ).pipe(Effect.orDie),
 
-    install: (name: string) => face(installExisting(name)),
+    install: (name: string) => run(installExisting(name)),
 
-    stageAndInstall: (sourceDirectory: string) => face(stageAndInstallFrom(sourceDirectory)),
+    stageAndInstall: (sourceDirectory: string) => run(stageAndInstallFrom(sourceDirectory)),
 
-    scanDirectory: (directory: string) => face(scanFor(scanContext)(directory)),
+    scanDirectory: (directory: string) => run(scanFor(scanContext)(directory)),
 
-    forgetShelf: (name: string) => face(forgetShelfFor(scanContext)(name)),
+    forgetShelf: (name: string) => run(forgetShelfFor(scanContext)(name)),
   }
 }

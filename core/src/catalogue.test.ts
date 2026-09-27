@@ -6,7 +6,7 @@ import assert from "node:assert/strict"
 import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema } from "@effect/platform"
 import { Schema } from "effect"
 import { describe, it } from "vitest"
-import { buildCatalogue, metadataDerivations } from "./catalogue.ts"
+import { buildCatalogue, metadataCache } from "./catalogue.ts"
 
 const Entity = Schema.Struct({
   id: Schema.String,
@@ -38,14 +38,16 @@ describe("buildCatalogue metadata derivation", () => {
   it("derives once for a multi-cube catalogue and caches the negative result too", () => {
     // Fresh parts objects: a WeakMap keyed by parts must not serve a previous test's entries.
     const defs = definitions()
-    const before = metadataDerivations.count
+    const mounted = { cache: metadataCache(), activeCustomFields: () => [] }
+    const before = mounted.cache.derivations()
     const catalogue = buildCatalogue(
       defs,
       () => true,
       () => undefined,
       [],
+      mounted,
     )
-    assert.equal(metadataDerivations.count, before + 1)
+    assert.equal(mounted.cache.derivations(), before + 1)
     assert.ok(catalogue.find((c) => c.name === "things")?.metadata)
     assert.equal(catalogue.find((c) => c.name === "bare")?.metadata, undefined)
 
@@ -56,27 +58,31 @@ describe("buildCatalogue metadata derivation", () => {
       () => true,
       () => undefined,
       [],
+      mounted,
     )
-    assert.equal(metadataDerivations.count, before + 1)
+    assert.equal(mounted.cache.derivations(), before + 1)
   })
 
   it("keeps two mounts of the same cube name from sharing a cache entry", () => {
-    const before = metadataDerivations.count
+    const mounted = { cache: metadataCache(), activeCustomFields: () => [] }
+    const before = mounted.cache.derivations()
     const first = buildCatalogue(
       definitions(),
       () => true,
       () => undefined,
       [],
+      mounted,
     )
     const second = buildCatalogue(
       definitions(),
       () => true,
       () => undefined,
       [],
+      mounted,
     )
     assert.ok(second.find((c) => c.name === "things")?.metadata)
     assert.equal(first.find((c) => c.name === "things")?.metadata?.cube, "things")
     // Two independent mounts: two derivations, one per distinct set of parts.
-    assert.equal(metadataDerivations.count, before + 2)
+    assert.equal(mounted.cache.derivations(), before + 2)
   })
 })

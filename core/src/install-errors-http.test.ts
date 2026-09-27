@@ -23,19 +23,24 @@ import { describe, it } from "vitest"
 import { cube as authCube } from "./cubes/auth/index.ts"
 import { cube as permissionsCube } from "./cubes/permissions/index.ts"
 import { cube as settingsCube } from "./cubes/settings/index.ts"
+import { CustomFields, customFieldsRegistry } from "./custom-defs-reader.ts"
 import type { MountedCube } from "./kernel/discovery.ts"
 import { face } from "./kernel/install-parts.ts"
 import { InstallError } from "./kernel/manifest.ts"
 import { Registry } from "./kernel/registry.ts"
 import { buildApi, buildHandlers } from "./runtime-composition.ts"
+import { testConfig } from "./test-config.ts"
 import { memoryStore } from "./test-cube-tools.ts"
+
+const config = testConfig()
 
 // The fixture installer speaks through the production `face`, so the branch the test proves is
 // the branch production takes: an `InstallError` stays on the error channel; a platform
 // SystemError becomes a defect the way a real EACCES does.
-const contractRefusal = () => face(Effect.fail(new InstallError('refused: "bad-pkg" is already installed.')))
+const contractRefusal = () => face(config, Effect.fail(new InstallError('refused: "bad-pkg" is already installed.')))
 const diskFailure = () =>
   face(
+    config,
     Effect.fail(
       new SystemError({
         reason: "PermissionDenied",
@@ -118,7 +123,11 @@ const world = () => {
   const webHandler = HttpApiBuilder.toWebHandler(
     Layer.mergeAll(
       HttpApiBuilder.api(api).pipe(
-        Layer.provide(buildHandlers(api, cubes).pipe(Layer.provide(registry))),
+        Layer.provide(
+          buildHandlers(api, cubes).pipe(
+            Layer.provide(Layer.merge(registry, Layer.succeed(CustomFields, customFieldsRegistry().service))),
+          ),
+        ),
         Layer.provide(authLive),
       ),
       HttpServer.layerContext,

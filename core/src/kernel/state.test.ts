@@ -10,13 +10,15 @@ import { NodeContext } from "@effect/platform-node"
 import { Effect, Exit } from "effect"
 import { afterAll, test } from "vitest"
 import { runNode } from "../files.ts"
+import { testConfigLayer } from "../test-config.ts"
+import { RequiredCubeError, StateFileError, switchesFrom as switchesIn, UnknownCubeError } from "./state.ts"
 
 const dataDir = mkdtempSync(join(tmpdir(), "qwbe-switches-"))
-process.env.QWBE_DATA_DIR = dataDir
 const stateFile = join(dataDir, "switches.json")
 
-// Imported AFTER the env var is set: the module reads the data directory once, at import.
-const { switchesFrom, RequiredCubeError, UnknownCubeError, StateFileError } = await import("./state.ts")
+// The data directory reaches the kernel through its config, not through process.env.
+const switchesFrom = (mounted: Parameters<typeof switchesIn>[0]) =>
+  Effect.provide(switchesIn(mounted), testConfigLayer({ QWBE_DATA_DIR: dataDir }))
 
 const mounted = [
   { name: "auth", required: true },

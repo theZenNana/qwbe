@@ -25,8 +25,8 @@ const migrate = (fromCube: string, toCube: string, fromPlugin?: string | null): 
   ],
 })
 
-const run = async (definitions: Parameters<typeof checkMigrationOwnership>[0], ledger: Ledger) =>
-  checkMigrationOwnership(definitions, ledger)
+const run = async (definitions: Parameters<typeof checkMigrationOwnership>[0], ledger: Ledger, legacy = "") =>
+  checkMigrationOwnership(definitions, ledger, legacy)
 
 describe("migration ownership -- the registry of known cubes", () => {
   it("refuses a source the kernel has never recorded, even with no schema anywhere", async () => {
@@ -70,15 +70,8 @@ describe("migration ownership -- the registry of known cubes", () => {
     const definitions = [
       definition("booktags/tags", "example-plugin", migrate("tags", "booktags/tags", "example-plugin")),
     ]
-    const previous = process.env.QWBE_LEGACY_MIGRATIONS
-    try {
-      process.env.QWBE_LEGACY_MIGRATIONS = "tags:example-plugin"
-      const out = await run(definitions, {})
-      assert.equal(out.length, 1)
-    } finally {
-      if (previous === undefined) delete process.env.QWBE_LEGACY_MIGRATIONS
-      else process.env.QWBE_LEGACY_MIGRATIONS = previous
-    }
+    const out = await run(definitions, {}, "tags:example-plugin")
+    assert.equal(out.length, 1)
   })
 
   it("refuses a source that is a mounted cube of ANOTHER package", async () => {

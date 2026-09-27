@@ -1,51 +1,37 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest"
-import { readDataDir, readLegacyMigrations, readMounted, readNodeEnv, readPort, readRestartMode } from "./config.js"
-
-const QWBE_KEYS = [
-  "QWBE_PORT",
-  "QWBE_RESTART_MODE",
-  "QWBE_RESTART_CMD",
-  "QWBE_LEGACY_MIGRATIONS",
-  "QWBE_DATA_DIR",
-  "QWBE_PLUGINS_DIR",
-  "QWBE_STORE_DIR",
-  "QWBE_ALLOWED_ORIGINS",
-  "QWBE_MOUNTED",
-  "QWBE_ADMIN_PASSWORD",
-  "QWBE_READER_PASSWORD",
-  "QWBE_CUBE_VERSIONS_BASELINE",
-  "QWBE_DATABASE_URL",
-  "NODE_ENV",
-] as const
+import { ConfigProvider, Effect, Either, Redacted } from "effect"
+import { describe, expect, it } from "vitest"
+import { loadConfig } from "./config.ts"
+import { testConfig } from "./test-config.ts"
 
 describe("config", () => {
-  let saved: NodeJS.ProcessEnv
-
-  beforeEach(() => {
-    saved = { ...process.env }
-  })
-
-  afterEach(() => {
-    process.env = saved
-  })
-
-  it("rejects a non-numeric QWBE_PORT", () => {
-    process.env.QWBE_PORT = "abc"
-    expect(() => readPort()).toThrow(/QWBE_PORT/)
+  it("rejects a non-numeric QWBE_PORT as a typed failure", () => {
+    const result = Effect.runSync(
+      Effect.either(
+        loadConfig.pipe(Effect.withConfigProvider(ConfigProvider.fromMap(new Map([["QWBE_PORT", "abc"]])))),
+      ),
+    )
+    expect(Either.isLeft(result) && result.left._tag).toBe("ConfigInvalid")
+    expect(Either.isLeft(result) && result.left.message).toMatch(/QWBE_PORT/)
   })
 
   it("falls back to defaults when nothing is set", () => {
-    for (const key of QWBE_KEYS) delete process.env[key]
-    expect(readPort()).toBe(4500)
-    expect(readNodeEnv()).toBe("development")
-    expect(readRestartMode()).toBe("inband")
-    expect(readLegacyMigrations()).toBe("")
-    expect(readMounted()).toBeUndefined()
-    expect(readDataDir("/x")).toBe("/x")
+    const config = testConfig()
+    expect(config.port).toBe(4500)
+    expect(config.nodeEnv).toBe("development")
+    expect(config.restartMode).toBe("inband")
+    expect(config.legacyMigrations).toBe("")
+    expect(config.mounted).toBeUndefined()
+    expect(config.storeDir).toBeUndefined()
+    expect(config.dataDir).toMatch(/data$/)
   })
 
   it("keeps an empty QWBE_MOUNTED (empty is not unset)", () => {
-    process.env.QWBE_MOUNTED = ""
-    expect(readMounted()).toBe("")
+    expect(testConfig({ QWBE_MOUNTED: "" }).mounted).toBe("")
+  })
+
+  it("keeps secrets redacted", () => {
+    const { databaseUrl } = testConfig({ QWBE_DATABASE_URL: "postgres://u:secret@h/d" })
+    expect(String(databaseUrl)).not.toContain("secret")
+    expect(databaseUrl && Redacted.value(databaseUrl)).toBe("postgres://u:secret@h/d")
   })
 })

@@ -4,12 +4,12 @@
 // directory whose subdirectories are themselves cubes is a PARENT, children are addressed
 // `<parent>/<child>`, and discovery is one level deep only (docs/booktags-hierarchy.md).
 
-import { dirname, join, resolve } from "node:path"
+import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { FileSystem } from "@effect/platform"
 import type { PlatformError } from "@effect/platform/Error"
 import { Effect } from "effect"
-import { readPluginsDir } from "../config.ts"
+import { QwbeConfig } from "../config.ts"
 import { subdirectories as directoriesIn } from "../files.ts"
 import { BrokenCubeError, DuplicateCubeError } from "./errors-discovery.ts"
 
@@ -29,24 +29,22 @@ const entryOf = (dir: string, plugin: string | null) =>
     return null
   })
 
-/** Where installed packages live. Exported so the boot-time package contract judges the same
- *  directory discovery mounts from -- two spellings of this path would drift. Overridable the
- *  way the store is (QWBE_STORE_DIR): `qwbe check` points it at a sandbox holding exactly the
- *  one package being checked, so a check never touches the packages a checkout really has. */
-export const pluginsDir = resolve(readPluginsDir(join(here, "..", "..", "plugins")))
-
 const subdirectories = (dir: string) =>
   Effect.map(directoriesIn(dir), (names) => names.filter((n) => !n.startsWith("_") && !n.startsWith(".")).sort())
 
 /** Everything on disk, in load order: core cubes first, then each plugin's. */
+// Installed packages live in the config's `pluginsDir` -- the one spelling the boot-time package
+// contract and the installer read too. `qwbe check` points it (QWBE_PLUGINS_DIR) at a sandbox
+// holding exactly the one package being checked, so a check never touches a checkout's packages.
 export const discover = Effect.gen(function* () {
+  const { pluginsDir } = yield* QwbeConfig
   const found: Array<{ name: string; plugin: string | null; specifier: string }> = []
 
   const scan = (
     dir: string,
     plugin: string | null,
     parent: string | null,
-  ): Effect.Effect<void, BrokenCubeError | PlatformError, FileSystem.FileSystem> =>
+  ): Effect.Effect<void, BrokenCubeError | PlatformError, FileSystem.FileSystem | QwbeConfig> =>
     Effect.gen(function* () {
       for (const name of yield* subdirectories(dir)) {
         const nested = join(dir, name)

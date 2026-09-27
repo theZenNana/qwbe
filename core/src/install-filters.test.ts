@@ -10,16 +10,16 @@ import { cpSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } fr
 import { tmpdir } from "node:os"
 import { join, relative, sep } from "node:path"
 import { describe, it } from "vitest"
+import { stageSandbox } from "./check-package.ts"
+import { installerFor } from "./kernel/install.ts"
+import { testConfig } from "./test-config.ts"
+import { writePack } from "./test-fixture-pack.ts"
 
-// The store and plugins roots are read from the environment at module load: set them
-// before any kernel module is imported, hence the dynamic imports below.
+// The installer gets its store and plugins roots from the config it is handed.
 const bench = mkdtempSync(join(tmpdir(), "qwbe-install-filters-"))
-process.env.QWBE_STORE_DIR = join(bench, "store")
-process.env.QWBE_PLUGINS_DIR = join(bench, "plugins")
-
-const { installerFor } = await import("./kernel/install.ts")
-const { stageSandbox } = await import("./check-package.ts")
-const { writePack } = await import("./test-fixture-pack.ts")
+const storeDir = join(bench, "store")
+const pluginsDir = join(bench, "plugins")
+const config = testConfig({ QWBE_STORE_DIR: storeDir, QWBE_PLUGINS_DIR: pluginsDir })
 
 const NAME = "filter-pack"
 
@@ -60,14 +60,14 @@ describe("one content rule for every copy of a package", () => {
       const sandboxFiles = filesUnder(join(sandbox.plugins, NAME))
 
       // 2. The install filter: shelf -> plugins/<name>, what a real install leaves behind.
-      const shelf = join(process.env.QWBE_STORE_DIR ?? "", NAME)
-      mkdirSync(process.env.QWBE_STORE_DIR ?? "", { recursive: true })
+      const shelf = join(storeDir, NAME)
+      mkdirSync(storeDir, { recursive: true })
       cpSync(source, shelf, { recursive: true })
       const installed = await import("effect").then(({ Effect }) =>
-        Effect.runPromise(installerFor(async () => []).install(NAME)),
+        Effect.runPromise(installerFor(async () => [], config).install(NAME)),
       )
       assert.ok(installed.installed)
-      const installedFiles = filesUnder(join(process.env.QWBE_PLUGINS_DIR ?? "", NAME))
+      const installedFiles = filesUnder(join(pluginsDir, NAME))
 
       // The copy `qwbe check` judged is byte-for-byte the file set an install would ship:
       // authoring tool state (test/, .pi/, docs/, package.json) present in NEITHER.

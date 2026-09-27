@@ -30,11 +30,12 @@ import { HttpApiBuilder, HttpServer } from "@effect/platform"
 import { Effect, FiberRef, Layer } from "effect"
 import type { CubeTools } from "qwbe-core/cube"
 import { afterAll, describe, it } from "vitest"
-import { buildCatalogue } from "../catalogue.ts"
+import { buildCatalogue, metadataCache } from "../catalogue.ts"
 import { cube as authCube } from "../cubes/auth/index.ts"
 import { cube as echoCube } from "../cubes/echo/index.ts"
 import { cube as notesCube } from "../cubes/notes/index.ts"
 import { cube as permissionsCube } from "../cubes/permissions/index.ts"
+import { CustomFields, customFieldsRegistry } from "../custom-defs-reader.ts"
 import { captureEntity, enforceEntityHandlers } from "../entity-enforcement.ts"
 import { CurrentActor } from "../kernel/actor.ts"
 import type { MountedCube } from "../kernel/discovery.ts"
@@ -227,6 +228,7 @@ const world = () => {
     () => true,
     () => undefined,
     [],
+    { cache: metadataCache(), activeCustomFields: () => [] },
   )
 
   // --- echo cube over the in-memory activity tool; the comment routes gate through the REAL
@@ -322,7 +324,11 @@ const world = () => {
 
   const api = buildApi(cubes)
   const ApiLive = HttpApiBuilder.api(api).pipe(
-    Layer.provide(buildHandlers(api, cubes).pipe(Layer.provide(RegistryLive))),
+    Layer.provide(
+      buildHandlers(api, cubes).pipe(
+        Layer.provide(Layer.merge(RegistryLive, Layer.succeed(CustomFields, customFieldsRegistry().service))),
+      ),
+    ),
     Layer.provide(authLive),
   )
   const web = HttpApiBuilder.toWebHandler(Layer.mergeAll(ApiLive, HttpServer.layerContext))

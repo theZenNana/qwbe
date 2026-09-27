@@ -14,9 +14,13 @@ import { runNode } from "./files.ts"
 
 import { InstallError, stageAndInstall } from "./kernel/install-from.ts"
 import type { CubePackage } from "./kernel/manifest.ts"
-import { pluginsDir } from "./kernel/scan.ts"
-import { assertPackageContracts, checkPackageSource } from "./package-contract.ts"
+import { assertPackageContracts as assertIn, checkPackageSource } from "./package-contract.ts"
+import { testConfig, testConfigLayer } from "./test-config.ts"
 import { writePack } from "./test-fixture-pack.ts"
+
+const { pluginsDir } = testConfig()
+const assertPackageContracts = (mounting: ReadonlyArray<{ readonly plugin: string | null }>, env = {}) =>
+  runNode(assertIn(mounting).pipe(Effect.provide(testConfigLayer(env))))
 
 const makePackage = async (mutate?: (root: string) => void): Promise<string> => {
   const root = await writePack(mkdtempSync(join(tmpdir(), "qwbe-package-contract-")), {
@@ -77,7 +81,7 @@ describe("package contract checker", () => {
       installExisting: () => Effect.succeed({ ...pkg, installed: true }),
       checkPackageSource,
     })
-    await assert.rejects(runNode(install(source)), (error: unknown) => {
+    await assert.rejects(runNode(Effect.provide(install(source), testConfigLayer())), (error: unknown) => {
       assert.ok(error instanceof InstallError)
       assert.match(error.message, /source contract/)
       assert.match(error.message, /cubes\//)
@@ -369,13 +373,6 @@ describe("the boot gate", () => {
 
     const empty = mkdtempSync(join(tmpdir(), "qwbe-empty-store-"))
     tmpRoots.push(empty)
-    const previous = process.env.QWBE_STORE_DIR
-    process.env.QWBE_STORE_DIR = empty
-    try {
-      await assertPackageContracts([{ plugin }])
-    } finally {
-      if (previous === undefined) delete process.env.QWBE_STORE_DIR
-      else process.env.QWBE_STORE_DIR = previous
-    }
+    await assertPackageContracts([{ plugin }], { QWBE_STORE_DIR: empty })
   })
 })

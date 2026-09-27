@@ -17,9 +17,9 @@ import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { SqlClient, SqlError } from "@effect/sql"
 import { PgClient } from "@effect/sql-pg"
-import { Effect, Layer, ManagedRuntime, Runtime } from "effect"
+import { Effect, Layer, ManagedRuntime, Redacted, Runtime } from "effect"
 import pg from "pg"
-import { readDatabaseUrl } from "../config.ts"
+import { QwbeConfig, QwbeConfigLive } from "../config.ts"
 import { type Setup, SetupLive } from "./setup.ts"
 
 const here = dirname(fileURLToPath(import.meta.url))
@@ -29,17 +29,15 @@ const here = dirname(fileURLToPath(import.meta.url))
  * (SQLite, memory, anything) would create two storage truths and the quiet data loss that
  * follows. The message names the variable, because that is what the operator can fix.
  */
-export const databaseUrl = (): string => {
-  const url = readDatabaseUrl()
-  if (!url) {
-    throw new Error(
-      "QWBE_DATABASE_URL is not set. qwbe stores every cube in one Postgres database and " +
-        "refuses to start without it. Set it, e.g. to the value in .env.example, and start the " +
-        "database with `npm run db:up`.",
-    )
-  }
-  return url
-}
+export const databaseUrl = Effect.flatMap(QwbeConfig, ({ databaseUrl: url }) =>
+  url
+    ? Effect.succeed(Redacted.value(url))
+    : Effect.dieMessage(
+        "QWBE_DATABASE_URL is not set. qwbe stores every cube in one Postgres database and " +
+          "refuses to start without it. Set it, e.g. to the value in .env.example, and start the " +
+          "database with `npm run db:up`.",
+      ),
+)
 
 /** The driver's own message, not the wrapper's "Failed to execute statement". */
 export const reason = (e: SqlError.SqlError): string => (e.cause instanceof Error ? e.cause.message : e.message)
@@ -47,7 +45,9 @@ export const reason = (e: SqlError.SqlError): string => (e.cause instanceof Erro
 const pool = Effect.acquireRelease(
   Effect.gen(function* () {
     const runtime = yield* Effect.runtime<never>()
-    const p = new pg.Pool({ connectionString: databaseUrl(), max: 10 })
+    // The config layer is built here, from the environment of the moment the pool is made.
+    const url = yield* databaseUrl.pipe(Effect.provide(QwbeConfigLive), Effect.orDie)
+    const p = new pg.Pool({ connectionString: url, max: 10 })
     // PgClient's own pool listener swallows the error silently; this one says what happened.
     p.on("error", (e: NodeJS.ErrnoException) => {
       // ponytail: one line, no reconnect logic -- the pool replaces a lost client on the next

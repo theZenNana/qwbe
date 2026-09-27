@@ -50,8 +50,8 @@ type CatalogueDefinition = Readonly<{
 // Custom-field VALUES live in the target row's `custom` sub-object; DEFINITIONS live in the
 // cube that provides them. The kernel never knew about definitions before this ticket: they
 // are runtime data, so they cannot be derived from a contract. A cube whose manifest declares
-// `providesCustomFields` registers a provider here (through the `customFields` tool the kernel
-// hands it at mount), and everything the kernel publishes about fields -- this catalogue's
+// `providesCustomFields` registers a provider with its mount (through the `customFields` tool the
+// kernel hands it), and everything the kernel publishes about fields -- this catalogue's
 // metadata -- appends the provider's active definitions, marked `custom: true`.
 
 /** A subscription to an event, by string name. See `bus.ts`. */
@@ -67,8 +67,6 @@ import type { CustomFieldDefinition } from "./custom-field-types.ts"
 export type { CustomFieldDefinition }
 
 export type CustomFieldProvider = (cube: string) => ReadonlyArray<CustomFieldDefinition>
-
-const customFieldProviders: Array<CustomFieldProvider> = []
 
 /**
  * The narrow tool the kernel lends a cube declaring `providesCustomFields`.
@@ -95,15 +93,6 @@ export type CustomFieldTools = {
     rowId: string,
   ) => Effect.Effect<import("./custom-defs-reader.ts").CustomRowView | undefined, never, never>
 }
-
-/** Called by the kernel at mount, once per cube declaring `providesCustomFields`. */
-export const registerCustomFieldProvider = (provider: CustomFieldProvider): void => {
-  customFieldProviders.push(provider)
-}
-
-/** The active custom-field definitions registered for a target cube. Pure read. */
-const activeCustomFields = (cube: string): ReadonlyArray<CustomFieldDefinition> =>
-  customFieldProviders.flatMap((provider) => provider(cube))
 
 /** A custom field's definition type, in the vocabulary the published metadata speaks. */
 const customFieldType: Record<CustomFieldDefinition["fieldType"], string> = {
@@ -137,7 +126,11 @@ const customFieldMetadata = (d: CustomFieldDefinition): FieldMetadata => ({
  * or deletes a field. The drift gate (schema-drift.ts) deliberately compares the STATIC hash:
  * runtime definitions are data, not a schema change under a declared version.
  */
-const enrichWithCustomFields = (base: CubeMetadata | undefined, cube: string): CubeMetadata | undefined => {
+const enrichWithCustomFields = (
+  base: CubeMetadata | undefined,
+  cube: string,
+  activeCustomFields: CustomFieldProvider,
+): CubeMetadata | undefined => {
   if (!base) return undefined
   const taken = new Set(base.fields.map((f) => f.name))
   const custom = activeCustomFields(cube).filter((d) => {
@@ -152,47 +145,56 @@ const enrichWithCustomFields = (base: CubeMetadata | undefined, cube: string): C
 }
 
 // Derived metadata is pure, and a mounted cube's contract never changes within one mount --
-// so each cube is derived once and remembered by its parts object, not by name (two mounts
-// in one process must not share a cache entry). The ABSENT result is cached too: most cubes
-// hold no entity schema, and re-walking the ASTs for a cube that can never have metadata is
-// the same waste as re-walking one that can.
-const metadataCache = new WeakMap<object, CubeMetadata | null>()
-
-// Counted for tests only: proves the derivation runs once per distinct set of mounted cubes,
-// not once per cube and not once per catalogue() call.
-export const metadataDerivations = { count: 0 }
-
-/** Derive (or fetch from the cache) the metadata of every mounted cube. Shared with boot. */
-export const catalogueMetadata = (
-  cubes: ReadonlyArray<MetadataCube>,
-  links: ReadonlyArray<{ from: string; to: string; field: string }>,
-  isEnabled?: (name: string) => boolean,
-): ReadonlyArray<CubeMetadata> => {
-  if (cubes.some((c) => !metadataCache.has(c.parts))) {
-    metadataDerivations.count += 1
-    const derived = new Map(deriveAllMetadata(cubes, links, isEnabled).map((m) => [m.cube, m]))
-    for (const c of cubes) if (!metadataCache.has(c.parts)) metadataCache.set(c.parts, derived.get(c.name) ?? null)
+// so each cube is derived once and remembered by its parts object. The ABSENT result is cached
+// too: most cubes hold no entity schema, and re-walking the ASTs for a cube that can never have
+// metadata is the same waste as re-walking one that can. One cache per mount, owned by it:
+// the catalogue a cube reads is synchronous, so the cache is a plain map, not a Ref.
+export const metadataCache = () => {
+  const cache = new WeakMap<object, CubeMetadata | null>()
+  // Counted for tests only: proves the derivation runs once per distinct set of mounted cubes,
+  // not once per cube and not once per catalogue() call.
+  let derivations = 0
+  return {
+    /** Derive (or fetch from the cache) the metadata of every mounted cube. Shared with boot. */
+    metadata: (
+      cubes: ReadonlyArray<MetadataCube>,
+      links: ReadonlyArray<{ from: string; to: string; field: string }>,
+      isEnabled?: (name: string) => boolean,
+    ): ReadonlyArray<CubeMetadata> => {
+      if (cubes.some((c) => !cache.has(c.parts))) {
+        derivations += 1
+        const derived = new Map(deriveAllMetadata(cubes, links, isEnabled).map((m) => [m.cube, m]))
+        for (const c of cubes) if (!cache.has(c.parts)) cache.set(c.parts, derived.get(c.name) ?? null)
+      }
+      return cubes.flatMap((c) => {
+        const cached = cache.get(c.parts)
+        return cached ? [cached] : []
+      })
+    },
+    derivations: () => derivations,
   }
-  return cubes.flatMap((c) => {
-    const cached = metadataCache.get(c.parts)
-    return cached ? [cached] : []
-  })
 }
+
+export type MetadataCache = ReturnType<typeof metadataCache>
 
 export const buildCatalogue = (
   definitions: ReadonlyArray<CatalogueDefinition>,
   enabled: (name: string) => boolean,
   prefix: (path: string) => string | undefined,
   links: ReadonlyArray<{ from: string; to: string; field: string; label: string }>,
+  /** The mount's metadata cache and its registered custom-field providers. */
+  mounted: { readonly cache: MetadataCache; readonly activeCustomFields: CustomFieldProvider },
 ): Catalogue => {
   const mountedCubes = definitions.flatMap((d) =>
     d.cube ? [{ name: d.name, manifest: d.manifest, parts: d.cube.parts }] : [],
   )
-  const metadataByName = new Map(catalogueMetadata(mountedCubes, links, enabled).map((m) => [m.cube, m]))
+  const metadataByName = new Map(mounted.cache.metadata(mountedCubes, links, enabled).map((m) => [m.cube, m]))
   return definitions.map(({ name, plugin, manifest, cube }) => {
     const endpoints = (cube?.parts.group as { endpoints?: Record<string, { path?: string }> } | undefined)?.endpoints
     const firstPath = Object.values(endpoints ?? {})[0]?.path
-    const metadata = cube ? enrichWithCustomFields(metadataByName.get(name), name) : undefined
+    const metadata = cube
+      ? enrichWithCustomFields(metadataByName.get(name), name, mounted.activeCustomFields)
+      : undefined
     return {
       name,
       parent: manifest.parent,

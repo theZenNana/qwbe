@@ -21,6 +21,7 @@ import { describe, it } from "vitest"
 import { cube as authCube } from "../cubes/auth/index.ts"
 import { cube as permissionsCube } from "../cubes/permissions/index.ts"
 import { cube as viewsCube } from "../cubes/views/index.ts"
+import { CustomFields, customFieldsRegistry } from "../custom-defs-reader.ts"
 import { enforceEntityHandlers } from "../entity-enforcement.ts"
 import type { MountedCube } from "../kernel/discovery.ts"
 import { Registry } from "../kernel/registry.ts"
@@ -80,7 +81,11 @@ const world = () => {
   ] as unknown as ReadonlyArray<MountedCube>
   const api = buildApi(cubes)
   const ApiLive = HttpApiBuilder.api(api).pipe(
-    Layer.provide(buildHandlers(api, cubes).pipe(Layer.provide(registry))),
+    Layer.provide(
+      buildHandlers(api, cubes).pipe(
+        Layer.provide(Layer.merge(registry, Layer.succeed(CustomFields, customFieldsRegistry().service))),
+      ),
+    ),
     Layer.provide(authLive),
   )
   const web = HttpApiBuilder.toWebHandler(Layer.mergeAll(ApiLive, HttpServer.layerContext))

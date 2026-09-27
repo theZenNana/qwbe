@@ -8,6 +8,7 @@ import { runNode } from "./files.ts"
 import { contractValidationParent, isOutsideDiscoveryRoots } from "./install-contract.ts"
 import { InstallError, stageAndInstall } from "./kernel/install-from.ts"
 import type { CubePackage } from "./kernel/manifest.ts"
+import { testConfigLayer } from "./test-config.ts"
 
 describe("install-from static contract gate", () => {
   it("keeps validation copies outside runtime discovery roots", () => {
@@ -46,7 +47,7 @@ describe("install-from static contract gate", () => {
         checkPackageSource: async () => [], // no source findings: this case is about the stage, not the checker
       })
 
-      await assert.rejects(runNode(install(source)), (error: unknown) => {
+      await assert.rejects(runNode(Effect.provide(install(source), testConfigLayer())), (error: unknown) => {
         assert.ok(error instanceof InstallError)
         assert.match(error.message, /TypeScript contract gate/)
         assert.match(error.message, /TS2322/)
@@ -97,7 +98,7 @@ export const unsafe: any = 1
         installExisting: () => Effect.succeed({ ...pkg, installed: true }),
         checkPackageSource: async () => [], // no source findings: this case is about the stage, not the checker
       })
-      await assert.rejects(runNode(install(source)), /no-explicit-any/)
+      await assert.rejects(runNode(Effect.provide(install(source), testConfigLayer())), /no-explicit-any/)
       assert.deepEqual(existsSync(store) ? readdirSync(store) : [], [])
     } finally {
       rmSync(bench, { recursive: true, force: true })
@@ -137,7 +138,7 @@ export const unsafe: any = 1
           { rule: "cubes/", file: "qwbe-package.json", message: "cubes/ -- the cubes/ directory is missing" },
         ],
       })
-      await assert.rejects(runNode(install(source)), (error: unknown) => {
+      await assert.rejects(runNode(Effect.provide(install(source), testConfigLayer())), (error: unknown) => {
         assert.ok(error instanceof InstallError)
         assert.match(error.message, /source contract/)
         assert.match(error.message, /cubes\/ -- the cubes\/ directory is missing/)
@@ -186,7 +187,7 @@ export const unsafe: any = 1
         installExisting: () => Effect.succeed({ ...pkg, installed: true }),
         checkPackageSource: async () => [], // no source findings: this case is about the stage, not the checker
       })
-      const result = await runNode(install(source))
+      const result = await runNode(Effect.provide(install(source), testConfigLayer()))
       assert.equal(result.staged, true)
       assert.equal(existsSync(join(store, "clean-source", "index.ts")), true)
       assert.equal(existsSync(join(store, "clean-source", "node_modules")), false)

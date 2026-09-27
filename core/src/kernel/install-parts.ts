@@ -11,7 +11,7 @@ import { Command, FileSystem } from "@effect/platform"
 import type { PlatformError } from "@effect/platform/Error"
 import { NodeContext } from "@effect/platform-node"
 import { Effect } from "effect"
-import { readPluginsDir, readRestartCmd, readRestartMode } from "../config.ts"
+import { QwbeConfig, type QwbeSettings } from "../config.ts"
 import { isPackageCubeIdentity } from "../package-source.ts"
 import type { CubeInstaller } from "./manifest.ts"
 import { InstallError } from "./manifest.ts"
@@ -20,9 +20,6 @@ import { identitySegments } from "./manifest-validation.ts"
 export const srcDir = resolve(dirname(fileURLToPath(import.meta.url)), "..")
 
 export const cubesDir = resolve(join(srcDir, "cubes"))
-/** Same override as kernel/scan.ts reads: `qwbe check` points discovery AND the install
- *  destination at one sandbox, so a check never writes into a real plugins directory. */
-export const pluginsDir = resolve(readPluginsDir(join(srcDir, "..", "plugins")))
 
 /** Package and plugin slugs. Cube identities use `isPackageCubeIdentity` in `checkName`. */
 export const NAME = /^[a-z][a-z0-9-]{0,31}$/
@@ -46,22 +43,30 @@ export const checkName = (kind: string, name: string): Effect.Effect<string, Ins
     ? Effect.succeed(name)
     : Effect.fail(new InstallError(`refused: ${kind} name "${name}" is not allowed.`))
 
+/** The config's `pluginsDir`, the one kernel/scan.ts discovers from: `qwbe check` points discovery
+ *  AND the install destination at one sandbox, so a check never writes into a real plugins directory. */
 export const destinationOf = (pkg: { name: string; kind: "cube" | "plugin" }) =>
-  pkg.kind === "plugin" ? under(pluginsDir, join(pluginsDir, pkg.name)) : under(cubesDir, join(cubesDir, pkg.name))
+  Effect.flatMap(QwbeConfig, ({ pluginsDir }) =>
+    pkg.kind === "plugin" ? under(pluginsDir, join(pluginsDir, pkg.name)) : under(cubesDir, join(cubesDir, pkg.name)),
+  )
 
-/** An installer step: a refusal, a filesystem error, and the Node platform it runs on. */
-export type InstallStep<A> = Effect.Effect<A, InstallError | PlatformError, NodeContext.NodeContext>
+/** An installer step: a refusal, a filesystem error, the Node platform and the config it runs on. */
+export type InstallStep<A> = Effect.Effect<A, InstallError | PlatformError, NodeContext.NodeContext | QwbeConfig>
 
 /**
  * The installer speaks Effect at its face: a CONTRACT refusal travels as `InstallError` in
  * the error channel and the router turns it into a 400 carrying the refusal text. A disk error
  * (EACCES, ENOSPC) or a bug is not a package refusal: it becomes a DEFECT, so the router answers
  * 500 without the message -- the operator's log to read, not something the caller should see
- * wrapped as a refusal (QWB-38). The Node platform is provided here, so no requirement leaks
- * into the cube-facing type.
+ * wrapped as a refusal (QWB-38). The Node platform and the boot's config are provided here, so
+ * no requirement leaks into the cube-facing type.
  */
-export const face = <A>(effect: InstallStep<A>): Effect.Effect<A, InstallError> =>
-  effect.pipe(Effect.catchTags({ SystemError: Effect.die, BadArgument: Effect.die }), Effect.provide(NodeContext.layer))
+export const face = <A>(config: QwbeSettings, effect: InstallStep<A>): Effect.Effect<A, InstallError> =>
+  effect.pipe(
+    Effect.catchTags({ SystemError: Effect.die, BadArgument: Effect.die }),
+    Effect.provideService(QwbeConfig, config),
+    Effect.provide(NodeContext.layer),
+  )
 
 const runRestartCommand = (cmd: string) =>
   Command.make(cmd).pipe(
@@ -75,7 +80,7 @@ const runRestartCommand = (cmd: string) =>
     Effect.catchAll((e) => Effect.logError(`[install] restart command failed: ${e.message}`)),
   )
 
-export const lifecycleInstaller = (): Pick<CubeInstaller, "cubeOnDisk" | "remove" | "restart"> => ({
+export const lifecycleInstaller = (config: QwbeSettings): Pick<CubeInstaller, "cubeOnDisk" | "remove" | "restart"> => ({
   cubeOnDisk: (cube: string, plugin: string | null) => {
     // Discovery predates the package slug grammar and mounts any non-hidden directory. This
     // read capability must describe that state without turning the whole settings catalogue
@@ -83,8 +88,9 @@ export const lifecycleInstaller = (): Pick<CubeInstaller, "cubeOnDisk" | "remove
     if (identitySegments(cube).some((s) => !NAME.test(s)) || (plugin !== null && !NAME.test(plugin))) {
       return Effect.succeed(false)
     }
-    const base = plugin ? join(pluginsDir, plugin, "cubes") : cubesDir
+    const base = plugin ? join(config.pluginsDir, plugin, "cubes") : cubesDir
     return face(
+      config,
       Effect.gen(function* () {
         const fs = yield* FileSystem.FileSystem
         return yield* fs.exists(yield* under(base, join(base, ...identitySegments(cube))))
@@ -99,7 +105,7 @@ export const lifecycleInstaller = (): Pick<CubeInstaller, "cubeOnDisk" | "remove
     Effect.sleep("300 millis").pipe(
       Effect.zipRight(
         Effect.suspend(() =>
-          readRestartMode() === "command" ? runRestartCommand(readRestartCmd()) : Effect.sync(() => process.exit(0)),
+          config.restartMode === "command" ? runRestartCommand(config.restartCmd) : Effect.sync(() => process.exit(0)),
         ),
       ),
       Effect.provide(NodeContext.layer),
@@ -107,11 +113,12 @@ export const lifecycleInstaller = (): Pick<CubeInstaller, "cubeOnDisk" | "remove
 
   remove: (cube: string, plugin: string | null) =>
     face(
+      config,
       Effect.gen(function* () {
         const fs = yield* FileSystem.FileSystem
         yield* checkName("cube", cube)
         const target = plugin
-          ? yield* under(pluginsDir, join(pluginsDir, yield* checkName("plugin", plugin)))
+          ? yield* under(config.pluginsDir, join(config.pluginsDir, yield* checkName("plugin", plugin)))
           : yield* under(cubesDir, join(cubesDir, cube))
 
         if (!(yield* fs.exists(target))) {

@@ -15,10 +15,9 @@
 import { join } from "node:path"
 import { pathToFileURL } from "node:url"
 import { FileSystem } from "@effect/platform"
-import { Effect } from "effect"
-import { readStoreDir } from "./config.ts"
+import { Data, Effect } from "effect"
+import { QwbeConfig } from "./config.ts"
 import { runNode } from "./files.ts"
-import { pluginsDir } from "./kernel/scan.ts"
 import type { PackageFinding } from "./package-contract-scan.ts"
 import { importFindings, manifestFindings, readOnlyFindings, walkSources } from "./package-contract-scan.ts"
 
@@ -152,14 +151,15 @@ export const checkPackageSource = (root: string, options: PackageContractOptions
 // bookkeeping and strips it from the copy it lands in plugins/ (kernel/install-from.ts).
 // So the fallback is the store copy, cross-checked against the cubes
 // really on disk, which still catches a directory added after the install. `QWBE_STORE_DIR` is
-// the same override kernel/install.ts honours, read per call because probes set it per server.
+// the same override kernel/install.ts honours, read from the config the server booted with.
 const manifestRootFor = (root: string, plugin: string) =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem
+    const { storeDir, pluginsDir } = yield* QwbeConfig
     if (yield* fs.exists(join(root, "qwbe-package.json"))) return undefined
     // Both stores, override first: QWBE_STORE_DIR is a probe's extra store, not a replacement
     // of the real one.
-    for (const store of [readStoreDir(), join(pluginsDir, "..", "store")]) {
+    for (const store of [storeDir, join(pluginsDir, "..", "store")]) {
       if (store === undefined) continue
       const candidate = join(store, plugin)
       if (yield* fs.exists(join(candidate, "qwbe-package.json"))) return candidate
@@ -178,21 +178,22 @@ const manifestRootFor = (root: string, plugin: string) =>
  * their manifests, which is the very execution this gate runs ahead of -- and the kernel
  * checks the manifest against the directory anyway, in `loadDefinitions`.
  */
-export const assertPackageContracts = (mounting: ReadonlyArray<{ readonly plugin: string | null }>): Promise<void> =>
-  runNode(
-    Effect.gen(function* () {
-      for (const plugin of new Set(mounting.map((c) => c.plugin).filter((p): p is string => p !== null))) {
-        const root = join(pluginsDir, plugin)
-        const findings = yield* sourceFindings(root, { manifestRoot: yield* manifestRootFor(root, plugin) })
-        if (findings.length > 0) {
-          return yield* Effect.fail(
-            new Error(
-              `Package "${plugin}" breaks the package contract, so the kernel does not start:\n` +
-                findings.map((f) => `    ${f.rule}: ${f.file} -- ${f.message}`).join("\n") +
-                `\n  Fix the package, or remove it from plugins/. See docs/package-contract.md.`,
-            ),
-          )
-        }
+export const assertPackageContracts = (mounting: ReadonlyArray<{ readonly plugin: string | null }>) =>
+  Effect.gen(function* () {
+    const { pluginsDir } = yield* QwbeConfig
+    for (const plugin of new Set(mounting.map((c) => c.plugin).filter((p): p is string => p !== null))) {
+      const root = join(pluginsDir, plugin)
+      const findings = yield* sourceFindings(root, { manifestRoot: yield* manifestRootFor(root, plugin) })
+      if (findings.length > 0) {
+        return yield* new PackageContractBroken({
+          message:
+            `Package "${plugin}" breaks the package contract, so the kernel does not start:\n` +
+            findings.map((f) => `    ${f.rule}: ${f.file} -- ${f.message}`).join("\n") +
+            `\n  Fix the package, or remove it from plugins/. See docs/package-contract.md.`,
+        })
       }
-    }),
-  )
+    }
+  })
+
+/** A mounted package that breaks the contract: the boot stops before its code runs. */
+export class PackageContractBroken extends Data.TaggedError("PackageContractBroken")<{ readonly message: string }> {}

@@ -4,15 +4,15 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { Effect } from "effect"
 import { describe, it } from "vitest"
+import { testConfig } from "../test-config.ts"
+import { installerFor as installerIn } from "./install.ts"
 import { InstallError } from "./manifest.ts"
 
-// The store directory is resolved at module load, so the fixture store must exist BEFORE the
-// installer module is imported - hence the dynamic import below.
+// The installer reads its store directory from the config it is handed.
 const root = mkdtempSync(join(tmpdir(), "qwbe-install-scan-"))
 const store = join(root, "store")
-process.env.QWBE_STORE_DIR = store
-
-const { installerFor } = await import("./install.ts")
+const installerFor = (check: Parameters<typeof installerIn>[0]) =>
+  installerIn(check, testConfig({ QWBE_STORE_DIR: store }))
 
 // The probe fixtures copy a REAL cube (example-plugin's bookmarks): scan and forget read
 // manifests and compare fingerprints, they never run the TypeScript contract gate, so no

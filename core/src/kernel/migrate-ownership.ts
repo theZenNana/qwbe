@@ -17,7 +17,6 @@
 // (QWBE_LEGACY_MIGRATIONS). The manifest does not get a vote; neither does a fresh database.
 
 import { Data } from "effect"
-import { readLegacyMigrations } from "../config.ts"
 import type { Ledger } from "./ledger.ts"
 import type { DataMigration, Manifest } from "./manifest.ts"
 
@@ -52,10 +51,12 @@ export type ValidatedMigration = DataMigration & { readonly declaredBy: string |
 export const checkMigrationOwnership = (
   definitions: ReadonlyArray<{ name: string; plugin: string | null; definition: { manifest: Manifest } }>,
   ledger: Ledger,
+  /** QWBE_LEGACY_MIGRATIONS, from the caller's config. */
+  legacyMigrations = "",
 ): Array<ValidatedMigration> => {
   const mounted = new Map(definitions.map((d) => [d.name, d.plugin]))
   const legacyAuthorized = new Map(
-    readLegacyMigrations()
+    legacyMigrations
       .split(",")
       .map((s) => s.trim())
       .filter(Boolean)
