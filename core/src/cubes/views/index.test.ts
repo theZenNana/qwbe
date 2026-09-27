@@ -1,7 +1,7 @@
 // QWB-62 kernel stage: the trust boundary of the views cube and the contract it publishes.
 //
 // The two-user ownership/share walk (owner/other/shared-read/no-edit/no-reshare/transfer)
-// is a LIVE probe -- probes/views.mjs -- because it is the kernel entity-enforcement
+// lives in src/integration/views-auth.test.ts, because it is the kernel entity-enforcement
 // wrapper plus the permissions cube that own those decisions. This file pins the parts
 // that are the cube's own code: the config trust boundary and the published routes.
 

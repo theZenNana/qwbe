@@ -5,7 +5,7 @@
 // boundary is rebuilt in the engine: one NOLOGIN role per cube, one schema per cube, and every
 // store operation running under `SET LOCAL ROLE` inside its transaction. A cube's connection
 // that asks for another cube's schema gets a permission error from Postgres, not a warning
-// from lint. See `setup.ts` for the grants and `probes/store-isolation.mjs` for the proof.
+// from lint. See `setup.ts` for the grants and `checks/integration/pg-grants.test.ts` for the proof.
 //
 // The kernel owns one schema of its own, `qwbe`: `qwbe.migrations` records which numbered SQL
 // files under `pg/migrations/` were applied, and `qwbe.outbox` receives one row per write,

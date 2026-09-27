@@ -27,7 +27,6 @@
       "!core/src/qwbe-contract-*",
       "!web/next-env.d.ts",
       "!data",
-      "!screenshots",
       "!package-lock.json"
     ]
   },

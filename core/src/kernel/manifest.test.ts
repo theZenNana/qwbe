@@ -236,7 +236,7 @@ describe("validateRoutes", () => {
 
   // --- the three edges the review found in the boot gate (QWB-54, 14c) ---------------------------
 
-  // The hostile fixture shape (probes/fixtures/permission-bypass): a cube that declares NO
+  // The hostile fixture shape (see src/entity-enforcement.test.ts): a cube that declares NO
   // permissions at all. While rule 1 ran only for cubes with permissions, this shape slipped
   // every gate.
   const hostileGroup = HttpApiGroup.make("hostile")

@@ -19,11 +19,13 @@ someone copies it). The lab clone does not have it.
 
 ## Git
 
-- Work on a branch named `<type>/<slug>` (types in `scripts/check-branch.mjs`).
-  Never commit on `main`; `main` receives merges from pull requests.
-- The husky hooks in `.husky/` run on every commit: branch name, `.env*`
-  refusal, secretlint, gitleaks, ASCII on added lines, lint-staged. Do not use
-  `--no-verify`. A hook that fails is telling you something; fix the cause.
+- Work on a branch named `<type>/<slug>` (feature, fix, hardening, refactor,
+  docs, test, experiment, chore). Never commit on `main`; `main` receives
+  merges from pull requests.
+- There are no commit hooks since stage 5 (2026-09-26). `npm run check` runs
+  every gate, including `secrets` (secretlint on tracked files, gitleaks on
+  `origin/main..HEAD`). Run it before a commit; a red gate is telling you
+  something, fix the cause.
 - The plugin repos have the same gitleaks check in `.githooks/pre-commit`,
   enabled per clone with `git config core.hooksPath .githooks`.
 - Before any push, scan the commits that are about to leave:

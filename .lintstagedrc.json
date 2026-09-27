@@ -1,3 +1,0 @@
-{
-  "*.{ts,tsx,js,jsx,mjs,cjs,json,jsonc,css}": ["npx --no-install biome check --write --no-errors-on-unmatched"]
-}

@@ -7,7 +7,7 @@
 //
 // What this deliberately does NOT check: whether `columns`/`filters`/`sortBy` name fields
 // that exist in the target cube. This cube imports nothing from any other cube (checked
-// mechanically by probes/views.mjs), and field existence changes over time anyway -- a
+// mechanically by `npm run boundaries`), and field existence changes over time anyway -- a
 // custom field can be deleted the minute after the write. The other half of validation
 // runs at APPLY time in the frontend, against the live published metadata of the target
 // cube. Both halves are required; neither replaces the other.

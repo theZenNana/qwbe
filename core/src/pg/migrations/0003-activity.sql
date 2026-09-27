@@ -3,7 +3,7 @@
 -- and "recorded" cannot disagree -- a rolled-back write rolls its activity row back with it.
 --
 -- Separate from qwbe.outbox on purpose: the outbox is the relay cursor reserved by ADR-0001
--- section 5 and is INSERT-only for cube roles (probes/store-isolation.mjs). Activity needs
+-- section 5 and is INSERT-only for cube roles (checks/integration/pg-grants.test.ts). Activity needs
 -- SELECT, and exactly one cube role (the manifest declaring `readsActivity`) gets it; every
 -- cube role gets INSERT + sequence USAGE next to its outbox grants (pg/setup.ts).
 --

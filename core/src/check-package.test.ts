@@ -1,6 +1,6 @@
 // Unit tests for `qwbe check` (QWB-54 ticket 03): the four stages, in order, with the boot
 // replaced by its cheap half (the probes/ shape). The sandbox boot itself is proven by
-// probes/check-command.mjs -- this file proves the rules, not the process.
+// checks/live/qwbe-check-bin.test.ts -- this file proves the rules, not the process.
 
 import assert from "node:assert/strict"
 import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs"

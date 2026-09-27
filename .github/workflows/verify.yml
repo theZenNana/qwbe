@@ -7,8 +7,22 @@ on:
 jobs:
   verify:
     runs-on: ubuntu-latest
+    services:
+      # The database docker-compose.yml starts locally, on the same port: the checks default to
+      # localhost:5433, user postgres, password qwbe (core/src/pg/test-db.ts).
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_PASSWORD: qwbe
+          POSTGRES_DB: qwbe
+        ports:
+          - 5433:5432
+        options: --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
     steps:
       - uses: actions/checkout@v4
+        with:
+          # the secrets gate scans origin/main..HEAD, so it needs the history
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: 22.18.0
@@ -18,9 +32,8 @@ jobs:
             core/package-lock.json
             web/package-lock.json
       - run: npm run setup
-      - run: npm audit && npm audit --prefix core && npm audit --prefix web
-      - run: npm run compliance && git diff --exit-code -- THIRD_PARTY_NOTICES.md sbom.spdx.json
+      # The secrets gate of `check` runs the gitleaks binary itself.
+      - run: go install github.com/zricethezav/gitleaks/v8@latest && echo "$HOME/go/bin" >> "$GITHUB_PATH"
       - run: npm run check
-      - run: npm run probe:all
       - run: npx playwright install --with-deps chromium
       - run: npm run e2e

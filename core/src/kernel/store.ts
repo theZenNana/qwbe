@@ -4,8 +4,8 @@
 // physical rather than polite: another cube's data was not in a table this connection could
 // see, it was in another FILE. The move to Postgres spends that boundary and rebuilds it in
 // the engine instead: one NOLOGIN role per cube (`pg/setup.ts`), every operation inside a
-// transaction that starts with `SET LOCAL ROLE` (`pg/store.ts`), and a probe
-// (`probes/store-isolation.mjs`) that proves a cube's role cannot read another cube's schema.
+// transaction that starts with `SET LOCAL ROLE` (`pg/store.ts`), and a check
+// (`checks/integration/pg-grants.test.ts`) that proves a cube's role cannot read another cube's schema.
 // What Postgres buys for the price: real transactions, numbered schema migrations applied at
 // boot, jsonb with a GIN index, a connection pool, and an outbox row written in the same
 // transaction as every row change.

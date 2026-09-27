@@ -5,7 +5,7 @@
 //
 // Two instances on ONE database is the point of defect 4: server B boots before any definition
 // exists, so the old per-process snapshot would leave it validating on empty forever. The
-// target cube is the vault fixture (probes/fixtures/vault-pack), whose roles are skewed so no
+// target cube is the vault fixture (core/checks/_fixtures/vault-pack), whose roles are skewed so no
 // token holds vault:read: that is what makes the new permission gates of defects 3 and 6
 // observable (an admin keeps customfields:write, a reader keeps customfields:read, and both
 // must still be refused).
@@ -23,7 +23,7 @@ import pg from "pg"
 const here = dirname(fileURLToPath(import.meta.url))
 const root = join(here, "..", "..")
 const core = join(root, "core")
-const fixture = join(root, "probes", "fixtures", "vault-pack")
+const fixture = join(core, "checks", "_fixtures", "vault-pack")
 // Since the ownership rules of QWB-54 ticket 08, a boot refuses any declared dataMigration the
 // ledger cannot attribute -- including the honest pre-ledger ones the tracked example-plugin
 // carries, which a FRESH database has no record of (the operator authorizes those with

@@ -71,8 +71,10 @@
   },
   "scripts": {
     "start": "node src/main.ts",
-    "build": "tsc -p tsconfig.build.json && node scripts/build-assets.mjs",
+    "build": "node tools/build.ts",
     "prepack": "npm run build",
+    "test": "vitest run",
+    "test:live": "vitest run --config vitest.live.config.ts",
     "boundaries": "depcruise src plugins --config .dependency-cruiser.cjs"
   },
   "dependencies": {
@@ -82,8 +84,14 @@
     "pg": "^8.23.0"
   },
   "devDependencies": {
+    "@effect/vitest": "0.30.0",
     "@types/pg": "^8.23.1",
     "dependency-cruiser": "^18.0.0",
-    "typescript": "^5.7.0"
+    "typescript": "^5.7.0",
+    "vitest": "4.1.11",
+    "yaml": "2.9.1"
+  },
+  "overrides": {
+    "vitest": "$vitest"
   }
 }

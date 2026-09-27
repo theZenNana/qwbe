@@ -5,8 +5,8 @@
 // behalf of the caller and never returns a row of any other cube. Applying a view is a
 // client-side act: the client puts the parameters into its own request to the target
 // cube, which is gated exactly as before. There is deliberately NO results route -- a
-// shared view can never carry data, only shortcuts. probes/views.mjs checks the published
-// OpenAPI has no such route, and greps this directory for imports of any other cube.
+// shared view can never carry data, only shortcuts. index.test.ts pins the published routes,
+// and `npm run boundaries` (rule `no-cube-to-cube`) refuses imports of any other cube.
 //
 // Authorization is entirely the kernel's: `usesEntityPermissions` wraps every handler, so
 // create claims ownership, item routes authorize read/edit/delete, and the list route is
@@ -19,8 +19,8 @@
 // same reasoning as permissions/capabilities.ts.
 //
 // The row carries no `ownerId`: the permissions service's ownership record is the single
-// authority, so nothing denormalized can go stale after a transfer (checked live by
-// probes/views.mjs: after a transfer the old owner loses access, with no rewrite).
+// authority, so nothing denormalized can go stale after a transfer (checked by
+// src/integration/views-auth.test.ts: after a transfer the old owner loses access).
 // `updatedBy` is provenance of the last edit, never authority.
 //
 // Cube admins and the superadmin can read every user's saved views, including the filter
