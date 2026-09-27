@@ -8,7 +8,7 @@ import type { CubeTools } from "qwbe-core/cube"
 import { describe, it } from "vitest"
 import { CurrentUser } from "../../kernel/auth-contract.ts"
 import { BadRequest, Forbidden } from "../../kernel/errors.ts"
-import type { CommandRunner, CommandSpec } from "../../kernel/manifest.ts"
+import { type CommandRunner, type CommandSpec, UnknownCommand } from "../../kernel/manifest.ts"
 import { routeContracts } from "../../metadata/metadata.ts"
 import { baseTools, currentUser } from "../../test-cube-tools.ts"
 import { cube } from "./index.ts"
@@ -36,7 +36,7 @@ const cliTools = (
 const okInvoke: NonNullable<CommandRunner>["invoke"] = (name, _args, _perms) =>
   name === "cli:help"
     ? Effect.succeed({ command: name, output: `ran ${name}`, ok: true })
-    : Effect.fail({ _tag: "UnknownCommand" })
+    : Effect.fail(new UnknownCommand())
 
 const runExec = (line: string, permissions: ReadonlyArray<string> = ["cli:exec"]) => {
   const p = cube.create(cliTools(okInvoke))

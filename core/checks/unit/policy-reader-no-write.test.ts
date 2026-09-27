@@ -4,7 +4,7 @@ import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import type { CubeDefinition } from "../../src/cube-contract.ts"
-import type { CommandRunner } from "../../src/kernel/manifest.ts"
+import { type CommandRunner, TooManyArgs, UnknownCommand } from "../../src/kernel/manifest.ts"
 import { mountCubes } from "./temp-env.ts"
 
 // Reviewed exceptions to "a reader never writes"; a new one fails until it is added here with a reason.
@@ -58,14 +58,14 @@ layer(Layer.scoped(Mounted, mountKernel).pipe(Layer.provide(NodeContext.layer)),
 
   it.effect("the dispatcher refuses surplus arguments instead of dropping them", () =>
     Effect.map(refusalOf("notes:count", ["extra", "junk"]), (refusal) =>
-      expect(refusal).toEqual({ _tag: "TooManyArgs", allowed: 0, got: 2 }),
+      expect(refusal).toEqual(new TooManyArgs({ allowed: 0, got: 2 })),
     ),
   )
 
   it.effect("names from Object.prototype and unknown names resolve to no command", () =>
     Effect.map(
       Effect.forEach([...PROTOTYPE_NAMES, "nosuch:command"], (name) => refusalOf(name, [])),
-      (refusals) => expect(refusals).toEqual(refusals.map(() => ({ _tag: "UnknownCommand" }))),
+      (refusals) => expect(refusals).toEqual(refusals.map(() => new UnknownCommand())),
     ),
   )
 })

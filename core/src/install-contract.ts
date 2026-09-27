@@ -9,6 +9,7 @@ import { spawnSync } from "node:child_process"
 import { cpSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs"
 import { dirname, join, relative, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
+import { Data } from "effect"
 import type { CubePackage } from "./kernel/manifest.ts"
 import { includePackageSourcePath, isLocalSourceDirectory } from "./package-source.ts"
 
@@ -31,10 +32,9 @@ const typeScriptFiles = (root: string): ReadonlyArray<string> => {
   return files.sort()
 }
 
-export class PackageContractError extends Error {
+export class PackageContractError extends Data.TaggedError("PackageContractError")<{ readonly message: string }> {
   constructor(detail: string) {
-    super(`refused: package failed the TypeScript contract gate:\n${detail}`)
-    this.name = "PackageContractError"
+    super({ message: `refused: package failed the TypeScript contract gate:\n${detail}` })
   }
 }
 

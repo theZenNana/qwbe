@@ -23,6 +23,7 @@
 import { existsSync, readdirSync } from "node:fs"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
+import { Data } from "effect"
 
 const here = dirname(fileURLToPath(import.meta.url))
 const spacesDir = join(here, "..", "spaces")
@@ -65,10 +66,9 @@ const spaceDirectories = (): ReadonlyArray<string> => {
     .sort()
 }
 
-class BrokenSpaceError extends Error {
+class BrokenSpaceError extends Data.TaggedError("BrokenSpaceError")<{ readonly message: string }> {
   constructor(space: string, cause: string) {
-    super(`Space "${space}" failed to load: ${cause}\nFix it or remove spaces/${space}/.`)
-    this.name = "BrokenSpaceError"
+    super({ message: `Space "${space}" failed to load: ${cause}\nFix it or remove spaces/${space}/.` })
   }
 }
 

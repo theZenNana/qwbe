@@ -16,14 +16,14 @@
 // kernel has never recorded is refused unless the OPERATOR authorizes it
 // (QWBE_LEGACY_MIGRATIONS). The manifest does not get a vote; neither does a fresh database.
 
+import { Data } from "effect"
 import { readLegacyMigrations } from "../config.ts"
 import type { Ledger } from "./ledger.ts"
 import type { DataMigration, Manifest } from "./manifest.ts"
 
-export class MigrationOwnershipError extends Error {
+export class MigrationOwnershipError extends Data.TaggedError("MigrationOwnershipError")<{ readonly message: string }> {
   constructor(reason: string) {
-    super(`Data migration refused by the ownership rules: ${reason}`)
-    this.name = "MigrationOwnershipError"
+    super({ message: `Data migration refused by the ownership rules: ${reason}` })
   }
 }
 

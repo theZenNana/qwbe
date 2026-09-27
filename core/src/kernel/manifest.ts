@@ -14,7 +14,7 @@
 
 import type { HttpApiEndpoint, HttpApiGroup } from "@effect/platform"
 import type { Effect, Layer } from "effect"
-import { Schema } from "effect"
+import { Data, Schema } from "effect"
 import type { Catalogue, CustomFieldTools, Subscription } from "../catalogue.ts"
 import type { IdentityDirectory, PermissionService } from "../permissions-contracts.ts"
 import type { RelationalPart } from "./entity.ts"
@@ -56,22 +56,23 @@ export type CommandSpec = {
    */
   readonly maxArgs?: number
   /**
-   * Ce poate rula o comandă, și ce nu.
+   * What a command may run, and what it may not.
    *
-   * `R` rămâne `never`: o comandă NU are voie să ceară nimic din context. Regula a fost pusă la
-   * încercare de `cli:help`, care trebuie să arate fiecăruia doar comenzile pe care le poate
-   * rula — altfel lista e un inventar de capabilități oferit tocmai cui nu le are. Avea nevoie
-   * de `CurrentUser`, iar contractul îl interzicea.
+   * `R` stays `never`: a command is NOT allowed to ask for anything from the context. The rule
+   * was put to the test by `cli:help`, which must show each caller only the commands they can
+   * run -- otherwise the list is an inventory of capabilities handed to exactly those who lack
+   * them. It needed `CurrentUser`, and the contract forbade it.
    *
-   * Erau două ieșiri, și sunt două răspunsuri diferite la „ce ESTE o comandă":
+   * There were two ways out, and they are two different answers to "what IS a command":
    *
-   *   `R` se lărgește la `CurrentUser`  -> o comandă poate cere din context, deci orice comandă
-   *                                        poate cere orice serviciu. Contractul se deschide.
-   *   utilizatorul vine ca ARGUMENT     -> comanda rămâne o funcție pură, i se dă tot ce-i
-   *                                        trebuie, iar cine i-l dă e dispecerul din kernel.
+   *   `R` widens to `CurrentUser`  -> a command may ask the context, so any command may ask
+   *                                   for any service. The contract opens up.
+   *   the user comes as ARGUMENT   -> the command stays a pure function, it is given all it
+   *                                   needs, and the one giving it is the kernel dispatcher.
    *
-   * Aleasă a doua, pe 9 aug 2026. Permisiunile apelantului sosesc ca parametru, verificate deja
-   * de dispecer înainte de apel. O comandă vede CE poate cere apelantul, nu are de unde CERE.
+   * The second was chosen, on 9 Aug 2026. The caller's permissions arrive as a parameter,
+   * already checked by the dispatcher before the call. A command sees WHAT the caller may ask
+   * for; it has no way to ASK.
    */
   readonly run: (args: readonly string[], callerPermissions: readonly string[]) => Effect.Effect<string, string, never>
 }
@@ -113,10 +114,11 @@ export type CommandRunner = {
   ) => Effect.Effect<CommandResult, CommandRefusal, never>
 }
 
-export type CommandRefusal =
-  | { readonly _tag: "UnknownCommand" }
-  | { readonly _tag: "NotAllowed"; readonly permission: string }
-  | { readonly _tag: "TooManyArgs"; readonly allowed: number; readonly got: number }
+export class UnknownCommand extends Data.TaggedError("UnknownCommand") {}
+export class NotAllowed extends Data.TaggedError("NotAllowed")<{ readonly permission: string }> {}
+export class TooManyArgs extends Data.TaggedError("TooManyArgs")<{ readonly allowed: number; readonly got: number }> {}
+
+export type CommandRefusal = UnknownCommand | NotAllowed | TooManyArgs
 
 export type Manifest = {
   /** Must equal the directory name -- checked at mount, so two cubes cannot share a name. */
@@ -340,10 +342,10 @@ export type CubePackage = Readonly<{
  * missing artifact. One class on purpose -- the message already says what was refused and
  * why; callers react to the channel, not the class.
  */
-export class InstallError extends Error {
-  /** The tag `Effect.catchTag` switches on -- the channel, not the class, is the contract. */
-  readonly _tag = "InstallError"
-  override name = "InstallError"
+export class InstallError extends Data.TaggedError("InstallError")<{ readonly message: string }> {
+  constructor(message: string) {
+    super({ message })
+  }
 }
 
 /** The installer's only failure channel: every mutating action fails with `InstallError`. */

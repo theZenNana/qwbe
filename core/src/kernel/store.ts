@@ -14,7 +14,7 @@
 // `closeAll`, `ForeignTableError`, `checkUniqueTables`, `DuplicateTableError` -- so the mount
 // code and every cube stay untouched. The implementation lives in `pg/`.
 
-import { Effect } from "effect"
+import { Data, Effect } from "effect"
 import type { CustomFieldTools } from "../catalogue.ts"
 import { registerCustomFieldProvider } from "../catalogue.ts"
 import type { CustomRowView } from "../custom-defs-reader.ts"
@@ -37,13 +37,13 @@ export { type RowState, rowStateFor, storeFor } from "../pg/store.ts"
  * over the same table would both hold the data. A shared name is how the confusion starts, so
  * it is refused anyway.
  */
-export class DuplicateTableError extends Error {
+export class DuplicateTableError extends Data.TaggedError("DuplicateTableError")<{ readonly message: string }> {
   constructor(table: string, cubes: ReadonlyArray<string>) {
-    super(
-      `Table "${table}" is declared by more than one cube: ${cubes.join(", ")}. ` +
+    super({
+      message:
+        `Table "${table}" is declared by more than one cube: ${cubes.join(", ")}. ` +
         `A table has exactly one owner. Whoever needs the data asks through the registry.`,
-    )
-    this.name = "DuplicateTableError"
+    })
   }
 }
 

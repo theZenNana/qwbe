@@ -32,6 +32,7 @@ import type { Subscription } from "../catalogue.ts"
 import { captureEntity } from "../entity-enforcement.ts"
 import { BrokenCubeError, DoubleCapabilityError, DoublePrivilegeError } from "./errors-discovery.ts"
 import type { Catalogue, CommandInfo, CommandRunner, CommandSpec, CubeParts, Manifest } from "./manifest.ts"
+import { NotAllowed, TooManyArgs, UnknownCommand } from "./manifest.ts"
 import {
   fullName,
   leafOf,
@@ -243,22 +244,22 @@ export const mount = (
         // A Map, so a name from Object.prototype cannot resolve to something inherited.
         const table = new Map(liveSpecs().map((c) => [c.name, c]))
         const command = table.get(name)
-        if (!command) return yield* Effect.fail({ _tag: "UnknownCommand" as const })
+        if (!command) return yield* Effect.fail(new UnknownCommand())
 
         // The check lives HERE, with the dispatcher -- not in whoever calls it. That is the whole
         // point of moving it: before, the permission was checked in the CLI gate while `run` was
         // handed to every cube, so any cube could skip the gate entirely.
         if (!callerPermissions.includes(command.permission)) {
-          return yield* Effect.fail({ _tag: "NotAllowed" as const, permission: command.permission })
+          return yield* Effect.fail(new NotAllowed({ permission: command.permission }))
         }
 
         const allowed = command.maxArgs ?? 0
         if (args.length > allowed) {
-          return yield* Effect.fail({ _tag: "TooManyArgs" as const, allowed, got: args.length })
+          return yield* Effect.fail(new TooManyArgs({ allowed, got: args.length }))
         }
 
-        // Permisiunile apelantului se dau comenzii, nu se lasă s-o ceară ea din context. Vezi
-        // `CommandSpec.run` în `manifest.ts` pentru de ce e asta granița.
+        // The caller's permissions are handed to the command; it is not left to ask the context
+        // for them. See `CommandSpec.run` in `manifest.ts` for why this is the boundary.
         const result = yield* command.run(args, callerPermissions).pipe(
           Effect.map((output) => ({ output, ok: true })),
           Effect.catchAll((message) => Effect.succeed({ output: String(message), ok: false })),

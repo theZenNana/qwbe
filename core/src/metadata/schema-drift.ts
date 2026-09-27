@@ -13,6 +13,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
+import { Data } from "effect"
 import { readCubeVersionsBaseline, readDataDir } from "../config.ts"
 import type { CubeMetadata } from "./schemas.ts"
 
@@ -28,15 +29,15 @@ const versionsFile = () => join(dataDir(), "cube-versions.json")
 // updated on every mount) wins over it.
 const baselineFile = () => readCubeVersionsBaseline() ?? join(here, "cube-versions.baseline.json")
 
-export class SchemaDriftError extends Error {
+export class SchemaDriftError extends Data.TaggedError("SchemaDriftError")<{ readonly message: string }> {
   constructor(cube: string, version: string, expected: string, got: string) {
-    super(
-      `Cube "${cube}" declares version ${version} but its schema changed: recorded ${expected}, now ${got}. ` +
+    super({
+      message:
+        `Cube "${cube}" declares version ${version} but its schema changed: recorded ${expected}, now ${got}. ` +
         `A field changed without the version being bumped -- clients caching metadata under ` +
         `version ${version} would keep building forms for a schema that no longer exists. ` +
         `Bump \`version\` in the cube's manifest.`,
-    )
-    this.name = "SchemaDriftError"
+    })
   }
 }
 

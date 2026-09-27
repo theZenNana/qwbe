@@ -37,7 +37,7 @@ const writeDisabled = (disabled: Set<string>): void => {
   writeFileSync(stateFile, `${JSON.stringify({ disabled: [...disabled].sort() }, null, 2)}\n`, "utf8")
 }
 
-// Tagged, not `extends Error`: the caller discriminates on `_tag` instead of parsing a string,
+// Tagged, not a bare `Error`: the caller discriminates on `_tag` instead of parsing a string,
 // and the compiler lists what `set` can refuse. The wording is unchanged — it is what the user
 // reads in the UI, and it already says what was refused and why.
 export class RequiredCubeError extends Data.TaggedError("RequiredCubeError")<{

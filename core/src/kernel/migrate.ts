@@ -13,33 +13,33 @@
 // with files: EVERY migration is checked before a single rename runs, and a failed move rolls
 // the whole batch back.
 
+import { Data } from "effect"
 import { getPool } from "../pg/db.ts"
 import { q, roleName, schemaExists, schemaName } from "../pg/setup.ts"
 import type { DataMigration } from "./manifest.ts"
 
 export { MigrationOwnershipError } from "./migrate-ownership.ts"
 
-export class MigrationConflictError extends Error {
+export class MigrationConflictError extends Data.TaggedError("MigrationConflictError")<{ readonly message: string }> {
   constructor(from: string, to: string) {
-    super(
-      `Data migration refused: the schemas for both "${from}" and "${to}" exist in the database. ` +
+    super({
+      message:
+        `Data migration refused: the schemas for both "${from}" and "${to}" exist in the database. ` +
         `One of them must be removed by hand -- choosing one silently would be choosing which ` +
         `data to lose.`,
-    )
-    this.name = "MigrationConflictError"
+    })
   }
 }
 
-export class MigrationFailedError extends Error {
+export class MigrationFailedError extends Data.TaggedError("MigrationFailedError")<{ readonly message: string }> {
   constructor(from: string, to: string, cause: string, rollbackFailed: boolean) {
-    super(
-      rollbackFailed
+    super({
+      message: rollbackFailed
         ? `Data migration failed moving "${from}" to "${to}": ${cause}. ` +
-            `The rollback ALSO failed for at least one schema (logged above) -- the database ` +
-            `may hold a partial batch. Inspect it before restarting.`
+          `The rollback ALSO failed for at least one schema (logged above) -- the database ` +
+          `may hold a partial batch. Inspect it before restarting.`
         : `Data migration failed moving "${from}" to "${to}" and the batch was rolled back: ${cause}`,
-    )
-    this.name = "MigrationFailedError"
+    })
   }
 }
 

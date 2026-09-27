@@ -26,6 +26,7 @@ import {
 } from "node:fs"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
+import { Data } from "effect"
 import { readDataDir } from "../config.ts"
 
 const here = dirname(fileURLToPath(import.meta.url))
@@ -56,14 +57,14 @@ const decodeLedger = (value: unknown): Ledger => {
   return ledger
 }
 
-export class LedgerCorruptError extends Error {
+export class LedgerCorruptError extends Data.TaggedError("LedgerCorruptError")<{ readonly message: string }> {
   constructor(cause: string) {
-    super(
-      `The provenance ledger at "${ledgerPath}" exists but cannot be read: ${cause}. ` +
+    super({
+      message:
+        `The provenance ledger at "${ledgerPath}" exists but cannot be read: ${cause}. ` +
         `A ledger that cannot be read is not an empty ledger -- every migration check would ` +
         `fail open. Remove or repair the file by hand; the kernel does not guess provenance.`,
-    )
-    this.name = "LedgerCorruptError"
+    })
   }
 }
 
@@ -110,10 +111,12 @@ const replaceLedger = (ledger: Ledger): void => {
   }
 }
 
-export class LedgerTamperedError extends Error {
+export class LedgerTamperedError extends Data.TaggedError("LedgerTamperedError")<{ readonly message: string }> {
   constructor() {
-    super("The provenance ledger changed after the trusted pre-import snapshot. The trusted snapshot was restored.")
-    this.name = "LedgerTamperedError"
+    super({
+      message:
+        "The provenance ledger changed after the trusted pre-import snapshot. The trusted snapshot was restored.",
+    })
   }
 }
 

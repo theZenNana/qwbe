@@ -1,3 +1,4 @@
+import { Data } from "effect"
 import type { PermissionActor } from "./permissions-contracts.ts"
 
 export type Endpoint = Readonly<{
@@ -38,14 +39,19 @@ export const schemaFields = (schema: unknown): ReadonlyArray<string> => {
   return isRecord(fields) ? Object.keys(fields) : []
 }
 
-export class EntityPermissionContractError extends Error {
+export class EntityPermissionContractError extends Data.TaggedError("EntityPermissionContractError")<{
+  readonly message: string
+}> {
   constructor(cube: string, endpoint: string) {
-    super(
-      ["entity cube", JSON.stringify(cube), "endpoint", JSON.stringify(endpoint), "must declare Forbidden (403)"].join(
-        " ",
-      ),
-    )
-    this.name = "EntityPermissionContractError"
+    super({
+      message: [
+        "entity cube",
+        JSON.stringify(cube),
+        "endpoint",
+        JSON.stringify(endpoint),
+        "must declare Forbidden (403)",
+      ].join(" "),
+    })
   }
 }
 
