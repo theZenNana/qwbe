@@ -1,6 +1,6 @@
 import { expect, layer } from "@effect/vitest"
 import * as Effect from "effect/Effect"
-import { call, login } from "../_layers/api-client.ts"
+import { call, login } from "../../src/api-client.ts"
 import { TestServer, testServer, USERS } from "../_layers/test-server.ts"
 
 // QWBE_ALLOWED_ORIGINS is an allowlist: a listed origin is echoed in access-control-allow-origin,

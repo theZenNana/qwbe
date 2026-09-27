@@ -1,6 +1,6 @@
 // The generic probes -- the checks a package cannot write, dodge or
 // weaken, because nothing in the package composes them. Derived from what the package
-// DECLARES (its cubes' manifests, dumped by `check-manifests.mjs`) and from the metadata the
+// DECLARES (its cubes' manifests, dumped by `check-manifests.ts`) and from the metadata the
 // booted kernel publishes, then run against that same kernel:
 //
 //   1. routes      every route the metadata publishes answers 401 without a token, and 403
@@ -13,26 +13,29 @@
 // The library returns data; check-package.ts decides the verdict. All state the probes create
 // (rows, a user) lives in the check's throwaway sandbox database.
 
-import { spawnSync } from "node:child_process"
 import { randomBytes } from "node:crypto"
-import { mkdtempSync, readFileSync, rmSync } from "node:fs"
-import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { Command, FileSystem } from "@effect/platform"
+import type { PlatformError } from "@effect/platform/Error"
+import { Effect, Either, Option, Schema, Stream } from "effect"
+import { type CallOptions, call, sessionToken } from "./api-client.ts"
 import type { PackageFinding } from "./package-finding.ts"
 
 // --- shapes ---------------------------------------------------------------------------------
 
-/** The raw declarations of one cube, as `check-manifests.mjs` reports them. */
-type PackDeclarations = {
-  readonly searchable?: unknown
-  readonly relations?: unknown
-}
+/** The raw declarations of one cube, as `check-manifests.ts` reports them. */
+const PackDeclarations = Schema.Struct({
+  searchable: Schema.optional(Schema.Unknown),
+  relations: Schema.optional(Schema.Unknown),
+})
+type PackDeclarations = typeof PackDeclarations.Type
 
 /** What the dump wrote: per-cube declarations, plus per-cube import errors. */
-export type DeclarationsDump = {
-  readonly cubes?: Readonly<Record<string, PackDeclarations>>
-  readonly errors?: Readonly<Record<string, string>>
-}
+const DeclarationsDump = Schema.Struct({
+  cubes: Schema.optional(Schema.Record({ key: Schema.String, value: PackDeclarations })),
+  errors: Schema.optional(Schema.Record({ key: Schema.String, value: Schema.String })),
+})
+export type DeclarationsDump = typeof DeclarationsDump.Type
 
 type GenericProbeReport = {
   /** Findings are failures only: a check that ran and saw what the contract promises is silence. */
@@ -41,28 +44,39 @@ type GenericProbeReport = {
   readonly checks: number
 }
 
-/** Minimal view of the published CubeMetadata the probes need. Read over HTTP, never derived
- *  here: the probes must judge the metadata the kernel REALLY serves, not a second derivation. */
-type PublishedMetadata = {
-  readonly cube: string
-  readonly fields?: ReadonlyArray<{
-    readonly name: string
-    readonly type: string
-    readonly required: boolean
-    readonly editable: boolean
-    readonly nullable: boolean
-    readonly enum: ReadonlyArray<string> | null
-    readonly custom: boolean
-  }>
-  readonly routes?: Readonly<
-    Record<
-      string,
-      { readonly auth: boolean; readonly permission: string | null; readonly method: string; readonly path: string }
-    >
-  >
-}
+const PublishedField = Schema.Struct({
+  name: Schema.String,
+  type: Schema.String,
+  required: Schema.Boolean,
+  editable: Schema.Boolean,
+  nullable: Schema.Boolean,
+  enum: Schema.NullOr(Schema.Array(Schema.String)),
+  custom: Schema.Boolean,
+})
 
-type Response = { readonly status: number; readonly body: unknown }
+/** The part of the published CubeMetadata the probes need. Read over HTTP, never derived
+ *  here: the probes must judge the metadata the kernel REALLY serves, not a second derivation. */
+const PublishedMetadata = Schema.Struct({
+  cube: Schema.String,
+  fields: Schema.optional(Schema.Array(PublishedField)),
+  routes: Schema.optional(
+    Schema.Record({
+      key: Schema.String,
+      value: Schema.Struct({
+        auth: Schema.Boolean,
+        permission: Schema.NullOr(Schema.String),
+        method: Schema.String,
+        path: Schema.String,
+      }),
+    }),
+  ),
+})
+type PublishedMetadata = typeof PublishedMetadata.Type
+type Route = { readonly method: string; readonly path: string }
+
+const CatalogEntry = Schema.Struct({ name: Schema.String })
+const Listed = Schema.Struct({ total: Schema.Unknown })
+const RelationTarget = Schema.Struct({ target: Schema.NonEmptyString })
 
 const excerpt = (body: unknown): string => {
   const text = typeof body === "string" ? body : JSON.stringify(body)
@@ -136,15 +150,18 @@ const probeRelations = (
     )
     return
   }
-  for (const [field, spec] of Object.entries(relations as Record<string, unknown>)) {
+  for (const [field, spec] of Object.entries(relations)) {
     count()
-    const target = (spec as { target?: unknown } | null)?.target
-    if (typeof target !== "string" || target.length === 0) {
+    if (!Schema.is(RelationTarget)(spec)) {
       fail("relation-target", file, `relation ${field} declares no target cube`)
       continue
     }
-    if (!catalog.has(target)) {
-      fail("relation-target", file, `relation ${field} points at cube "${target}", which does not exist in the catalog`)
+    if (!catalog.has(spec.target)) {
+      fail(
+        "relation-target",
+        file,
+        `relation ${field} points at cube "${spec.target}", which does not exist in the catalog`,
+      )
     }
   }
 }
@@ -157,269 +174,258 @@ type GenericProbeInput = {
   readonly declarations: DeclarationsDump
 }
 
-export const runGenericProbes = async (input: GenericProbeInput): Promise<GenericProbeReport> => {
-  const findings: PackageFinding[] = []
-  let checks = 0
-  const base = input.url.replace(/\/$/, "")
+export const runGenericProbes = (input: GenericProbeInput) =>
+  Effect.gen(function* () {
+    const findings: PackageFinding[] = []
+    let checks = 0
+    const base = input.url.replace(/\/$/, "")
 
-  const call = async (path: string, init: RequestInit = {}, token?: string): Promise<Response> => {
-    const headers: Record<string, string> = {
-      "content-type": "application/json",
-      ...(init.headers as Record<string, string>),
+    const request = (path: string, options: CallOptions = {}) => call(base, path, options)
+
+    const fail = (rule: string, file: string, message: string): void => {
+      findings.push({ rule, file, message })
     }
-    if (token) headers.authorization = `Bearer ${token}`
-    const r = await fetch(`${base}${path}`, { ...init, headers })
-    const text = await r.text()
-    let body: unknown = text
-    try {
-      body = JSON.parse(text)
-    } catch {
-      /* not JSON -- keep the text */
+
+    const login = (username: string, password: string) =>
+      Effect.map(request("/auth/login", { method: "POST", body: { username, password } }), ({ body }) =>
+        Option.getOrNull(sessionToken(body)),
+      )
+
+    const admin = yield* login("admin", input.adminPassword)
+    if (!admin) {
+      const report: GenericProbeReport = {
+        checks: 0,
+        findings: [
+          {
+            rule: "generic-probes",
+            file: "qwbe-package.json",
+            message: "could not log in as admin on the sandbox kernel -- the generic probes cannot run",
+          },
+        ],
+      }
+      return report
     }
-    return { status: r.status, body }
-  }
 
-  const fail = (rule: string, file: string, message: string): void => {
-    findings.push({ rule, file, message })
-  }
-
-  const login = async (username: string, password: string): Promise<string | null> => {
-    const r = await call("/auth/login", { method: "POST", body: JSON.stringify({ username, password }) })
-    return typeof (r.body as { token?: unknown })?.token === "string" ? (r.body as { token: string }).token : null
-  }
-
-  const admin = await login("admin", input.adminPassword)
-  if (!admin) {
-    return {
-      checks: 0,
-      findings: [
-        {
-          rule: "generic-probes",
-          file: "qwbe-package.json",
-          message: "could not log in as admin on the sandbox kernel -- the generic probes cannot run",
-        },
-      ],
-    }
-  }
-
-  // A token that authenticates but carries NO permission: the 403 probe's instrument. The
-  // account cube is a required system cube, so it is there in every sandbox.
-  let noPerms: string | null = null
-  const probeUser = `qwbe-check-${randomToken()}`
-  const probePassword = `pw-${randomToken()}`
-  const created = await call(
-    "/account",
-    {
+    // A token that authenticates but carries NO permission: the 403 probe's instrument. The
+    // account cube is a required system cube, so it is there in every sandbox.
+    let noPerms: string | null = null
+    const probeUser = `qwbe-check-${randomToken()}`
+    const probePassword = `pw-${randomToken()}`
+    const created = yield* request("/account", {
       method: "POST",
-      body: JSON.stringify({ username: probeUser, password: probePassword, roles: [] }),
-    },
-    admin,
-  )
-  if (created.status < 200 || created.status >= 300) {
-    fail(
-      "generic-probes",
-      "qwbe-package.json",
-      `could not create a permissionless user (status ${created.status}): ${excerpt(created.body)} -- 403 checks are skipped`,
-    )
-  } else {
-    noPerms = await login(probeUser, probePassword)
-    if (!noPerms) {
+      token: admin,
+      body: { username: probeUser, password: probePassword, roles: [] },
+    })
+    if (created.status < 200 || created.status >= 300) {
       fail(
         "generic-probes",
         "qwbe-package.json",
-        "created the probe user but could not log it in -- 403 checks are skipped",
+        `could not create a permissionless user (status ${created.status}): ${excerpt(created.body)} -- 403 checks are skipped`,
       )
+    } else {
+      noPerms = yield* login(probeUser, probePassword)
+      if (!noPerms) {
+        fail(
+          "generic-probes",
+          "qwbe-package.json",
+          "created the probe user but could not log it in -- 403 checks are skipped",
+        )
+      }
     }
-  }
 
-  // The catalog: every cube name the kernel knows. The relation probe judges targets against
-  // it -- and against NOTHING the package says about itself.
-  const catalog = new Set<string>()
-  const cubes = await call("/settings/cubes", {}, admin)
-  if (cubes.status === 200 && Array.isArray(cubes.body)) {
-    for (const entry of cubes.body as Array<{ name?: unknown }>) {
-      if (typeof entry?.name === "string") catalog.add(entry.name)
-    }
-  } else {
-    fail(
-      "generic-probes",
-      "qwbe-package.json",
-      `could not read the catalog (status ${cubes.status}): ${excerpt(cubes.body)} -- relation checks are skipped`,
-    )
-  }
-
-  const routesOf = (md: PublishedMetadata) => md.routes ?? {}
-  const fieldsOf = (md: PublishedMetadata) => md.fields ?? []
-  const findRoute = (md: PublishedMetadata, name: string) => {
-    const r = routesOf(md)[name]
-    return r && typeof r.method === "string" && typeof r.path === "string" && r.path.length > 0 ? r : null
-  }
-  const requestRoute = (route: { method: string; path: string }, body?: unknown, token?: string) =>
-    call(
-      fillPath(route.path),
-      {
-        method: route.method,
-        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-      },
-      token,
-    )
-
-  const metadataOf = async (cube: string): Promise<PublishedMetadata | null> => {
-    const r = await call(`/catalog/${encodeURIComponent(cube)}/metadata`, {}, admin)
-    return r.status === 200 ? (r.body as PublishedMetadata) : null
-  }
-
-  for (const cube of input.cubes) {
-    const file = `cubes/${cube}/index.ts`
-    const declared: PackDeclarations | undefined = input.declarations.cubes?.[cube]
-    if (!declared) {
+    // The catalog: every cube name the kernel knows. The relation probe judges targets against
+    // it -- and against NOTHING the package says about itself.
+    const catalog = new Set<string>()
+    const cubes = yield* request("/settings/cubes", { token: admin })
+    if (cubes.status === 200 && Array.isArray(cubes.body)) {
+      for (const entry of cubes.body) {
+        if (Schema.is(CatalogEntry)(entry)) catalog.add(entry.name)
+      }
+    } else {
       fail(
-        "declarations",
-        file,
-        `the generic probes have no declarations for this cube${input.declarations.errors?.[cube] ? `: ${input.declarations.errors[cube]}` : " -- the dump did not report it"}`,
+        "generic-probes",
+        "qwbe-package.json",
+        `could not read the catalog (status ${cubes.status}): ${excerpt(cubes.body)} -- relation checks are skipped`,
       )
-      continue
-    }
-    const md = await metadataOf(cube)
-    if (!md) {
-      console.log(
-        `  generic probes: ${cube} publishes no metadata -- route, searchable and required families do not apply`,
-      )
-      probeRelations(declared, catalog, file, fail, () => checks++)
-      continue
     }
 
-    // --- family 1: every published route, 401 without a token, 403 without the permission ---
-    for (const [name, route] of Object.entries(routesOf(md))) {
-      const body = ["POST", "PUT", "PATCH"].includes(route.method.toUpperCase())
-        ? createPayload(fieldsOf(md), randomToken())
-        : undefined
-      const unauthenticated = await requestRoute(route, body)
-      checks++
-      if (route.auth && unauthenticated.status !== 401) {
+    const routesOf = (md: PublishedMetadata) => md.routes ?? {}
+    const fieldsOf = (md: PublishedMetadata) => md.fields ?? []
+    const findRoute = (md: PublishedMetadata, name: string) => {
+      const r = routesOf(md)[name]
+      return r && r.path.length > 0 ? r : null
+    }
+    const requestRoute = (route: Route, body?: unknown, token?: string) =>
+      request(fillPath(route.path), {
+        method: route.method as NonNullable<CallOptions["method"]>,
+        ...(body === undefined ? {} : { body }),
+        ...(token === undefined ? {} : { token }),
+      })
+
+    // null: the cube publishes no metadata. A 200 that does not decode is the kernel breaking its
+    // own contract -- a finding, not a skip.
+    const metadataOf = (cube: string, file: string) =>
+      Effect.map(request(`/catalog/${encodeURIComponent(cube)}/metadata`, { token: admin }), (r) => {
+        if (r.status !== 200) return null
+        const md = Schema.decodeUnknownEither(PublishedMetadata)(r.body)
+        if (Either.isRight(md)) return md.right
+        fail("generic-probes", file, `the published metadata does not decode: ${md.left.message}`)
+        return null
+      })
+
+    for (const cube of input.cubes) {
+      const file = `cubes/${cube}/index.ts`
+      const declared: PackDeclarations | undefined = input.declarations.cubes?.[cube]
+      if (!declared) {
         fail(
-          "route-auth",
+          "declarations",
           file,
-          `route ${name} (${route.method} ${route.path}) declares auth but answered ${unauthenticated.status} without a token: ${excerpt(unauthenticated.body)}`,
+          `the generic probes have no declarations for this cube${input.declarations.errors?.[cube] ? `: ${input.declarations.errors[cube]}` : " -- the dump did not report it"}`,
         )
+        continue
       }
-      if (route.permission) {
-        if (!noPerms) {
-          fail(
-            "route-permission",
-            file,
-            `route ${name} declares permission ${route.permission} but the 403 probe has no permissionless token (see the generic-probes finding above)`,
-          )
-          continue
-        }
-        const forbidden = await requestRoute(route, body, noPerms)
+      const md = yield* metadataOf(cube, file)
+      if (!md) {
+        yield* Effect.logInfo(
+          `  generic probes: ${cube} publishes no metadata -- route, searchable and required families do not apply`,
+        )
+        probeRelations(declared, catalog, file, fail, () => checks++)
+        continue
+      }
+
+      // --- family 1: every published route, 401 without a token, 403 without the permission ---
+      for (const [name, route] of Object.entries(routesOf(md))) {
+        const body = ["POST", "PUT", "PATCH"].includes(route.method.toUpperCase())
+          ? createPayload(fieldsOf(md), randomToken())
+          : undefined
+        const unauthenticated = yield* requestRoute(route, body)
         checks++
-        if (forbidden.status !== 403) {
+        if (route.auth && unauthenticated.status !== 401) {
           fail(
-            "route-permission",
+            "route-auth",
             file,
-            `route ${name} (${route.method} ${route.path}) declares permission ${route.permission} but answered ${forbidden.status} for a token without it: ${excerpt(forbidden.body)}`,
+            `route ${name} (${route.method} ${route.path}) declares auth but answered ${unauthenticated.status} without a token: ${excerpt(unauthenticated.body)}`,
           )
         }
-      }
-    }
-
-    // --- family 3: every required field, missing at create = 400 (before family 2, which
-    // creates its own rows and needs the same baseline payload) ---
-    const createRoute = findRoute(md, "create")
-    const required = fieldsOf(md).filter((f) => f.required && f.editable && !f.custom)
-    if (!createRoute) {
-      console.log(`  generic probes: ${cube} declares no create route -- the required family does not apply`)
-    } else if (required.length > 0) {
-      const salt = randomToken()
-      const payload = createPayload(fieldsOf(md), salt)
-      const baseline = await requestRoute(createRoute, payload, admin)
-      if (baseline.status < 200 || baseline.status >= 300) {
-        fail(
-          "required-field",
-          file,
-          `a create with every required field set answered ${baseline.status} -- the metadata cannot be turned into a row, so the required contract is not judgeable: ${excerpt(baseline.body)}`,
-        )
-      } else {
-        for (const f of required) {
-          const without = { ...payload }
-          delete without[f.name]
-          const r = await requestRoute(createRoute, without, admin)
-          checks++
-          if (r.status !== 400) {
+        if (route.permission) {
+          if (!noPerms) {
             fail(
-              "required-field",
+              "route-permission",
               file,
-              `field ${f.name} is required by the create contract but missing at create answered ${r.status}: ${excerpt(r.body)}`,
+              `route ${name} declares permission ${route.permission} but the 403 probe has no permissionless token (see the generic-probes finding above)`,
+            )
+            continue
+          }
+          const forbidden = yield* requestRoute(route, body, noPerms)
+          checks++
+          if (forbidden.status !== 403) {
+            fail(
+              "route-permission",
+              file,
+              `route ${name} (${route.method} ${route.path}) declares permission ${route.permission} but answered ${forbidden.status} for a token without it: ${excerpt(forbidden.body)}`,
             )
           }
         }
       }
-    }
 
-    // --- family 2: every declared searchable field, two rows plus a filter = exactly one ---
-    const listRoute = findRoute(md, "list")
-    const searchable = Array.isArray(declared.searchable)
-      ? declared.searchable.filter((s): s is string => typeof s === "string")
-      : []
-    if (!listRoute) {
-      if (searchable.length > 0)
-        console.log(
-          `  generic probes: ${cube} declares searchable fields but no list route -- the searchable family does not apply`,
+      // --- family 3: every required field, missing at create = 400 (before family 2, which
+      // creates its own rows and needs the same baseline payload) ---
+      const createRoute = findRoute(md, "create")
+      const required = fieldsOf(md).filter((f) => f.required && f.editable && !f.custom)
+      if (!createRoute) {
+        yield* Effect.logInfo(
+          `  generic probes: ${cube} declares no create route -- the required family does not apply`,
         )
-    } else if (!createRoute) {
-      console.log(
-        `  generic probes: ${cube} declares searchable fields but no create route -- the probe cannot manufacture rows, skipping`,
-      )
-    } else {
-      for (const field of searchable) {
-        const meta = fieldsOf(md).find((f) => f.name === field)
-        if (!meta) {
-          checks++
-          fail("searchable", file, `declares searchable field "${field}" but the cube publishes no such field`)
-          continue
-        }
-        if (meta.type !== "string" || !meta.editable) {
-          console.log(
-            `  generic probes: ${cube}.${field} is ${meta.editable ? "not a string" : "not caller-settable"} -- the probe cannot manufacture rows for it, skipping`,
-          )
-          continue
-        }
-        const a = `qwbe-probe-${randomToken()}-a`
-        const b = `qwbe-probe-${randomToken()}-b`
-        const payload = createPayload(fieldsOf(md), randomToken())
-        const first = await requestRoute(createRoute, { ...payload, [field]: a }, admin)
-        const second = await requestRoute(createRoute, { ...payload, [field]: b }, admin)
-        if (first.status < 200 || first.status >= 300 || second.status < 200 || second.status >= 300) {
+      } else if (required.length > 0) {
+        const salt = randomToken()
+        const payload = createPayload(fieldsOf(md), salt)
+        const baseline = yield* requestRoute(createRoute, payload, admin)
+        if (baseline.status < 200 || baseline.status >= 300) {
           fail(
-            "searchable",
+            "required-field",
             file,
-            `could not create the two rows the searchable probe needs (statuses ${first.status}, ${second.status}): ${excerpt(first.body)}`,
+            `a create with every required field set answered ${baseline.status} -- the metadata cannot be turned into a row, so the required contract is not judgeable: ${excerpt(baseline.body)}`,
           )
-          continue
-        }
-        const filtered = await call(
-          `${fillPath(listRoute.path)}?${encodeURIComponent(field)}=${encodeURIComponent(a)}`,
-          {},
-          admin,
-        )
-        checks++
-        const total = (filtered.body as { total?: unknown })?.total
-        if (filtered.status !== 200 || total !== 1) {
-          fail(
-            "searchable",
-            file,
-            `declares searchable field "${field}": two rows plus the filter ${field}=${a} must answer exactly one row, got status ${filtered.status} total ${JSON.stringify(total)}`,
-          )
+        } else {
+          for (const f of required) {
+            const without = { ...payload }
+            delete without[f.name]
+            const r = yield* requestRoute(createRoute, without, admin)
+            checks++
+            if (r.status !== 400) {
+              fail(
+                "required-field",
+                file,
+                `field ${f.name} is required by the create contract but missing at create answered ${r.status}: ${excerpt(r.body)}`,
+              )
+            }
+          }
         }
       }
+
+      // --- family 2: every declared searchable field, two rows plus a filter = exactly one ---
+      const listRoute = findRoute(md, "list")
+      const searchable = Array.isArray(declared.searchable)
+        ? declared.searchable.filter((s): s is string => typeof s === "string")
+        : []
+      if (!listRoute) {
+        if (searchable.length > 0)
+          yield* Effect.logInfo(
+            `  generic probes: ${cube} declares searchable fields but no list route -- the searchable family does not apply`,
+          )
+      } else if (!createRoute) {
+        yield* Effect.logInfo(
+          `  generic probes: ${cube} declares searchable fields but no create route -- the probe cannot manufacture rows, skipping`,
+        )
+      } else {
+        for (const field of searchable) {
+          const meta = fieldsOf(md).find((f) => f.name === field)
+          if (!meta) {
+            checks++
+            fail("searchable", file, `declares searchable field "${field}" but the cube publishes no such field`)
+            continue
+          }
+          if (meta.type !== "string" || !meta.editable) {
+            yield* Effect.logInfo(
+              `  generic probes: ${cube}.${field} is ${meta.editable ? "not a string" : "not caller-settable"} -- the probe cannot manufacture rows for it, skipping`,
+            )
+            continue
+          }
+          const a = `qwbe-probe-${randomToken()}-a`
+          const b = `qwbe-probe-${randomToken()}-b`
+          const payload = createPayload(fieldsOf(md), randomToken())
+          const first = yield* requestRoute(createRoute, { ...payload, [field]: a }, admin)
+          const second = yield* requestRoute(createRoute, { ...payload, [field]: b }, admin)
+          if (first.status < 200 || first.status >= 300 || second.status < 200 || second.status >= 300) {
+            fail(
+              "searchable",
+              file,
+              `could not create the two rows the searchable probe needs (statuses ${first.status}, ${second.status}): ${excerpt(first.body)}`,
+            )
+            continue
+          }
+          const filtered = yield* request(
+            `${fillPath(listRoute.path)}?${encodeURIComponent(field)}=${encodeURIComponent(a)}`,
+            { token: admin },
+          )
+          checks++
+          const total = Schema.is(Listed)(filtered.body) ? filtered.body.total : undefined
+          if (filtered.status !== 200 || total !== 1) {
+            fail(
+              "searchable",
+              file,
+              `declares searchable field "${field}": two rows plus the filter ${field}=${a} must answer exactly one row, got status ${filtered.status} total ${JSON.stringify(total)}`,
+            )
+          }
+        }
+      }
+
+      probeRelations(declared, catalog, file, fail, () => checks++)
     }
 
-    probeRelations(declared, catalog, file, fail, () => checks++)
-  }
-
-  return { findings, checks }
-}
+    const report: GenericProbeReport = { findings, checks }
+    return report
+  })
 
 // --- the stage check-package.ts runs -----------------------------------------------------------
 
@@ -430,64 +436,70 @@ type GenericStageOptions = {
   readonly adminPassword: string
   /** Node flags for the dump, e.g. `--conditions=qwbe-dist`; empty for a checkout. */
   readonly conditions: ReadonlyArray<string>
-  /** The qwbe-core root carrying src/check-manifests.mjs. */
-  readonly kernelRoot: string
+  /** The declarations dump the kernel runs: src/check-manifests.ts, or its dist/ build. */
+  readonly dumpScript: string
 }
+
+const text = (stream: Stream.Stream<Uint8Array, PlatformError>) => stream.pipe(Stream.decodeText(), Stream.mkString)
+
+const nothingToProbe = (): GenericProbeReport => ({ findings: [], checks: 0 })
+
+const declarationsFailure = (message: string): GenericProbeReport => ({
+  checks: 0,
+  findings: [{ rule: "declarations", file: "cubes/", message }],
+})
 
 /**
  * Dump the package's raw declarations, then run the probes against the booted kernel. The
  * dump failure is a finding, never a silent skip: a check that could not read what the
  * package declares must not report green.
  */
-export const runGenericStage = async (options: GenericStageOptions): Promise<GenericProbeReport> => {
-  if (options.cubes.length === 0) return { findings: [], checks: 0 }
-  const scratch = mkdtempSync(join(tmpdir(), "qwbe-declarations-"))
-  try {
+export const runGenericStage = (options: GenericStageOptions) =>
+  Effect.gen(function* () {
+    if (options.cubes.length === 0) return nothingToProbe()
+    const fs = yield* FileSystem.FileSystem
+    const scratch = yield* fs.makeTempDirectoryScoped({ prefix: "qwbe-declarations-" })
     const outPath = join(scratch, "declarations.json")
-    const r = spawnSync(
-      process.execPath,
-      [...options.conditions, join(options.kernelRoot, "src", "check-manifests.mjs")],
-      {
-        cwd: options.dir,
-        env: {
-          ...process.env,
-          QWBE_PACK_DIR: options.dir,
-          QWBE_PACK_CUBES: JSON.stringify(options.cubes),
-          QWBE_DECLARATIONS_OUT: outPath,
-        },
-        encoding: "utf8",
-      },
+    const dump = Command.make(process.execPath, ...options.conditions, options.dumpScript).pipe(
+      Command.workingDirectory(options.dir),
+      Command.env({
+        QWBE_PACK_DIR: options.dir,
+        QWBE_PACK_CUBES: JSON.stringify(options.cubes),
+        QWBE_DECLARATIONS_OUT: outPath,
+      }),
     )
-    if (r.status !== 0) {
-      return {
-        checks: 0,
-        findings: [
-          {
-            rule: "declarations",
-            file: "cubes/",
-            message: `the generic probes could not read the package's declarations (dump exit ${r.status}): ${excerpt(r.stderr || r.stdout)}`,
-          },
-        ],
-      }
+    const run = yield* Effect.flatMap(Command.start(dump), (proc) =>
+      Effect.all(
+        {
+          exit: proc.exitCode.pipe(
+            Effect.map((code): number | null => code),
+            Effect.orElseSucceed(() => null),
+          ),
+          stdout: text(proc.stdout),
+          stderr: text(proc.stderr),
+        },
+        { concurrency: "unbounded" },
+      ),
+    )
+    if (run.exit !== 0) {
+      return declarationsFailure(
+        `the generic probes could not read the package's declarations (dump exit ${run.exit}): ${excerpt(run.stderr || run.stdout)}`,
+      )
     }
-    let dump: DeclarationsDump
-    try {
-      dump = JSON.parse(readFileSync(outPath, "utf8")) as DeclarationsDump
-    } catch (e) {
-      return {
-        checks: 0,
-        findings: [
-          { rule: "declarations", file: "cubes/", message: `the declarations dump is not readable JSON: ${String(e)}` },
-        ],
-      }
+    const read = yield* Effect.either(
+      Effect.flatMap(fs.readFileString(outPath), Schema.decodeUnknown(Schema.parseJson(DeclarationsDump))),
+    )
+    if (Either.isLeft(read)) {
+      return declarationsFailure(`the declarations dump is not readable JSON: ${read.left.message}`)
     }
-    const report = await runGenericProbes({
+    const dumped = read.right
+    const report = yield* runGenericProbes({
       url: options.url,
       adminPassword: options.adminPassword,
       cubes: options.cubes,
-      declarations: dump,
+      declarations: dumped,
     })
-    for (const [cube, error] of Object.entries(dump.errors ?? {})) {
+    for (const [cube, error] of Object.entries(dumped.errors ?? {})) {
       report.findings.push({
         rule: "declarations",
         file: `cubes/${cube}/index.ts`,
@@ -495,7 +507,4 @@ export const runGenericStage = async (options: GenericStageOptions): Promise<Gen
       })
     }
     return report
-  } finally {
-    rmSync(scratch, { recursive: true, force: true })
-  }
-}
+  }).pipe(Effect.scoped)

@@ -6,6 +6,8 @@
 import assert from "node:assert/strict"
 import { createServer, type IncomingMessage, type Server } from "node:http"
 import type { AddressInfo } from "node:net"
+import { FetchHttpClient } from "@effect/platform"
+import { Effect } from "effect"
 import { afterAll, describe, it } from "vitest"
 
 import { createPayload, type DeclarationsDump, fillPath, runGenericProbes, valueFor } from "./check-probes.ts"
@@ -124,12 +126,14 @@ const clean = async (breaks?: Parameters<typeof mockKernel>[0], over?: Partial<D
   const kernel = await mockKernel(breaks)
   try {
     return {
-      report: await runGenericProbes({
-        url: kernel.url,
-        adminPassword: "admin",
-        cubes: ["gadgets"],
-        declarations: dump(over),
-      }),
+      report: await Effect.runPromise(
+        runGenericProbes({
+          url: kernel.url,
+          adminPassword: "admin",
+          cubes: ["gadgets"],
+          declarations: dump(over),
+        }).pipe(Effect.provide(FetchHttpClient.layer)),
+      ),
       kernel,
     }
   } catch (e) {

@@ -1,4 +1,4 @@
-// A fresh, throwaway database per test file.
+// A fresh, throwaway database per test file or `qwbe check` run.
 //
 // `testDatabase` creates `qwbe_test_<label>_<random>` on the server named by the QWBE_PG_*
 // variables (or the local docker-compose default) and returns a connection string to THAT
@@ -9,48 +9,54 @@
 
 import { randomBytes } from "node:crypto"
 import { SqlClient } from "@effect/sql"
-import { Effect } from "effect"
+import { Data, Effect } from "effect"
 import pg from "pg"
+import { adminUrl } from "./admin-url.ts"
 import { closeAll, initStore, type Pg, run } from "./db.ts"
 
-// The admin connection. Parts, not a URL literal: the test helper composes it from the same
-// local-dev defaults docker-compose.yml uses, and every piece can be overridden by the
-// environment without editing a file.
-const adminUrl = (): string => {
-  const u = new URL("postgres://localhost/postgres")
-  u.hostname = process.env.QWBE_PG_HOST ?? "localhost"
-  u.port = process.env.QWBE_PG_PORT ?? "5433"
-  u.username = process.env.QWBE_PG_USER ?? "postgres"
-  u.password = process.env.QWBE_PG_PASSWORD ?? "qwbe"
-  return u.toString()
+export class TestDbUnavailable extends Data.TaggedError("TestDbUnavailable")<{ readonly cause: unknown }> {
+  override get message() {
+    return `could not create a test database (is Postgres up? npm run db:up): ${String(this.cause)}`
+  }
 }
 
-const admin = Effect.acquireRelease(
-  Effect.tryPromise(async () => {
-    const client = new pg.Client({ connectionString: adminUrl() })
-    await client.connect()
-    return client
-  }),
-  (client) => Effect.promise(() => client.end()),
-)
+const unavailable = (cause: unknown) => new TestDbUnavailable({ cause })
 
-/** The URL of a new database, dropped when the scope closes. */
+const admin = (url: string) =>
+  Effect.acquireRelease(
+    Effect.tryPromise({
+      try: async () => {
+        const client = new pg.Client({ connectionString: url })
+        await client.connect()
+        return client
+      },
+      catch: unavailable,
+    }),
+    (client) => Effect.promise(() => client.end()),
+  )
+
+/**
+ * The URL of a new database, dropped when the scope closes. Bounded: a Postgres out of
+ * connections must fail here before vitest kills the worker, or the finalizers that stop servers
+ * and drop databases never run.
+ */
 export const testDatabase = (label: string) =>
   Effect.gen(function* () {
+    const base = yield* Effect.mapError(adminUrl, unavailable)
     const name = `qwbe_test_${label}_${randomBytes(4).toString("hex")}`
-    const client = yield* admin
+    const client = yield* admin(base)
     yield* Effect.acquireRelease(
-      Effect.tryPromise(() => client.query(`CREATE DATABASE "${name}"`)),
+      Effect.tryPromise({ try: () => client.query(`CREATE DATABASE "${name}"`), catch: unavailable }),
       () =>
         Effect.tryPromise(() => client.query(`DROP DATABASE IF EXISTS "${name}" WITH (FORCE)`)).pipe(
           Effect.timeout("20 seconds"),
           Effect.ignore,
         ),
     )
-    const url = new URL(adminUrl())
+    const url = new URL(base)
     url.pathname = `/${name}`
     return url.toString()
-  })
+  }).pipe(Effect.timeoutFail({ duration: "20 seconds", onTimeout: () => unavailable("timed out") }))
 
 /**
  * The kernel store on a new test database for one plain vitest file: env first (the pool reads

@@ -7,10 +7,17 @@ import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
+import { FetchHttpClient, type HttpClient } from "@effect/platform"
+import type { NodeContext } from "@effect/platform-node"
+import { Effect } from "effect"
 import { afterAll, describe, it } from "vitest"
 
 import { capsSourceFindings, checkPackage, invocationFindings, kernelRoot, probesFindings } from "./check-package.ts"
+import { runNode } from "./files.ts"
 import { writePack } from "./test-fixture-pack.ts"
+
+const run = <A, E>(effect: Effect.Effect<A, E, NodeContext.NodeContext | HttpClient.HttpClient>): Promise<A> =>
+  runNode(Effect.provide(effect, FetchHttpClient.layer))
 
 const tmpRoots: string[] = []
 afterAll(() => {
@@ -42,16 +49,16 @@ const build = async (mutate?: (root: string) => void): Promise<string> => {
 const resolveTo = (path: string) => () => path
 
 describe("the installed kernel", () => {
-  it("kernelRoot() is the package this test file lives in", () => {
+  it("kernelRoot is the package this test file lives in", async () => {
     const here = dirname(dirname(fileURLToPath(import.meta.url))) // core/
-    assert.equal(realpathSync(kernelRoot()), realpathSync(here))
+    assert.equal(realpathSync(await run(kernelRoot)), realpathSync(here))
   })
 })
 
 describe("stage 2 -- caps come from the kernel, never from the pack", () => {
   it("a qwbe.config.json in the package is refused, with the reason", async () => {
     const root = await build((r) => writeFileSync(join(r, "qwbe.config.json"), JSON.stringify({ caps: {} })))
-    const findings = capsSourceFindings(root)
+    const findings = await run(capsSourceFindings(root))
     assert.equal(findings.length, 1)
     assert.equal(findings[0]?.rule, "caps-source")
     assert.equal(findings[0]?.file, "qwbe.config.json")
@@ -59,21 +66,21 @@ describe("stage 2 -- caps come from the kernel, never from the pack", () => {
   })
 
   it("a package without its own config has nothing to refuse", async () => {
-    assert.deepEqual(capsSourceFindings(await build()), [])
+    assert.deepEqual(await run(capsSourceFindings(await build())), [])
   })
 })
 
 describe("stage 3 -- probes must exist and run something", () => {
   it("a missing probes/ directory is an error, not a warning", async () => {
     const root = await build((r) => rmSync(join(r, "probes"), { recursive: true, force: true }))
-    const { findings } = probesFindings(root)
+    const { findings } = await run(probesFindings(root))
     assert.equal(findings[0]?.rule, "probes")
     assert.match(findings[0]?.message ?? "", /probes\/ is missing/)
   })
 
   it("an empty probes/ directory is an error", async () => {
     const root = await build((r) => rmSync(join(r, "probes", "selfcheck.mjs")))
-    const { findings } = probesFindings(root)
+    const { findings } = await run(probesFindings(root))
     assert.equal(findings[0]?.rule, "probes")
     assert.match(findings[0]?.message ?? "", /no \*\.mjs in probes\//)
   })
@@ -83,13 +90,13 @@ describe("stage 3 -- probes must exist and run something", () => {
       rmSync(join(r, "probes", "selfcheck.mjs"))
       writeFileSync(join(r, "probes", "helper.ts"), "export const x = 1\n")
     })
-    const { findings, probes } = probesFindings(root)
+    const { findings, probes } = await run(probesFindings(root))
     assert.equal(findings.length, 1)
     assert.deepEqual(probes, [])
   })
 
   it("one .mjs probe is found", async () => {
-    const { findings, probes } = probesFindings(await build())
+    const { findings, probes } = await run(probesFindings(await build()))
     assert.deepEqual(findings, [])
     assert.deepEqual(probes, ["selfcheck.mjs"])
   })
@@ -97,7 +104,7 @@ describe("stage 3 -- probes must exist and run something", () => {
 
 describe("stage 4 -- the invocation is part of the contract", () => {
   it("the intended invocation passes", async () => {
-    assert.deepEqual(invocationFindings(await build()), [])
+    assert.deepEqual(await run(invocationFindings(await build())), [])
   })
 
   it("a scripts.test that is not exactly `qwbe check .` is refused", async () => {
@@ -107,7 +114,7 @@ describe("stage 4 -- the invocation is part of the contract", () => {
         pkg.scripts.test = wrong
         writeFileSync(join(r, "package.json"), JSON.stringify(pkg))
       })
-      const findings = invocationFindings(root)
+      const findings = await run(invocationFindings(root))
       assert.equal(findings.length, 1, wrong)
       assert.equal(findings[0]?.rule, "invocation-test", wrong)
       assert.match(findings[0]?.message ?? "", /must be exactly "qwbe check \." --/, wrong)
@@ -121,7 +128,7 @@ describe("stage 4 -- the invocation is part of the contract", () => {
         pkg.dependencies["qwbe-core"] = dep
         writeFileSync(join(r, "package.json"), JSON.stringify(pkg))
       })
-      const findings = invocationFindings(root)
+      const findings = await run(invocationFindings(root))
       assert.equal(findings.length, 1, dep)
       assert.equal(findings[0]?.rule, "invocation-dependency", dep)
       assert.match(findings[0]?.message ?? "", /names a checkout, not an install/, dep)
@@ -134,16 +141,18 @@ describe("stage 4 -- the invocation is part of the contract", () => {
       delete pkg.dependencies["qwbe-core"]
       writeFileSync(join(r, "package.json"), JSON.stringify(pkg))
     })
-    const findings = invocationFindings(root)
+    const findings = await run(invocationFindings(root))
     assert.equal(findings[0]?.rule, "invocation-dependency")
     assert.match(findings[0]?.message ?? "", /is missing/)
   })
 
   it("a qwbe-core that does not resolve at all is refused", async () => {
     const root = await build()
-    const findings = invocationFindings(root, () => {
-      throw new Error("Cannot find module 'qwbe-core/package.json'")
-    })
+    const findings = await run(
+      invocationFindings(root, () => {
+        throw new Error("Cannot find module 'qwbe-core/package.json'")
+      }),
+    )
     assert.equal(findings[0]?.rule, "invocation-install")
     assert.match(findings[0]?.message ?? "", /does not resolve/)
   })
@@ -154,7 +163,7 @@ describe("stage 4 -- the invocation is part of the contract", () => {
     tmpRoots.push(checkout)
     writeFileSync(join(checkout, "package.json"), JSON.stringify({ name: "qwbe-core" }))
     const root = await build()
-    const findings = invocationFindings(root, resolveTo(join(checkout, "package.json")))
+    const findings = await run(invocationFindings(root, resolveTo(join(checkout, "package.json"))))
     assert.equal(findings.length, 1)
     assert.equal(findings[0]?.rule, "invocation-install")
     assert.match(findings[0]?.message ?? "", /not under the package's own node_modules/)
@@ -172,7 +181,7 @@ describe("the four stages, in order, first failure stops", () => {
       writeFileSync(join(r, "qwbe.config.json"), "{}")
       rmSync(join(r, "probes"), { recursive: true, force: true })
     })
-    const report = await checkPackage(root)
+    const report = await run(checkPackage(root))
     assert.equal(report.ok, false)
     assert.equal(report.failedStage, "source")
     assert.ok(report.findings.some((f) => f.rule === "cube-builtins"))
@@ -184,7 +193,7 @@ describe("the four stages, in order, first failure stops", () => {
       rmSync(join(r, "probes"), { recursive: true, force: true })
       writeFileSync(join(r, "package.json"), "NOT JSON")
     })
-    const report = await checkPackage(root)
+    const report = await run(checkPackage(root))
     assert.equal(report.failedStage, "caps")
   })
 
@@ -193,7 +202,7 @@ describe("the four stages, in order, first failure stops", () => {
       rmSync(join(r, "probes"), { recursive: true, force: true })
       writeFileSync(join(r, "package.json"), "NOT JSON")
     })
-    const { findings } = probesFindings(root)
+    const { findings } = await run(probesFindings(root))
     assert.ok(findings.length > 0)
   })
 
@@ -203,14 +212,14 @@ describe("the four stages, in order, first failure stops", () => {
       pkg.scripts.test = "node --test everything.mjs"
       writeFileSync(join(r, "package.json"), JSON.stringify(pkg))
     })
-    const findings = invocationFindings(root)
+    const findings = await run(invocationFindings(root))
     assert.equal(findings.length, 1)
   })
 
   it("a clean package passes the probes/ shape and the invocation check", async () => {
     const root = await build()
-    assert.deepEqual(probesFindings(root).findings, [])
-    assert.deepEqual(invocationFindings(root), [])
+    assert.deepEqual((await run(probesFindings(root))).findings, [])
+    assert.deepEqual(await run(invocationFindings(root)), [])
   })
 })
 

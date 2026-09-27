@@ -69,7 +69,7 @@ const sessions = Layer.scoped(
   Effect.gen(function* () {
     const { url } = yield* TestDb
     const superuser = yield* connect(url)
-    yield* Effect.addFinalizer(() => dropTaggedRoles(superuser))
+    yield* Effect.addFinalizer(() => Effect.orDie(dropTaggedRoles(superuser)))
     yield* kernelStore(url)
     yield* createCubes
     yield* createAppLogin(superuser)
@@ -87,7 +87,7 @@ const refusalOf = (client: pg.Client, role: string, sql: string) =>
         Effect.zipRight(Effect.tryPromise({ try: () => client.query(sql), catch: (e) => e as Error })),
         Effect.match({ onSuccess: () => "", onFailure: (e) => e.message }),
       ),
-    () => query(client, "ROLLBACK"),
+    () => Effect.orDie(query(client, "ROLLBACK")),
   )
 
 const insertInto = (cube: string, table: string) =>

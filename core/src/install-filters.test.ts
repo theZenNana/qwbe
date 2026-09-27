@@ -6,11 +6,13 @@
 // a third private filter again, the two paths visibly diverge here.
 
 import assert from "node:assert/strict"
-import { cpSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs"
+import { cpSync, mkdirSync, mkdtempSync, readdirSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join, relative, sep } from "node:path"
+import { Effect } from "effect"
 import { describe, it } from "vitest"
-import { stageSandbox } from "./check-package.ts"
+import { kernelRoot, stageSandbox } from "./check-package.ts"
+import { runNode } from "./files.ts"
 import { installerFor } from "./kernel/install.ts"
 import { testConfig } from "./test-config.ts"
 import { writePack } from "./test-fixture-pack.ts"
@@ -20,6 +22,16 @@ const bench = mkdtempSync(join(tmpdir(), "qwbe-install-filters-"))
 const storeDir = join(bench, "store")
 const pluginsDir = join(bench, "plugins")
 const config = testConfig({ QWBE_STORE_DIR: storeDir, QWBE_PLUGINS_DIR: pluginsDir })
+
+/** The files `qwbe check` would mount for `source`, read before the sandbox is removed. */
+const sandboxFiles = (source: string) =>
+  runNode(
+    Effect.scoped(
+      Effect.flatMap(kernelRoot, (root) =>
+        Effect.map(stageSandbox(source, NAME, root), (sandbox) => filesUnder(join(sandbox.plugins, NAME))),
+      ),
+    ),
+  )
 
 const NAME = "filter-pack"
 
@@ -55,27 +67,20 @@ describe("one content rule for every copy of a package", () => {
     await buildFixture(source)
 
     // 1. The sandbox filter: source -> plugins/<name>, what `qwbe check` boots.
-    const sandbox = stageSandbox(source, NAME, false)
-    try {
-      const sandboxFiles = filesUnder(join(sandbox.plugins, NAME))
+    const mounted = await sandboxFiles(source)
 
-      // 2. The install filter: shelf -> plugins/<name>, what a real install leaves behind.
-      const shelf = join(storeDir, NAME)
-      mkdirSync(storeDir, { recursive: true })
-      cpSync(source, shelf, { recursive: true })
-      const installed = await import("effect").then(({ Effect }) =>
-        Effect.runPromise(installerFor(async () => [], config).install(NAME)),
-      )
-      assert.ok(installed.installed)
-      const installedFiles = filesUnder(join(pluginsDir, NAME))
+    // 2. The install filter: shelf -> plugins/<name>, what a real install leaves behind.
+    const shelf = join(storeDir, NAME)
+    mkdirSync(storeDir, { recursive: true })
+    cpSync(source, shelf, { recursive: true })
+    const installed = await Effect.runPromise(installerFor(async () => [], config).install(NAME))
+    assert.ok(installed.installed)
+    const installedFiles = filesUnder(join(pluginsDir, NAME))
 
-      // The copy `qwbe check` judged is byte-for-byte the file set an install would ship:
-      // authoring tool state (test/, .pi/, docs/, package.json) present in NEITHER.
-      assert.ok(sandboxFiles.includes("cubes/x/index.ts"), "the cube itself must be copied")
-      assert.deepEqual(installedFiles, sandboxFiles)
-    } finally {
-      rmSync(sandbox.root, { recursive: true, force: true })
-    }
+    // The copy `qwbe check` judged is byte-for-byte the file set an install would ship:
+    // authoring tool state (test/, .pi/, docs/, package.json) present in NEITHER.
+    assert.ok(mounted.includes("cubes/x/index.ts"), "the cube itself must be copied")
+    assert.deepEqual(installedFiles, mounted)
   })
 
   it("staging tool state stays out of both copies", async () => {
@@ -85,12 +90,6 @@ describe("one content rule for every copy of a package", () => {
     const source = join(bench, "shape")
     await buildFixture(source)
     writeFileSync(join(source, "package.json"), '{"name": "filter-pack"}\n')
-    const sandbox = stageSandbox(source, NAME, false)
-    try {
-      const files = filesUnder(join(sandbox.plugins, NAME))
-      assert.deepEqual(files, ["cubes/x/index.ts", "cubes/x/package.json"])
-    } finally {
-      rmSync(sandbox.root, { recursive: true, force: true })
-    }
+    assert.deepEqual(await sandboxFiles(source), ["cubes/x/index.ts", "cubes/x/package.json"])
   })
 })
