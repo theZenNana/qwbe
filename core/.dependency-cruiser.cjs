@@ -179,7 +179,9 @@ module.exports = {
           "^src/check-package\\.ts$",
         ],
       },
-      to: { path: "^src/package-contract.*\\.ts$" },
+      // The lexer is text in, text out, with no imports: it cannot run anything, and
+      // package-size.ts shares it instead of keeping a second copy.
+      to: { path: "^src/package-contract.*\\.ts$", pathNot: "^src/package-contract-lex\\.ts$" },
     },
     {
       name: "no-circular",

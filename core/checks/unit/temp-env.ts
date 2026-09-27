@@ -29,6 +29,10 @@ export const mountCubes = (select: (definitions: ReadonlyArray<Entry>) => Readon
     importUnderTempDirs(["QWBE_DATA_DIR"], () =>
       Promise.all([import("../../src/kernel/discovery.ts"), import("../../src/kernel/space.ts")]),
     ),
-    ({ kernel: [{ loadDefinitions, mount }, { loadSpaces }] }) =>
-      Effect.promise(async () => mount(select(await loadDefinitions()), await loadSpaces())),
+    ({ kernel: [{ loadDefinitions, mount, switchesFor }, { loadSpaces }] }) =>
+      Effect.gen(function* () {
+        const definitions = select(yield* Effect.promise(loadDefinitions))
+        const switches = yield* Effect.orDie(switchesFor(definitions))
+        return mount(definitions, yield* Effect.promise(loadSpaces), switches)
+      }),
   )

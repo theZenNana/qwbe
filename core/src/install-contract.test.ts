@@ -2,7 +2,9 @@ import assert from "node:assert/strict"
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { Effect } from "effect"
 import { describe, it } from "vitest"
+import { runNode } from "./files.ts"
 import { contractValidationParent, isOutsideDiscoveryRoots } from "./install-contract.ts"
 import { InstallError, stageAndInstall } from "./kernel/install-from.ts"
 import type { CubePackage } from "./kernel/manifest.ts"
@@ -39,12 +41,12 @@ describe("install-from static contract gate", () => {
     try {
       const install = stageAndInstall({
         storeDir: store,
-        readPackageAt: () => pkg,
-        installExisting: () => ({ ...pkg, installed: true }),
+        readPackageAt: () => Effect.succeed(pkg),
+        installExisting: () => Effect.succeed({ ...pkg, installed: true }),
         checkPackageSource: async () => [], // no source findings: this case is about the stage, not the checker
       })
 
-      await assert.rejects(install(source), (error: unknown) => {
+      await assert.rejects(runNode(install(source)), (error: unknown) => {
         assert.ok(error instanceof InstallError)
         assert.match(error.message, /TypeScript contract gate/)
         assert.match(error.message, /TS2322/)
@@ -91,11 +93,11 @@ export const unsafe: any = 1
     try {
       const install = stageAndInstall({
         storeDir: store,
-        readPackageAt: () => pkg,
-        installExisting: () => ({ ...pkg, installed: true }),
+        readPackageAt: () => Effect.succeed(pkg),
+        installExisting: () => Effect.succeed({ ...pkg, installed: true }),
         checkPackageSource: async () => [], // no source findings: this case is about the stage, not the checker
       })
-      await assert.rejects(install(source), /no-explicit-any/)
+      await assert.rejects(runNode(install(source)), /no-explicit-any/)
       assert.deepEqual(existsSync(store) ? readdirSync(store) : [], [])
     } finally {
       rmSync(bench, { recursive: true, force: true })
@@ -126,8 +128,8 @@ export const unsafe: any = 1
     try {
       const install = stageAndInstall({
         storeDir: store,
-        readPackageAt: () => pkg,
-        installExisting: () => ({ ...pkg, installed: true }),
+        readPackageAt: () => Effect.succeed(pkg),
+        installExisting: () => Effect.succeed({ ...pkg, installed: true }),
         // The checker is injected (QWB-70) - this test wires a stand-in so the refusal path
         // and message shape are exercised; the checker's own behavior is covered by
         // package-contract.test.ts, which is the one file allowed to run it.
@@ -135,7 +137,7 @@ export const unsafe: any = 1
           { rule: "cubes/", file: "qwbe-package.json", message: "cubes/ -- the cubes/ directory is missing" },
         ],
       })
-      await assert.rejects(install(source), (error: unknown) => {
+      await assert.rejects(runNode(install(source)), (error: unknown) => {
         assert.ok(error instanceof InstallError)
         assert.match(error.message, /source contract/)
         assert.match(error.message, /cubes\/ -- the cubes\/ directory is missing/)
@@ -180,11 +182,11 @@ export const unsafe: any = 1
     try {
       const install = stageAndInstall({
         storeDir: store,
-        readPackageAt: () => pkg,
-        installExisting: () => ({ ...pkg, installed: true }),
+        readPackageAt: () => Effect.succeed(pkg),
+        installExisting: () => Effect.succeed({ ...pkg, installed: true }),
         checkPackageSource: async () => [], // no source findings: this case is about the stage, not the checker
       })
-      const result = await install(source)
+      const result = await runNode(install(source))
       assert.equal(result.staged, true)
       assert.equal(existsSync(join(store, "clean-source", "index.ts")), true)
       assert.equal(existsSync(join(store, "clean-source", "node_modules")), false)

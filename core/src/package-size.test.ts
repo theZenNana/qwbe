@@ -9,7 +9,10 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterAll, describe, it } from "vitest"
 
-import { capsFromConfig, sizeCapsFindings, stripComments } from "./package-size.ts"
+import { runNode } from "./files.ts"
+import { capsFromConfig, type SizeCaps, sizeCapsFindings, stripComments } from "./package-size.ts"
+
+const capsFindingsOf = (root: string, caps: SizeCaps) => runNode(sizeCapsFindings(root, caps))
 
 const CAPS = { countMode: "code" as const, maxCharsPerFile: 6000, maxFilesPerUnit: 15, maxCharsPerUnit: 40000 }
 
@@ -31,27 +34,27 @@ const build = (files: Record<string, string>): string => {
 const filler = (code: number) => `const x = "${"a".repeat(Math.max(0, code - 12))}"\n`
 
 describe("size caps for a package", () => {
-  it("a package under every cap passes", () => {
+  it("a package under every cap passes", async () => {
     const root = build({ "cubes/gadgets/index.ts": filler(100) })
-    assert.deepEqual(sizeCapsFindings(root, CAPS), [])
+    assert.deepEqual(await capsFindingsOf(root, CAPS), [])
   })
 
-  it("a file over the code cap is a finding, and comments do not count", () => {
+  it("a file over the code cap is a finding, and comments do not count", async () => {
     const root = build({
       // 9000 code chars + 9000 chars of comment: over the cap by CODE, and the comment adds nothing.
       "cubes/gadgets/index.ts": `${filler(9000)}// ${"x".repeat(9000)}\n`,
     })
-    const findings = sizeCapsFindings(root, CAPS)
+    const findings = await capsFindingsOf(root, CAPS)
     assert.equal(findings.length, 1)
     assert.equal(findings[0]?.rule, "size-file")
     assert.equal(findings[0]?.file, "cubes/gadgets/index.ts")
     assert.match(findings[0]?.message ?? "", /9000 code chars, cap is 6000/)
   })
 
-  it("countMode raw measures every byte", () => {
+  it("countMode raw measures every byte", async () => {
     const root = build({ "cubes/gadgets/index.ts": `${filler(100)}// ${"x".repeat(9000)}\n` })
     const raw = { ...CAPS, countMode: "raw" as const }
-    const findings = sizeCapsFindings(root, raw)
+    const findings = await capsFindingsOf(root, raw)
     assert.equal(findings.length, 1)
     // Raw is the file's whole length -- comments and all.
     assert.match(
@@ -60,63 +63,65 @@ describe("size caps for a package", () => {
     )
   })
 
-  it("tests do not count, at any depth", () => {
+  it("tests do not count, at any depth", async () => {
     const root = build({
       "cubes/gadgets/index.ts": filler(100),
       "cubes/gadgets/big.test.ts": filler(9000),
       "cubes/gadgets/nested/also-big.spec.ts": filler(9000),
     })
-    assert.deepEqual(sizeCapsFindings(root, CAPS), [])
+    assert.deepEqual(await capsFindingsOf(root, CAPS), [])
   })
 
-  it("node_modules is skipped, nested frontend/ counts", () => {
+  it("node_modules is skipped, nested frontend/ counts", async () => {
     const root = build({
       "cubes/gadgets/index.ts": filler(100),
       "cubes/gadgets/node_modules/dep/index.ts": filler(9000),
       "cubes/gadgets/frontend/widget.tsx": filler(9000),
     })
-    const findings = sizeCapsFindings(root, CAPS)
+    const findings = await capsFindingsOf(root, CAPS)
     assert.equal(findings.length, 1)
     assert.equal(findings[0]?.file, "cubes/gadgets/frontend/widget.tsx")
   })
 
-  it("a unit over the file or char cap is one finding", () => {
+  it("a unit over the file or char cap is one finding", async () => {
     const files: Record<string, string> = {}
     for (let i = 0; i < 16; i++) files[`cubes/big/thing${i}.ts`] = filler(100)
     const root = build(files)
-    const findings = sizeCapsFindings(root, CAPS)
+    const findings = await capsFindingsOf(root, CAPS)
     assert.equal(findings.length, 1)
     assert.equal(findings[0]?.rule, "size-unit")
     assert.equal(findings[0]?.file, "cubes/big")
     assert.match(findings[0]?.message ?? "", /16 files \/ \d+ code chars, caps are 15 files \/ 40000 chars/)
   })
 
-  it("each direct child of cubes/ is its own unit; a shared over-cap file fails both units", () => {
+  it("each direct child of cubes/ is its own unit; a shared over-cap file fails both units", async () => {
     const root = build({
       "cubes/one/index.ts": filler(100),
       "cubes/two/index.ts": filler(100),
       "cubes/two/extra.ts": filler(100),
     })
-    assert.deepEqual(sizeCapsFindings(root, CAPS), [])
+    assert.deepEqual(await capsFindingsOf(root, CAPS), [])
   })
 
-  it("a missing cubes/ directory measures nothing", () => {
+  it("a missing cubes/ directory measures nothing", async () => {
     const root = build({ "README.md": "not source\n" })
-    assert.deepEqual(sizeCapsFindings(root, CAPS), [])
+    assert.deepEqual(await capsFindingsOf(root, CAPS), [])
   })
 })
 
 describe("caps from the kernel config", () => {
-  it("reads the documented shape", () => {
-    const caps = capsFromConfig({
-      countMode: "code",
-      caps: { maxCharsPerFile: 6000, maxFilesPerUnit: 15, maxCharsPerUnit: 40000 },
-    })
+  it("reads the documented shape", async () => {
+    const caps = await runNode(
+      capsFromConfig({
+        countMode: "code",
+        caps: { maxCharsPerFile: 6000, maxFilesPerUnit: 15, maxCharsPerUnit: 40000 },
+      }),
+    )
     assert.deepEqual(caps, CAPS)
   })
 
-  it("a wrong number is a thrown kernel error, not a silent default", () => {
-    assert.throws(() => capsFromConfig({ caps: { maxCharsPerFile: "big" } }), /caps\.maxCharsPerFile/)
+  it("a wrong number is a kernel error naming the key, not a silent default", async () => {
+    await assert.rejects(runNode(capsFromConfig({ caps: { maxCharsPerFile: "big" } })), /maxCharsPerFile/)
   })
 
   it("stripComments keeps strings whole -- the number must be real", () => {

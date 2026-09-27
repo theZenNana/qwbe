@@ -23,8 +23,8 @@ const { writePack } = await import("./test-fixture-pack.ts")
 
 const NAME = "filter-pack"
 
-const buildFixture = (dir: string): void => {
-  writePack(dir, {
+const buildFixture = async (dir: string): Promise<void> => {
+  await writePack(dir, {
     name: NAME,
     cubes: { x: "export const x = 1\n" },
     extra: {
@@ -52,7 +52,7 @@ const filesUnder = (dir: string): Array<string> => {
 describe("one content rule for every copy of a package", () => {
   it("the qwbe check sandbox and the installed copy are the same artifact", async () => {
     const source = join(bench, "source")
-    buildFixture(source)
+    await buildFixture(source)
 
     // 1. The sandbox filter: source -> plugins/<name>, what `qwbe check` boots.
     const sandbox = stageSandbox(source, NAME, false)
@@ -78,12 +78,12 @@ describe("one content rule for every copy of a package", () => {
     }
   })
 
-  it("staging tool state stays out of both copies", () => {
+  it("staging tool state stays out of both copies", async () => {
     // Belt and braces on the shape itself, readable without the equivalence above. The rule is
     // first-segment: top-level tooling (test/, .pi/, docs/, a top-level package.json) stays
     // out; a cube's own package.json at depth is content and ships.
     const source = join(bench, "shape")
-    buildFixture(source)
+    await buildFixture(source)
     writeFileSync(join(source, "package.json"), '{"name": "filter-pack"}\n')
     const sandbox = stageSandbox(source, NAME, false)
     try {

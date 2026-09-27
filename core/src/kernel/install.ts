@@ -35,26 +35,27 @@
 // list that is not live yet -- a page that lies about what happened is worse than one that asks
 // you to restart.
 //
-// LAYOUT (split for the size cap): the path guards, allowed destinations and the Effect bridge
-// live in `install-guards.ts`; the methods that look at the installed state (cubeOnDisk,
-// remove, restart) in `install-lifecycle.ts`. This file keeps the store reader and the
-// install/stage/uninstall engine.
+// LAYOUT (split for the size cap): the path guards, allowed destinations and the Effect face
+// live in `install-parts.ts`, with the methods that look at the installed state (cubeOnDisk,
+// remove, restart). This file keeps the store reader and the install/stage/uninstall engine.
 
-import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs"
 import { dirname, join, resolve } from "node:path"
+import { FileSystem } from "@effect/platform"
+import { Effect, Schema } from "effect"
 import { readStoreDir } from "../config.ts"
-import { includePackageSourcePath, isBookkeeping, MANIFEST } from "../package-source.ts"
+import { copyTree, subdirectories, walk } from "../files.ts"
+import { includePackageSourcePath, isBookkeeping, MANIFEST, PackageManifest } from "../package-source.ts"
 import { InstallError, stageAndInstall as stageAndInstallFor } from "./install-from.ts"
 import {
   checkName,
   cubesDir,
   destinationOf,
+  face,
+  type InstallStep,
   lifecycleInstaller,
   NAME,
   pluginsDir,
   srcDir,
-  tried,
-  triedPromise,
   under,
 } from "./install-parts.ts"
 import { forgetShelfFor, type ScanInstaller, scanFor } from "./install-scan.ts"
@@ -65,16 +66,8 @@ export { InstallError }
 /** Where installable packages sit. Overridable so the probes can point at a scratch copy. */
 const storeDir = resolve(readStoreDir() ?? join(srcDir, "..", "store"))
 
-/** The metadata file that makes a directory in the store a package rather than scratch. */
-
-const sizeOf = (dir: string): number => {
-  let total = 0
-  for (const entry of readdirSync(dir, { withFileTypes: true })) {
-    const p = join(dir, entry.name)
-    total += entry.isDirectory() ? sizeOf(p) : statSync(p).size
-  }
-  return total
-}
+const sizeOf = (dir: string) =>
+  Effect.map(walk(dir), (entries) => entries.reduce((total, e) => (e.type === "Directory" ? total : total + e.size), 0))
 
 /**
  * Every cube name currently on disk, wherever it came from.
@@ -87,140 +80,136 @@ const sizeOf = (dir: string): number => {
  * So the same question the kernel asks at startup gets asked one step earlier, at install time,
  * where it can still be answered with a refusal instead of a dead process.
  */
-const cubesOnDisk = (): ReadonlyArray<{ cube: string; from: string }> => {
+const cubesOnDisk = Effect.gen(function* () {
   const found: Array<{ cube: string; from: string }> = []
-  const dirsIn = (d: string) =>
-    existsSync(d) ? readdirSync(d, { withFileTypes: true }).filter((e) => e.isDirectory()) : []
-
-  for (const e of dirsIn(cubesDir)) found.push({ cube: e.name, from: "core" })
-  for (const p of dirsIn(pluginsDir)) {
-    for (const e of dirsIn(join(pluginsDir, p.name, "cubes"))) {
-      found.push({ cube: e.name, from: `plugin ${p.name}` })
+  for (const cube of yield* subdirectories(cubesDir)) found.push({ cube, from: "core" })
+  for (const p of yield* subdirectories(pluginsDir)) {
+    for (const cube of yield* subdirectories(join(pluginsDir, p, "cubes"))) {
+      found.push({ cube, from: `plugin ${p}` })
     }
   }
   return found
-}
+})
 
 /**
  * Install a package the store already holds, by name. Shared by the store flow and by
  * stageAndInstall, which ends with the package on the raft and asks the very same question.
  */
-const installExisting = (name: string): CubePackage => {
-  const pkg = readPackage(name)
-  const from = under(storeDir, join(storeDir, name))
-  const to = destinationOf(pkg)
+const installExisting = (name: string): InstallStep<CubePackage> =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem
+    const pkg = yield* readPackage(name)
+    const from = yield* under(storeDir, join(storeDir, name))
+    const to = yield* destinationOf(pkg)
 
-  if (existsSync(to)) {
-    throw new InstallError(
-      `refused: "${to.replace(srcDir, "src")}" already exists. ` +
-        `Installing never overwrites - remove it first if that is what you meant.`,
-    )
-  }
+    if (yield* fs.exists(to)) {
+      return yield* new InstallError(
+        `refused: "${to.replace(srcDir, "src")}" already exists. ` +
+          `Installing never overwrites - remove it first if that is what you meant.`,
+      )
+    }
 
-  // Refused here rather than discovered at the next startup. The kernel's duplicate-name rule
-  // is correct and fatal, so letting the copy through would trade a clear "no" for a server
-  // that will not come up - and the person who clicked would have no way to connect the two.
-  const clash = cubesOnDisk().filter((c) => pkg.cubes.includes(c.cube))
-  if (clash.length > 0) {
-    throw new InstallError(
-      `refused: "${name}" brings ${clash.map((c) => `"${c.cube}"`).join(", ")}, ` +
-        `already on disk (${clash.map((c) => c.from).join(", ")}). ` +
-        `Two cubes cannot share a name - the server would refuse to start at all. ` +
-        `Remove the other one first if this is the one you want.`,
-    )
-  }
+    // Refused here rather than discovered at the next startup. The kernel's duplicate-name rule
+    // is correct and fatal, so letting the copy through would trade a clear "no" for a server
+    // that will not come up - and the person who clicked would have no way to connect the two.
+    const clash = (yield* cubesOnDisk).filter((c) => pkg.cubes.includes(c.cube))
+    if (clash.length > 0) {
+      return yield* new InstallError(
+        `refused: "${name}" brings ${clash.map((c) => `"${c.cube}"`).join(", ")}, ` +
+          `already on disk (${clash.map((c) => c.from).join(", ")}). ` +
+          `Two cubes cannot share a name - the server would refuse to start at all. ` +
+          `Remove the other one first if this is the one you want.`,
+      )
+    }
 
-  mkdirSync(dirname(to), { recursive: true })
-  // The package manifest and the provenance file are store bookkeeping, not part of the
-  // cube. Copying them would put files inside the installed directory that the cube itself
-  // never declared.
-  //
-  // A failed copy must not leave a partial destination: half a cube on disk would be
-  // discovered at the next boot as if it were whole. The destination is one directory and
-  // this operation created it, so removing it is the rollback, not a deletion of anyone
-  // else's work.
-  try {
+    yield* fs.makeDirectory(dirname(to), { recursive: true })
+    // The package manifest and the provenance file are store bookkeeping, not part of the
+    // cube. Copying them would put files inside the installed directory that the cube itself
+    // never declared.
+    //
+    // A failed copy must not leave a partial destination: half a cube on disk would be
+    // discovered at the next boot as if it were whole. The destination is one directory and
+    // this operation created it, so removing it is the rollback, not a deletion of anyone
+    // else's work.
+    //
     // The one content rule (package-source.ts): what staging ships, minus bookkeeping. The
     // `qwbe check` sandbox copy uses the same two predicates -- install-filters.test.ts
     // fails the day the two copies diverge again.
-    cpSync(from, to, {
-      recursive: true,
-      filter: (src) => includePackageSourcePath(from, src) && !isBookkeeping(src),
-    })
-  } catch (e) {
-    rmSync(to, { recursive: true, force: true })
-    throw e
-  }
+    yield* copyTree(from, to, (src) => includePackageSourcePath(from, src) && !isBookkeeping(src)).pipe(
+      Effect.onError(() => fs.remove(to, { recursive: true, force: true }).pipe(Effect.ignore)),
+    )
 
-  return { ...pkg, installed: true }
-}
+    return { ...pkg, installed: true }
+  })
 
-const readPackageAt = (name: string, dir: string): CubePackage => {
-  checkName("package", name)
-  const manifestPath = join(dir, MANIFEST)
-  if (!existsSync(manifestPath)) {
-    throw new InstallError(`refused: "${name}" is not a package - no ${MANIFEST} in the directory`)
-  }
-
-  // A malformed manifest is a BAD PACKAGE, not a disk error: it must stay on the contract
-  // channel (400 naming the problem), so the parse is classified here rather than left as a
-  // SyntaxError that the Effect bridge would turn into a 500 (QWB-38). Only the PARSE is
-  // classified: the read itself stays outside the try, so an IO error on the manifest file
-  // (EACCES, EISDIR) remains a system error and answers 500, not a package refusal.
-  const text = readFileSync(manifestPath, "utf8")
-  let raw: { name?: string; kind?: string; summary?: string; cubes?: Array<string> }
-  try {
-    raw = JSON.parse(text) as typeof raw
-  } catch {
-    throw new InstallError(`refused: package "${name}" has a manifest that is not valid JSON`)
-  }
-
-  if (raw.name !== name) {
-    // A package whose manifest names something else would install under one name and appear
-    // under another -- the first step of shadowing an existing cube.
-    throw new InstallError(`refused: package directory "${name}" declares name "${raw.name}"`)
-  }
-  if (raw.kind !== "cube" && raw.kind !== "plugin") {
-    throw new InstallError(`refused: package "${name}" declares kind "${raw.kind}" -- expected cube or plugin`)
-  }
-
-  const cubes = raw.kind === "plugin" ? (raw.cubes ?? []) : [name]
-  for (const c of cubes) checkName("cube", c)
-
-  // The manifest PROMISES cubes; the directory must actually carry them. A plugin declaring
-  // `cubes: ["ghost"]` without `cubes/ghost/` would stage cleanly and fail at the next boot,
-  // where the refusal reads as a broken server rather than a bad package.
-  if (raw.kind === "plugin") {
-    for (const c of cubes) {
-      if (!existsSync(join(dir, "cubes", c))) {
-        throw new InstallError(`refused: plugin "${name}" declares cube "${c}" but has no cubes/${c}/ directory.`)
-      }
+const readPackageAt = (name: string, dir: string): InstallStep<CubePackage> =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem
+    yield* checkName("package", name)
+    const manifestPath = join(dir, MANIFEST)
+    if (!(yield* fs.exists(manifestPath))) {
+      return yield* new InstallError(`refused: "${name}" is not a package - no ${MANIFEST} in the directory`)
     }
-  } else if (!existsSync(join(dir, "index.ts")) && !existsSync(join(dir, "index.tsx"))) {
-    throw new InstallError(`refused: cube package "${name}" has no index.ts at its root.`)
-  }
 
-  const kind = raw.kind
-  const installed = existsSync(destinationOf({ name, kind }))
-  // A package already installed does not "conflict with itself" -- its own cubes are on disk
-  // precisely because it put them there.
-  const mine = new Set(installed ? cubes : [])
-  const taken = cubesOnDisk()
-    .filter((c) => !mine.has(c.cube))
-    .map((c) => c.cube)
+    // A malformed manifest is a BAD PACKAGE, not a disk error: it must stay on the contract
+    // channel (400 naming the problem), so the decode is classified here rather than left to
+    // the face, which would turn it into a 500 (QWB-38). Only the DECODE is classified: the
+    // read itself stays outside, so an IO error on the manifest file (EACCES, EISDIR) remains a
+    // system error and answers 500, not a package refusal.
+    const text = yield* fs.readFileString(manifestPath)
+    const raw = yield* Schema.decodeUnknown(Schema.parseJson(PackageManifest))(text).pipe(
+      Effect.mapError(
+        (e) => new InstallError(`refused: package "${name}" has a manifest that does not decode: ${e.message}`),
+      ),
+    )
 
-  return {
-    name,
-    kind,
-    summary: raw.summary ?? "",
-    cubes,
-    installed,
-    bytes: sizeOf(dir),
-    conflicts: cubes.filter((c) => taken.includes(c)),
-  }
-}
+    if (raw.name !== name) {
+      // A package whose manifest names something else would install under one name and appear
+      // under another -- the first step of shadowing an existing cube.
+      return yield* new InstallError(`refused: package directory "${name}" declares name "${raw.name}"`)
+    }
+    const kind = raw.kind
+    if (kind === undefined) {
+      return yield* new InstallError(`refused: package "${name}" declares no kind -- expected cube or plugin`)
+    }
 
-const readPackage = (name: string): CubePackage => readPackageAt(name, under(storeDir, join(storeDir, name)))
+    const cubes = kind === "plugin" ? (raw.cubes ?? []) : [name]
+    for (const c of cubes) yield* checkName("cube", c)
+
+    // The manifest PROMISES cubes; the directory must actually carry them. A plugin declaring
+    // `cubes: ["ghost"]` without `cubes/ghost/` would stage cleanly and fail at the next boot,
+    // where the refusal reads as a broken server rather than a bad package.
+    if (kind === "plugin") {
+      for (const c of cubes) {
+        if (!(yield* fs.exists(join(dir, "cubes", c)))) {
+          return yield* new InstallError(
+            `refused: plugin "${name}" declares cube "${c}" but has no cubes/${c}/ directory.`,
+          )
+        }
+      }
+    } else if (!(yield* fs.exists(join(dir, "index.ts"))) && !(yield* fs.exists(join(dir, "index.tsx")))) {
+      return yield* new InstallError(`refused: cube package "${name}" has no index.ts at its root.`)
+    }
+
+    const installed = yield* fs.exists(yield* destinationOf({ name, kind }))
+    // A package already installed does not "conflict with itself" -- its own cubes are on disk
+    // precisely because it put them there.
+    const mine = new Set(installed ? cubes : [])
+    const taken = (yield* cubesOnDisk).filter((c) => !mine.has(c.cube)).map((c) => c.cube)
+
+    return {
+      name,
+      kind,
+      summary: raw.summary ?? "",
+      cubes,
+      installed,
+      bytes: yield* sizeOf(dir),
+      conflicts: cubes.filter((c) => taken.includes(c)),
+    }
+  })
+
+const readPackage = (name: string) =>
+  Effect.flatMap(under(storeDir, join(storeDir, name)), (dir) => readPackageAt(name, dir))
 
 export const installerFor = (
   /** Injected by discovery.ts, the only module allowed to run the source checker (QWB-70). Required. */
@@ -238,38 +227,40 @@ export const installerFor = (
     ...lifecycleInstaller(),
 
     uninstallPackage: (name: string) =>
-      tried(() => {
-        const pkg = readPackage(name)
-        const to = destinationOf(pkg)
-        if (!existsSync(to)) {
-          throw new InstallError(`refused: "${name}" is not installed -- nothing at "${to.replace(srcDir, "src")}"`)
-        }
-        rmSync(to, { recursive: true, force: true })
-        return { removed: to.replace(resolve(srcDir, ".."), "."), cubes: pkg.cubes }
-      }),
-
-    available: () => {
-      if (!existsSync(storeDir)) return []
-      return readdirSync(storeDir, { withFileTypes: true })
-        .filter((e) => e.isDirectory() && NAME.test(e.name))
-        .flatMap((e) => {
-          try {
-            return [readPackage(e.name)]
-          } catch {
-            // A malformed package in the store must not take the whole list down -- the page has
-            // to keep working so you can install the ones that are fine.
-            return []
+      face(
+        Effect.gen(function* () {
+          const fs = yield* FileSystem.FileSystem
+          const pkg = yield* readPackage(name)
+          const to = yield* destinationOf(pkg)
+          if (!(yield* fs.exists(to))) {
+            return yield* new InstallError(
+              `refused: "${name}" is not installed -- nothing at "${to.replace(srcDir, "src")}"`,
+            )
           }
-        })
-        .sort((a, b) => a.name.localeCompare(b.name))
-    },
+          yield* fs.remove(to, { recursive: true })
+          return { removed: to.replace(resolve(srcDir, ".."), "."), cubes: pkg.cubes }
+        }),
+      ),
 
-    install: (name: string) => tried(() => installExisting(name)),
+    available: () =>
+      face(
+        Effect.gen(function* () {
+          const names = (yield* subdirectories(storeDir)).filter((n) => NAME.test(n))
+          // A malformed package in the store must not take the whole list down -- the page has
+          // to keep working so you can install the ones that are fine.
+          const packages = yield* Effect.forEach(names, (n) => Effect.option(readPackage(n)))
+          return packages
+            .flatMap((p) => (p._tag === "Some" ? [p.value] : []))
+            .sort((a, b) => a.name.localeCompare(b.name))
+        }),
+      ).pipe(Effect.orDie),
 
-    stageAndInstall: (sourceDirectory: string) => triedPromise(() => stageAndInstallFrom(sourceDirectory)),
+    install: (name: string) => face(installExisting(name)),
 
-    scanDirectory: (directory: string) => tried(() => scanFor(scanContext)(directory)),
+    stageAndInstall: (sourceDirectory: string) => face(stageAndInstallFrom(sourceDirectory)),
 
-    forgetShelf: (name: string) => tried(() => forgetShelfFor(scanContext)(name)),
+    scanDirectory: (directory: string) => face(scanFor(scanContext)(directory)),
+
+    forgetShelf: (name: string) => face(forgetShelfFor(scanContext)(name)),
   }
 }

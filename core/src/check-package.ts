@@ -22,9 +22,10 @@ import { dirname, join, sep } from "node:path"
 import { fileURLToPath } from "node:url"
 import pg from "pg"
 import { runGenericStage } from "./check-probes.ts"
+import { runNode } from "./files.ts"
 import { checkPackageSource } from "./package-contract.ts"
 import type { PackageFinding } from "./package-contract-scan.ts"
-import { capsFromConfig, type RawConfig, type SizeCaps, sizeCapsFindings } from "./package-size.ts"
+import { capsFromConfig, type SizeCaps, sizeCapsFindings } from "./package-size.ts"
 import { includePackageSourcePath, isBookkeeping } from "./package-source.ts"
 
 export type { PackageFinding }
@@ -77,13 +78,12 @@ export const kernelRoot = (): string => {
 }
 
 /** The caps of the installed kernel. A config that cannot be parsed or is wrong is a kernel bug. */
-const kernelCaps = (): SizeCaps => {
+const kernelCaps = (): Promise<SizeCaps> => {
   const path = join(kernelRoot(), "qwbe.config.json")
   if (!existsSync(path)) {
     throw new TypeError(`the installed kernel has no qwbe.config.json at ${path} -- caps cannot be read`)
   }
-  const raw = JSON.parse(readFileSync(path, "utf8")) as RawConfig
-  return capsFromConfig(raw)
+  return runNode(capsFromConfig(JSON.parse(readFileSync(path, "utf8"))))
 }
 
 /**
@@ -116,9 +116,9 @@ export const capsSourceFindings = (dir: string): PackageFinding[] => {
   ]
 }
 
-const capsFindings = (dir: string, caps: SizeCaps): PackageFinding[] => [
+const capsFindings = async (dir: string, caps: SizeCaps): Promise<PackageFinding[]> => [
   ...capsSourceFindings(dir),
-  ...sizeCapsFindings(dir, caps),
+  ...(await runNode(sizeCapsFindings(dir, caps))),
 ]
 
 // --- stage 3: runtime ------------------------------------------------------------------------
@@ -469,8 +469,8 @@ export const checkPackage = async (dir: string): Promise<CheckReport> => {
   if (sourceFindings.length > 0) return { ok: false, failedStage: "source", findings: sourceFindings }
 
   // 2. Caps: read from the installed kernel; a pack config is refused before anything is measured.
-  const caps = kernelCaps()
-  const capFindings = capsFindings(dir, caps)
+  const caps = await kernelCaps()
+  const capFindings = await capsFindings(dir, caps)
   if (capFindings.length > 0) return { ok: false, failedStage: "caps", findings: capFindings }
 
   // 3. Runtime: sandbox kernel + the pack's probes.

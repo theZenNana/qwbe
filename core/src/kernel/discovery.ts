@@ -20,6 +20,7 @@ import { capabilityRuntime } from "../capability-runtime.ts"
 import { buildCatalogue } from "../catalogue.ts"
 import { readMounted } from "../config.ts"
 import { type CubeDefinition, decodeCubeExport, validateCubeParts } from "../cube-contract.ts"
+import { runNode } from "../files.ts"
 import { assertPackageContracts, checkPackageSource } from "../package-contract.ts"
 import { busFrom } from "./bus.ts"
 import { installerFor } from "./install.ts"
@@ -67,7 +68,7 @@ export type MountedCube = {
 export const loadDefinitions = async (): Promise<
   ReadonlyArray<{ name: string; plugin: string | null; definition: CubeDefinition }>
 > => {
-  const onDisk = discover()
+  const onDisk = await runNode(discover)
 
   const mounted = readMounted()
   const requested = mounted
@@ -167,9 +168,16 @@ export const singleHolderOf = (manifests: ReadonlyArray<Manifest>, flag: SingleH
   return holders
 }
 
+/** The switches for these definitions, read from disk once before `mount`. */
+export const switchesFor = (definitions: ReadonlyArray<{ definition: CubeDefinition }>) =>
+  switchesFrom(
+    definitions.map(({ definition: { manifest: m } }) => ({ name: fullName(m), required: m.required === true })),
+  )
+
 export const mount = (
   definitions: ReadonlyArray<{ name: string; plugin: string | null; definition: CubeDefinition }>,
   spaces: ReadonlyArray<SpaceDefinition>,
+  switches: Switches,
   // Storage boot (Postgres init plus declared data migrations) happens in main.ts via
   // bootStorage; the only remaining caller of mount is main.ts, AFTER bootStorage succeeded.
   // Mounting against an unmigrated database is therefore unreachable from this module.
@@ -195,8 +203,6 @@ export const mount = (
   // it at call time. Late binding on purpose -- otherwise the two cubes would have to be created
   // in a particular order, and mount order is just the order of directory names on disk.
   const capabilities = capabilityRuntime(manifests)
-
-  const switches = switchesFrom(manifests.map((m) => ({ name: fullName(m), required: m.required === true })))
 
   // A child lives under its parent's switch: disabling `booktags` disables everything below
   // it, and the state file cannot express "child on, parent off" -- the mask is applied at

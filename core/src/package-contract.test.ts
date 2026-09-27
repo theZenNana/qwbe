@@ -8,7 +8,9 @@ import assert from "node:assert/strict"
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { basename, join } from "node:path"
+import { Effect } from "effect"
 import { afterAll, describe, it } from "vitest"
+import { runNode } from "./files.ts"
 
 import { InstallError, stageAndInstall } from "./kernel/install-from.ts"
 import type { CubePackage } from "./kernel/manifest.ts"
@@ -16,8 +18,8 @@ import { pluginsDir } from "./kernel/scan.ts"
 import { assertPackageContracts, checkPackageSource } from "./package-contract.ts"
 import { writePack } from "./test-fixture-pack.ts"
 
-const makePackage = (mutate?: (root: string) => void): string => {
-  const root = writePack(mkdtempSync(join(tmpdir(), "qwbe-package-contract-")), {
+const makePackage = async (mutate?: (root: string) => void): Promise<string> => {
+  const root = await writePack(mkdtempSync(join(tmpdir(), "qwbe-package-contract-")), {
     name: "demo-pack",
     cubes: {
       demo: `export const cubeParent = { manifest: { name: "demo", screen: true, tables: [] } }\n`,
@@ -41,8 +43,8 @@ afterAll(() => {
   for (const dir of tmpRoots) rmSync(dir, { recursive: true, force: true })
 })
 const tmpRoots: string[] = []
-const build = (mutate?: (root: string) => void): string => {
-  const root = makePackage(mutate)
+const build = async (mutate?: (root: string) => void): Promise<string> => {
+  const root = await makePackage(mutate)
   tmpRoots.push(root)
   return root
 }
@@ -71,11 +73,11 @@ describe("package contract checker", () => {
     }
     const install = stageAndInstall({
       storeDir: store,
-      readPackageAt: () => pkg,
-      installExisting: () => ({ ...pkg, installed: true }),
+      readPackageAt: () => Effect.succeed(pkg),
+      installExisting: () => Effect.succeed({ ...pkg, installed: true }),
       checkPackageSource,
     })
-    await assert.rejects(install(source), (error: unknown) => {
+    await assert.rejects(runNode(install(source)), (error: unknown) => {
       assert.ok(error instanceof InstallError)
       assert.match(error.message, /source contract/)
       assert.match(error.message, /cubes\//)
@@ -85,13 +87,13 @@ describe("package contract checker", () => {
   })
 
   it("a well-formed package with a frontend/ directory passes every rule", async () => {
-    const root = build()
+    const root = await build()
     const findings = await checkPackageSource(root, { readOnly: true, hierarchy: true })
     assert.deepEqual(findings, [])
   })
 
   it("a nested frontend/ stays inside the contract", async () => {
-    const root = build((r) => {
+    const root = await build((r) => {
       mkdirSync(join(r, "cubes", "demo", "frontend"), { recursive: true })
       writeFileSync(join(r, "cubes", "demo", "frontend", "bad.ts"), `import { readFileSync } from "node:fs"\n`)
     })
@@ -100,7 +102,7 @@ describe("package contract checker", () => {
   })
 
   it("top-level probes/, store/, dist/ and build/ are skipped by every rule", async () => {
-    const root = build((r) => {
+    const root = await build((r) => {
       for (const dir of ["probes", "store", "dist", "build"]) {
         mkdirSync(join(r, dir), { recursive: true })
         writeFileSync(
@@ -113,7 +115,7 @@ describe("package contract checker", () => {
   })
 
   it("a manifest naming a cube that is not on disk fails", async () => {
-    const root = build()
+    const root = await build()
     writeFileSync(
       join(root, "qwbe-package.json"),
       JSON.stringify({ name: "demo-pack", kind: "plugin", cubes: ["demo", "demo/kid", "ghost"] }),
@@ -123,19 +125,19 @@ describe("package contract checker", () => {
   })
 
   it("a package without a manifest fails", async () => {
-    const root = build((r) => rmSync(join(r, "qwbe-package.json")))
+    const root = await build((r) => rmSync(join(r, "qwbe-package.json")))
     const findings = await checkPackageSource(root)
     assert.deepEqual(pairs(findings), [["manifest", "qwbe-package.json"]])
   })
 
   it("a manifest that is not valid JSON fails", async () => {
-    const root = build((r) => writeFileSync(join(r, "qwbe-package.json"), "{ not json"))
+    const root = await build((r) => writeFileSync(join(r, "qwbe-package.json"), "{ not json"))
     const findings = await checkPackageSource(root)
     assert.deepEqual(pairs(findings), [["manifest", "qwbe-package.json"]])
   })
 
   it("a manifest whose name is not a string fails", async () => {
-    const root = build((r) =>
+    const root = await build((r) =>
       writeFileSync(join(r, "qwbe-package.json"), JSON.stringify({ name: 42, cubes: ["demo", "demo/kid"] })),
     )
     const findings = await checkPackageSource(root)
@@ -143,7 +145,7 @@ describe("package contract checker", () => {
   })
 
   it("a manifest whose kind is not a string fails", async () => {
-    const root = build((r) =>
+    const root = await build((r) =>
       writeFileSync(
         join(r, "qwbe-package.json"),
         JSON.stringify({ name: "demo-pack", kind: 42, cubes: ["demo", "demo/kid"] }),
@@ -154,7 +156,7 @@ describe("package contract checker", () => {
   })
 
   it("a manifest whose cubes is not an array fails", async () => {
-    const root = build((r) =>
+    const root = await build((r) =>
       writeFileSync(join(r, "qwbe-package.json"), JSON.stringify({ name: "demo-pack", kind: "plugin", cubes: "demo" })),
     )
     const findings = await checkPackageSource(root)
@@ -162,13 +164,13 @@ describe("package contract checker", () => {
   })
 
   it("a package without a cubes/ directory fails instead of throwing", async () => {
-    const root = build((r) => rmSync(join(r, "cubes"), { recursive: true, force: true }))
+    const root = await build((r) => rmSync(join(r, "cubes"), { recursive: true, force: true }))
     const findings = await checkPackageSource(root)
     assert.deepEqual(pairs(findings), [["manifest", "cubes/"]])
   })
 
   it("an undeclared cube directory fails", async () => {
-    const root = build((r) => {
+    const root = await build((r) => {
       mkdirSync(join(r, "cubes", "stowaway"), { recursive: true })
       writeFileSync(
         join(r, "cubes", "stowaway", "index.ts"),
@@ -180,7 +182,7 @@ describe("package contract checker", () => {
   })
 
   it("reaching kernel internals fails", async () => {
-    const root = build((r) => {
+    const root = await build((r) => {
       writeFileSync(
         join(r, "cubes", "demo", "helper.ts"),
         `import { something } from "../../src/kernel/manifest.ts"\nexport const x = something\n`,
@@ -191,7 +193,7 @@ describe("package contract checker", () => {
   })
 
   it("reaching kernel internals through a deep relative path fails", async () => {
-    const root = build((r) => {
+    const root = await build((r) => {
       writeFileSync(
         join(r, "cubes", "demo", "deep.ts"),
         `import { discovery } from "../../../qwbe/core/src/kernel/discovery.ts"\nexport const x = discovery\n`,
@@ -202,7 +204,7 @@ describe("package contract checker", () => {
   })
 
   it("a cube importing node built-ins fails, a comment about it does not", async () => {
-    const root = build((r) => {
+    const root = await build((r) => {
       writeFileSync(
         join(r, "cubes", "demo", "reader.ts"),
         `// node:fs is forbidden here, and this line says so\nimport { readFileSync } from "node:fs"\nexport const read = readFileSync\n`,
@@ -213,7 +215,7 @@ describe("package contract checker", () => {
   })
 
   it("a cube importing a built-in without the node: prefix fails too", async () => {
-    const root = build((r) => {
+    const root = await build((r) => {
       writeFileSync(
         join(r, "cubes", "demo", "bare.ts"),
         `import { readFileSync } from "fs"\nexport const read = readFileSync\n`,
@@ -224,7 +226,7 @@ describe("package contract checker", () => {
   })
 
   it("multi-line imports and re-exports are inspected", async () => {
-    const root = build((r) => {
+    const root = await build((r) => {
       writeFileSync(
         join(r, "cubes", "demo", "multi.ts"),
         `import {\n  appendFile,\n} from "fs/promises"\nexport { appendFile }\n`,
@@ -235,7 +237,7 @@ describe("package contract checker", () => {
   })
 
   it("one fs/promises import is one finding, not two", async () => {
-    const root = build((r) => {
+    const root = await build((r) => {
       writeFileSync(
         join(r, "cubes", "demo", "once.ts"),
         `import { writeFile } from "node:fs/promises"\nexport const save = writeFile\n`,
@@ -246,7 +248,7 @@ describe("package contract checker", () => {
   })
 
   it("a comment or string naming forbidden things raises nothing", async () => {
-    const root = build((r) => {
+    const root = await build((r) => {
       writeFileSync(
         join(r, "cubes", "demo", "prose.ts"),
         `// writeFile and HttpApiEndpoint.post are forbidden here\nexport const note = "writeFile and HttpApiEndpoint.post in a string"\nexport const x = 1\n`,
@@ -257,7 +259,7 @@ describe("package contract checker", () => {
   })
 
   it("readOnly: a mutating endpoint fails", async () => {
-    const root = build((r) => {
+    const root = await build((r) => {
       writeFileSync(
         join(r, "cubes", "demo", "routes.ts"),
         `import { HttpApiEndpoint } from "@effect/platform"\nexport const e = HttpApiEndpoint.post("/x")\n`,
@@ -268,7 +270,7 @@ describe("package contract checker", () => {
   })
 
   it("readOnly: a file write fails", async () => {
-    const root = build((r) => {
+    const root = await build((r) => {
       writeFileSync(
         join(r, "source.ts"),
         `import { writeFile } from "node:fs/promises"\nexport const save = writeFile\n`,
@@ -279,7 +281,7 @@ describe("package contract checker", () => {
   })
 
   it("hierarchy: a child without a parent fails -- and an absent dataMigration is honest (ticket 08)", async () => {
-    const root = build((r) => {
+    const root = await build((r) => {
       writeFileSync(
         join(r, "cubes", "demo", "kid", "index.ts"),
         `export const cubeKid = { manifest: { name: "kid", tables: [] } }\n`,
@@ -293,7 +295,7 @@ describe("package contract checker", () => {
   })
 
   it("hierarchy: a parent without screen fails", async () => {
-    const root = build((r) => {
+    const root = await build((r) => {
       writeFileSync(
         join(r, "cubes", "demo", "index.ts"),
         `export const cubeParent = { manifest: { name: "demo", tables: [] } }\n`,
@@ -304,7 +306,7 @@ describe("package contract checker", () => {
   })
 
   it("hierarchy: a cube whose manifest.name does not match its path fails", async () => {
-    const root = build((r) => {
+    const root = await build((r) => {
       writeFileSync(
         join(r, "cubes", "demo", "index.ts"),
         `export const cubeParent = { manifest: { name: "wrong", screen: true, tables: [] } }\n`,
@@ -315,7 +317,7 @@ describe("package contract checker", () => {
   })
 
   it("hierarchy: a parent cube that cannot be imported is not also flagged for screen", async () => {
-    const root = build((r) => {
+    const root = await build((r) => {
       writeFileSync(join(r, "cubes", "demo", "index.ts"), `export const broken = this is not valid\n`)
     })
     const findings = await checkPackageSource(root, { hierarchy: true })

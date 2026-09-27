@@ -38,9 +38,9 @@ const settingsTools = (catalogueRows: ReadonlyArray<Record<string, unknown>> = [
   // The installer/switches stubs exist only to satisfy `packagesHandlers`' presence guard
   // (`in` check at packages.ts) -- no test reaches their methods.
   const installer = {
-    cubeOnDisk: () => true,
+    cubeOnDisk: () => Effect.succeed(true),
     remove: (_name: string, _plugin: unknown) => Effect.succeed({ removed: true, requiresRestart: true }),
-    restart: () => undefined,
+    restart: () => Effect.void,
     scanDirectory: () => [],
     forgetShelf: () => Effect.succeed({ removed: true, requiresRestart: false }),
   }
@@ -148,6 +148,31 @@ describe("settings handlers over stubbed capabilities (QWB-69)", () => {
     const err = (await run(Effect.flip(eff))) as NotFound
     assert.ok(err instanceof NotFound)
     assert.match(err.message, /not mounted/)
+  })
+
+  it("restart answers, then actually runs the kernel's restart", async () => {
+    let restarted = false
+    const tools = settingsTools([catalogueEntry()])
+    const p = cube.create({
+      ...tools,
+      installer: {
+        ...tools.installer!,
+        restart: () =>
+          Effect.sync(() => {
+            restarted = true
+          }),
+      },
+    })
+    const eff = Effect.provideService(
+      (p.handlers.restart as () => Effect.Effect<unknown, Forbidden, CurrentUser>)(),
+      CurrentUser,
+      user(["settings:write"]),
+    )
+    const out = (await run(eff)) as { restarting: boolean }
+    assert.equal(out.restarting, true)
+    // Forked as a daemon: it runs after the handler returned, not never.
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    assert.equal(restarted, true)
   })
 
   it("protects a required cube from uninstall with BadRequest", async () => {

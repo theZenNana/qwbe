@@ -10,9 +10,11 @@
 // only the pack's TOP-level `frontend/` is outside the contract, and this walk never
 // starts there.
 
-import { type Dirent, readdirSync, readFileSync } from "node:fs"
 import { join, sep } from "node:path"
-
+import { FileSystem } from "@effect/platform"
+import { Effect, Schema } from "effect"
+import { subdirectories, walk } from "./files.ts"
+import { stripCode } from "./package-contract-lex.ts"
 import type { PackageFinding } from "./package-finding.ts"
 
 const SOURCE = /\.(ts|tsx|mjs|js|jsx)$/
@@ -37,90 +39,47 @@ export const IS_TEST = /\.(test|spec)\.(ts|tsx|mjs|js|jsx)$/
 
 export const posix = (p: string): string => p.split(sep).join("/")
 
-export const walk = (dir: string, { includeTests = false, top = true } = {}): string[] => {
-  const found: string[] = []
-  let entries: Dirent[]
-  try {
-    entries = readdirSync(dir, { withFileTypes: true })
-  } catch {
-    return found
-  }
-  for (const e of entries) {
-    if (e.name.startsWith(".") || SKIP_DIR.has(e.name)) continue
+/** The source files of one unit. A directory that cannot be read measures nothing. */
+export const sourceFiles = (dir: string, { includeTests = false, top = true } = {}) =>
+  walk(
+    dir,
     // `frontend` at the TOP of the walk is the pack's UI, outside the cube contract.
     // Nested `frontend/` counts like any other source -- a one-directory bypass across the
     // whole tree would be exactly the hole the kernel's own gate once had.
-    if (top && e.name === "frontend") continue
-    const full = join(dir, e.name)
-    if (e.isDirectory()) found.push(...walk(full, { includeTests, top: false }))
-    else if (SOURCE.test(e.name) && (includeTests || !IS_TEST.test(e.name))) found.push(full)
-  }
-  return found
-}
+    (e) => e.name.startsWith(".") || SKIP_DIR.has(e.name) || (top && e.top && e.name === "frontend"),
+  ).pipe(
+    Effect.map((entries) =>
+      entries
+        .filter((e) => e.type !== "Directory" && SOURCE.test(e.name) && (includeTests || !IS_TEST.test(e.name)))
+        .map((e) => e.path),
+    ),
+    Effect.orElseSucceed((): string[] => []),
+  )
 
 /**
- * Strip comments so the cap can measure code.
- *
- * A lexer, not a regex: a regex over `//` eats the
- * `//` inside a URL string, and the resulting number is quietly wrong. A gate whose number is
- * quietly wrong is worse than no gate, because people trust it.
+ * Strip comments so the cap can measure code: the contract's lexer (package-contract-lex.ts),
+ * plus the blank lines removed comments leave behind, which are not code either.
  */
-export const stripComments = (source: string): string => {
-  let out = ""
-  let i = 0
-  const n = source.length
-  let quote: string | null = null
-
-  while (i < n) {
-    const c = source[i]
-    const next = source[i + 1]
-
-    if (quote) {
-      out += c
-      if (c === "\\") {
-        out += source[i + 1] ?? ""
-        i += 2
-        continue
-      }
-      if (c === quote) quote = null
-      i++
-      continue
-    }
-
-    if (c === '"' || c === "'" || c === "`") {
-      quote = c
-      out += c
-      i++
-      continue
-    }
-
-    if (c === "/" && next === "/") {
-      while (i < n && source[i] !== "\n") i++
-      continue
-    }
-
-    if (c === "/" && next === "*") {
-      i += 2
-      while (i < n && !(source[i] === "*" && source[i + 1] === "/")) i++
-      i += 2
-      continue
-    }
-
-    out += c
-    i++
-  }
-
-  // Blank lines left behind by removed comments are not code either.
-  return out
+export const stripComments = (source: string): string =>
+  stripCode(source)
     .split("\n")
     .filter((l) => l.trim() !== "")
     .join("\n")
-}
 
-const measure = (file: string): { raw: number; code: number } => {
-  const source = readFileSync(file, "utf8")
-  return { raw: source.length, code: stripComments(source).length }
-}
+const measure = (file: string) =>
+  Effect.flatMap(FileSystem.FileSystem, (fs) => fs.readFileString(file)).pipe(
+    Effect.map((source) => ({ raw: source.length, code: stripComments(source).length })),
+  )
+
+const Cap = Schema.Number.pipe(Schema.finite(), Schema.positive())
+
+/** The caps section of the kernel's qwbe.config.json. Unknown keys (`_comment`) are ignored. */
+const SizeConfig = Schema.Struct({
+  countMode: Schema.optional(Schema.Unknown),
+  caps: Schema.Struct({ maxCharsPerFile: Cap, maxFilesPerUnit: Cap, maxCharsPerUnit: Cap }),
+})
+
+export type RawConfig = typeof SizeConfig.Encoded
 
 /** The caps a pack is judged against, read from the installed kernel's qwbe.config.json. */
 export type SizeCaps = {
@@ -130,77 +89,54 @@ export type SizeCaps = {
   readonly maxCharsPerUnit: number
 }
 
-export type RawConfig = {
-  readonly countMode?: unknown
-  readonly caps?: {
-    readonly maxCharsPerFile?: unknown
-    readonly maxFilesPerUnit?: unknown
-    readonly maxCharsPerUnit?: unknown
-  }
-}
+/** Decode the caps section. A wrong number here is a kernel problem (a ParseError naming the
+ * key), not a finding. */
+export const capsFromConfig = (config: unknown) =>
+  Effect.map(
+    Schema.decodeUnknown(SizeConfig)(config),
+    ({ countMode, caps }): SizeCaps => ({ countMode: countMode === "raw" ? "raw" : "code", ...caps }),
+  )
 
-/** Parse and validate the caps section. A wrong number here is a kernel problem, not a finding. */
-export const capsFromConfig = (config: RawConfig): SizeCaps => {
-  const caps = config.caps
-  const num = (v: unknown, name: string): number => {
-    if (typeof v !== "number" || !Number.isFinite(v) || v <= 0) {
-      throw new TypeError(`qwbe.config.json: caps.${name} must be a positive number, got ${JSON.stringify(v)}`)
-    }
-    return v
-  }
-  return {
-    countMode: config.countMode === "raw" ? "raw" : "code",
-    maxCharsPerFile: num(caps?.maxCharsPerFile, "maxCharsPerFile"),
-    maxFilesPerUnit: num(caps?.maxFilesPerUnit, "maxFilesPerUnit"),
-    maxCharsPerUnit: num(caps?.maxCharsPerUnit, "maxCharsPerUnit"),
-  }
-}
-
-const children = (dir: string): string[] => {
-  try {
-    return readdirSync(dir, { withFileTypes: true })
-      .filter((e) => e.isDirectory() && !e.name.startsWith("."))
-      .map((e) => e.name)
-      .sort()
-  } catch {
-    return []
-  }
-}
+const children = (dir: string) =>
+  subdirectories(dir).pipe(
+    Effect.map((names) => names.filter((n) => !n.startsWith(".")).sort()),
+    Effect.orElseSucceed((): string[] => []),
+  )
 
 /**
  * Judge a package's cubes against the caps. Units are the direct children of `<root>/cubes/`,
  * the units of an installed pack. No baseline: a pack gets the caps and nothing else, so
  * anything over cap is a finding.
  */
-export const sizeCapsFindings = (root: string, caps: SizeCaps): PackageFinding[] => {
-  const findings: PackageFinding[] = []
-  for (const name of children(join(root, "cubes"))) {
-    const unitDir = join(root, "cubes", name)
-    const files = walk(unitDir, { top: false })
-    let chars = 0
-    for (const file of files) {
-      const m = measure(file)
-      chars += m[caps.countMode]
-      const rel = posix(`${file.slice(root.length + 1)}`)
-      if (m[caps.countMode] > caps.maxCharsPerFile) {
+export const sizeCapsFindings = (root: string, caps: SizeCaps) =>
+  Effect.gen(function* () {
+    const findings: PackageFinding[] = []
+    for (const name of yield* children(join(root, "cubes"))) {
+      const files = yield* sourceFiles(join(root, "cubes", name), { top: false })
+      let chars = 0
+      for (const file of files) {
+        const m = yield* measure(file)
+        chars += m[caps.countMode]
+        const rel = posix(`${file.slice(root.length + 1)}`)
+        if (m[caps.countMode] > caps.maxCharsPerFile) {
+          findings.push({
+            rule: "size-file",
+            file: rel,
+            message:
+              `${m[caps.countMode]} ${caps.countMode} chars, cap is ${caps.maxCharsPerFile} ` +
+              `(caps come from the installed kernel's qwbe.config.json)`,
+          })
+        }
+      }
+      if (files.length > caps.maxFilesPerUnit || chars > caps.maxCharsPerUnit) {
         findings.push({
-          rule: "size-file",
-          file: rel,
+          rule: "size-unit",
+          file: `cubes/${name}`,
           message:
-            `${m[caps.countMode]} ${caps.countMode} chars, cap is ${caps.maxCharsPerFile} ` +
-            `(caps come from the installed kernel's qwbe.config.json)`,
+            `${files.length} files / ${chars} ${caps.countMode} chars, caps are ` +
+            `${caps.maxFilesPerUnit} files / ${caps.maxCharsPerUnit} chars`,
         })
       }
     }
-    if (files.length > caps.maxFilesPerUnit || chars > caps.maxCharsPerUnit) {
-      findings.push({
-        rule: "size-unit",
-        file: `cubes/${name}`,
-        message:
-          `${files.length} files / ${chars} ${caps.countMode} chars, caps are ` +
-          `${caps.maxFilesPerUnit} files / ${caps.maxCharsPerUnit} chars`,
-      })
-    }
-  }
-  return findings
-}
+    return findings
+  })

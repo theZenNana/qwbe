@@ -6,8 +6,10 @@ import { strict as assert } from "node:assert"
 import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { NodeContext } from "@effect/platform-node"
 import { Effect, Exit } from "effect"
 import { afterAll, test } from "vitest"
+import { runNode } from "../files.ts"
 
 const dataDir = mkdtempSync(join(tmpdir(), "qwbe-switches-"))
 process.env.QWBE_DATA_DIR = dataDir
@@ -24,7 +26,7 @@ const mounted = [
 afterAll(() => chmodSync(dataDir, 0o700))
 
 test("switching a cube off is written to disk and seen at once", async () => {
-  const s = switchesFrom(mounted)
+  const s = await runNode(switchesFrom(mounted))
   assert.equal(s.isEnabled("notes"), true)
 
   await Effect.runPromise(s.set("notes", false))
@@ -34,7 +36,7 @@ test("switching a cube off is written to disk and seen at once", async () => {
 })
 
 test("a required cube is refused as a typed failure, not a thrown error", async () => {
-  const s = switchesFrom(mounted)
+  const s = await runNode(switchesFrom(mounted))
   const exit = await Effect.runPromiseExit(s.set("auth", false))
 
   assert.equal(Exit.isFailure(exit), true)
@@ -45,7 +47,7 @@ test("a required cube is refused as a typed failure, not a thrown error", async 
 })
 
 test("a cube that is not mounted is its own failure, distinguishable from the one above", async () => {
-  const s = switchesFrom(mounted)
+  const s = await runNode(switchesFrom(mounted))
   const exit = await Effect.runPromiseExit(s.set("ghost", false))
 
   assert.equal(Exit.isFailure(exit), true)
@@ -56,7 +58,7 @@ test("a cube that is not mounted is its own failure, distinguishable from the on
 
 test("a write the disk refuses leaves the running state untouched", async () => {
   writeFileSync(stateFile, `${JSON.stringify({ disabled: [] })}\n`, "utf8")
-  const s = switchesFrom(mounted)
+  const s = await runNode(switchesFrom(mounted))
   chmodSync(stateFile, 0o400) // read-only: the write is refused, the file stays as it was
 
   const exit = await Effect.runPromiseExit(s.set("notes", false))
@@ -71,10 +73,23 @@ test("a write the disk refuses leaves the running state untouched", async () => 
   assert.deepEqual(JSON.parse(readFileSync(stateFile, "utf8")), { disabled: [] })
 })
 
-test("a disabled cube that no longer exists on disk is dropped from the file", () => {
+test("a corrupt state file is a typed failure naming the file, never an empty list", async () => {
+  // An empty list would switch every disabled cube back on at the next boot.
+  writeFileSync(stateFile, "{ not json", "utf8")
+
+  const exit = await Effect.runPromiseExit(Effect.provide(switchesFrom(mounted), NodeContext.layer))
+
+  assert.equal(Exit.isFailure(exit), true)
+  const e = Exit.isFailure(exit) ? (exit.cause as unknown as { error?: unknown }).error : null
+  assert.ok(e instanceof StateFileError)
+  assert.equal((e as InstanceType<typeof StateFileError>).path, stateFile)
+  assert.match((e as InstanceType<typeof StateFileError>).message, /switches\.json is corrupt/)
+})
+
+test("a disabled cube that no longer exists on disk is dropped from the file", async () => {
   writeFileSync(stateFile, `${JSON.stringify({ disabled: ["notes", "removed-long-ago"] })}\n`, "utf8")
 
-  const s = switchesFrom(mounted)
+  const s = await runNode(switchesFrom(mounted))
 
   assert.equal(s.isEnabled("notes"), false)
   assert.deepEqual(JSON.parse(readFileSync(stateFile, "utf8")), { disabled: ["notes"] })

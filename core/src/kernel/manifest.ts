@@ -352,9 +352,9 @@ export class InstallError extends Data.TaggedError("InstallError")<{ readonly me
 type InstallOutcome<A> = Effect.Effect<A, InstallError>
 
 export type CubeInstaller = Readonly<{
-  available: () => readonly CubePackage[]
+  available: () => Effect.Effect<readonly CubePackage[]>
   /** Disk state for exact discovery location; never exposes a path. */
-  cubeOnDisk: (c: string, plugin: string | null) => boolean
+  cubeOnDisk: (c: string, plugin: string | null) => Effect.Effect<boolean>
   /** Fails with `InstallError` instead of throwing: the refusal travels in the channel. */
   install: (name: string) => InstallOutcome<CubePackage>
   /**
@@ -370,8 +370,9 @@ export type CubeInstaller = Readonly<{
   remove: (cube: string, plugin: string | null) => InstallOutcome<{ readonly removed: string }>
   /** Package name keeps rollback possible before its cubes exist in the mounted catalogue. */
   uninstallPackage: (name: string) => InstallOutcome<{ readonly removed: string; readonly cubes: readonly string[] }>
-  /** Kernel owns process lifetime; settings receives only this narrow action. */
-  restart: () => void
+  /** Kernel owns process lifetime; settings receives only this narrow action. The caller forks
+   *  it after answering: it waits a moment, then exits or runs QWBE_RESTART_CMD. */
+  restart: () => Effect.Effect<void>
 }>
 
 export type CubeSwitches = {

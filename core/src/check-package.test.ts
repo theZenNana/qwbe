@@ -20,8 +20,8 @@ afterAll(() => {
 // A package that passes every stage: manifest + one cube, `qwbe check .` as the test script, a
 // plain version dependency, a REAL qwbe-core directory under its node_modules (the shape a
 // tarball install leaves), and one probe.
-const build = (mutate?: (root: string) => void): string => {
-  const root = writePack(mkdtempSync(join(tmpdir(), "qwbe-check-command-")), {
+const build = async (mutate?: (root: string) => void): Promise<string> => {
+  const root = await writePack(mkdtempSync(join(tmpdir(), "qwbe-check-command-")), {
     name: "check-pack",
     cubes: { gadgets: `export const cube = { manifest: { name: "gadgets", tables: [] } }\n` },
     extra: {
@@ -49,8 +49,8 @@ describe("the installed kernel", () => {
 })
 
 describe("stage 2 -- caps come from the kernel, never from the pack", () => {
-  it("a qwbe.config.json in the package is refused, with the reason", () => {
-    const root = build((r) => writeFileSync(join(r, "qwbe.config.json"), JSON.stringify({ caps: {} })))
+  it("a qwbe.config.json in the package is refused, with the reason", async () => {
+    const root = await build((r) => writeFileSync(join(r, "qwbe.config.json"), JSON.stringify({ caps: {} })))
     const findings = capsSourceFindings(root)
     assert.equal(findings.length, 1)
     assert.equal(findings[0]?.rule, "caps-source")
@@ -58,28 +58,28 @@ describe("stage 2 -- caps come from the kernel, never from the pack", () => {
     assert.match(findings[0]?.message ?? "", /caps come from the installed kernel/)
   })
 
-  it("a package without its own config has nothing to refuse", () => {
-    assert.deepEqual(capsSourceFindings(build()), [])
+  it("a package without its own config has nothing to refuse", async () => {
+    assert.deepEqual(capsSourceFindings(await build()), [])
   })
 })
 
 describe("stage 3 -- probes must exist and run something", () => {
-  it("a missing probes/ directory is an error, not a warning", () => {
-    const root = build((r) => rmSync(join(r, "probes"), { recursive: true, force: true }))
+  it("a missing probes/ directory is an error, not a warning", async () => {
+    const root = await build((r) => rmSync(join(r, "probes"), { recursive: true, force: true }))
     const { findings } = probesFindings(root)
     assert.equal(findings[0]?.rule, "probes")
     assert.match(findings[0]?.message ?? "", /probes\/ is missing/)
   })
 
-  it("an empty probes/ directory is an error", () => {
-    const root = build((r) => rmSync(join(r, "probes", "selfcheck.mjs")))
+  it("an empty probes/ directory is an error", async () => {
+    const root = await build((r) => rmSync(join(r, "probes", "selfcheck.mjs")))
     const { findings } = probesFindings(root)
     assert.equal(findings[0]?.rule, "probes")
     assert.match(findings[0]?.message ?? "", /no \*\.mjs in probes\//)
   })
 
-  it("non-.mjs files in probes/ do not count as probes", () => {
-    const root = build((r) => {
+  it("non-.mjs files in probes/ do not count as probes", async () => {
+    const root = await build((r) => {
       rmSync(join(r, "probes", "selfcheck.mjs"))
       writeFileSync(join(r, "probes", "helper.ts"), "export const x = 1\n")
     })
@@ -88,21 +88,21 @@ describe("stage 3 -- probes must exist and run something", () => {
     assert.deepEqual(probes, [])
   })
 
-  it("one .mjs probe is found", () => {
-    const { findings, probes } = probesFindings(build())
+  it("one .mjs probe is found", async () => {
+    const { findings, probes } = probesFindings(await build())
     assert.deepEqual(findings, [])
     assert.deepEqual(probes, ["selfcheck.mjs"])
   })
 })
 
 describe("stage 4 -- the invocation is part of the contract", () => {
-  it("the intended invocation passes", () => {
-    assert.deepEqual(invocationFindings(build()), [])
+  it("the intended invocation passes", async () => {
+    assert.deepEqual(invocationFindings(await build()), [])
   })
 
-  it("a scripts.test that is not exactly `qwbe check .` is refused", () => {
+  it("a scripts.test that is not exactly `qwbe check .` is refused", async () => {
     for (const wrong of ["node --test test/*.mjs", "qwbe check ./", "npm run check"]) {
-      const root = build((r) => {
+      const root = await build((r) => {
         const pkg = readManifest(r)
         pkg.scripts.test = wrong
         writeFileSync(join(r, "package.json"), JSON.stringify(pkg))
@@ -114,9 +114,9 @@ describe("stage 4 -- the invocation is part of the contract", () => {
     }
   })
 
-  it("file:, link: and github: dependencies are refused, with the reason", () => {
+  it("file:, link: and github: dependencies are refused, with the reason", async () => {
     for (const dep of ["file:../x", "link:../x", "github:owner/qwbe"]) {
-      const root = build((r) => {
+      const root = await build((r) => {
         const pkg = readManifest(r)
         pkg.dependencies["qwbe-core"] = dep
         writeFileSync(join(r, "package.json"), JSON.stringify(pkg))
@@ -128,8 +128,8 @@ describe("stage 4 -- the invocation is part of the contract", () => {
     }
   })
 
-  it("a missing qwbe-core dependency is refused", () => {
-    const root = build((r) => {
+  it("a missing qwbe-core dependency is refused", async () => {
+    const root = await build((r) => {
       const pkg = readManifest(r)
       delete pkg.dependencies["qwbe-core"]
       writeFileSync(join(r, "package.json"), JSON.stringify(pkg))
@@ -139,8 +139,8 @@ describe("stage 4 -- the invocation is part of the contract", () => {
     assert.match(findings[0]?.message ?? "", /is missing/)
   })
 
-  it("a qwbe-core that does not resolve at all is refused", () => {
-    const root = build()
+  it("a qwbe-core that does not resolve at all is refused", async () => {
+    const root = await build()
     const findings = invocationFindings(root, () => {
       throw new Error("Cannot find module 'qwbe-core/package.json'")
     })
@@ -148,12 +148,12 @@ describe("stage 4 -- the invocation is part of the contract", () => {
     assert.match(findings[0]?.message ?? "", /does not resolve/)
   })
 
-  it("npm link is caught: a symlink resolving outside node_modules is refused", () => {
+  it("npm link is caught: a symlink resolving outside node_modules is refused", async () => {
     // A real directory elsewhere stands in for the checkout `npm link` points at.
     const checkout = mkdtempSync(join(tmpdir(), "qwbe-linked-kernel-"))
     tmpRoots.push(checkout)
     writeFileSync(join(checkout, "package.json"), JSON.stringify({ name: "qwbe-core" }))
-    const root = build()
+    const root = await build()
     const findings = invocationFindings(root, resolveTo(join(checkout, "package.json")))
     assert.equal(findings.length, 1)
     assert.equal(findings[0]?.rule, "invocation-install")
@@ -163,7 +163,7 @@ describe("stage 4 -- the invocation is part of the contract", () => {
 
 describe("the four stages, in order, first failure stops", () => {
   it("a broken cube is reported at stage source", async () => {
-    const root = build((r) => {
+    const root = await build((r) => {
       writeFileSync(
         join(r, "cubes", "gadgets", "index.ts"),
         `import { readFileSync } from "node:fs"\nexport const x = readFileSync\n`,
@@ -179,7 +179,7 @@ describe("the four stages, in order, first failure stops", () => {
   })
 
   it("a pack-side caps file is reported at stage caps", async () => {
-    const root = build((r) => {
+    const root = await build((r) => {
       writeFileSync(join(r, "qwbe.config.json"), "{}")
       rmSync(join(r, "probes"), { recursive: true, force: true })
       writeFileSync(join(r, "package.json"), "NOT JSON")
@@ -188,8 +188,8 @@ describe("the four stages, in order, first failure stops", () => {
     assert.equal(report.failedStage, "caps")
   })
 
-  it("an empty probes/ is reported by the probes/ shape check", () => {
-    const root = build((r) => {
+  it("an empty probes/ is reported by the probes/ shape check", async () => {
+    const root = await build((r) => {
       rmSync(join(r, "probes"), { recursive: true, force: true })
       writeFileSync(join(r, "package.json"), "NOT JSON")
     })
@@ -197,8 +197,8 @@ describe("the four stages, in order, first failure stops", () => {
     assert.ok(findings.length > 0)
   })
 
-  it("a wrong invocation is reported by the invocation stage directly", () => {
-    const root = build((r) => {
+  it("a wrong invocation is reported by the invocation stage directly", async () => {
+    const root = await build((r) => {
       const pkg = readManifest(r)
       pkg.scripts.test = "node --test everything.mjs"
       writeFileSync(join(r, "package.json"), JSON.stringify(pkg))
@@ -207,8 +207,8 @@ describe("the four stages, in order, first failure stops", () => {
     assert.equal(findings.length, 1)
   })
 
-  it("a clean package passes the probes/ shape and the invocation check", () => {
-    const root = build()
+  it("a clean package passes the probes/ shape and the invocation check", async () => {
+    const root = await build()
     assert.deepEqual(probesFindings(root).findings, [])
     assert.deepEqual(invocationFindings(root), [])
   })

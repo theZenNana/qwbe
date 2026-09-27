@@ -23,8 +23,9 @@ import { bootStorage } from "./boot-storage.ts"
 import { catalogueMetadata } from "./catalogue.ts"
 import { readAllowedOrigins, readPort } from "./config.ts"
 import { captureEntity } from "./entity-enforcement.ts"
+import { runNode } from "./files.ts"
 import { Authorization } from "./kernel/auth-contract.ts"
-import { loadDefinitions, mount } from "./kernel/discovery.ts"
+import { loadDefinitions, mount, switchesFor } from "./kernel/discovery.ts"
 import { readLedger, verifyLedgerUnchanged, writeLedger } from "./kernel/ledger.ts"
 import { buildApi, buildHandlers, checkCubes, rejectDisabled } from "./kernel/mount.ts"
 import { logRefusals } from "./kernel/refusal-log.ts"
@@ -71,9 +72,10 @@ const migrations = await bootStorage(definitions, ledgerSnapshot, fail, failAfte
 
 // --- 2. mount: unique tables, single privilege, switches, per-cube tools ---
 
+const switches = await runNode(switchesFor(definitions)).catch((e: Error) => failAfterSnapshot(e, 2))
 let system: ReturnType<typeof mount>
 try {
-  system = mount(definitions, spaces)
+  system = mount(definitions, spaces, switches)
 } catch (e) {
   failAfterSnapshot(e as Error, 2)
 }

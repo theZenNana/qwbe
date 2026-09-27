@@ -10,15 +10,14 @@
 // world without paths, and scan returns paths. Settings narrows to `ScanInstaller` at
 // runtime, exactly like it already guards for its other kernel capabilities.
 
-import { existsSync, readdirSync, realpathSync, rmSync, statSync } from "node:fs"
 import { isAbsolute, join } from "node:path"
-import type { Effect } from "effect"
-import { packageSourceFingerprint, shelfFingerprint } from "../package-source.ts"
-import { checkName, destinationOf, under } from "./install-parts.ts"
+import { FileSystem } from "@effect/platform"
+import { Effect } from "effect"
+import { subdirectories } from "../files.ts"
+import { MANIFEST, packageSourceFingerprint, shelfFingerprint } from "../package-source.ts"
+import { checkName, destinationOf, type InstallStep, under } from "./install-parts.ts"
 import type { CubeInstaller, CubePackage } from "./manifest.ts"
 import { InstallError } from "./manifest.ts"
-
-const MANIFEST = "qwbe-package.json"
 
 /** What the store knows about a scanned package's shelf copy. */
 type ShelfState = "absent" | "identical" | "different"
@@ -34,7 +33,7 @@ export type ScanInstaller = CubeInstaller & {
 /** What scan and forget need from the store flow - handed in, not imported. */
 type ScanContext = Readonly<{
   storeDir: string
-  readPackageAt: (name: string, dir: string) => CubePackage
+  readPackageAt: (name: string, dir: string) => InstallStep<CubePackage>
 }>
 
 /**
@@ -50,35 +49,40 @@ type ScanContext = Readonly<{
  */
 export const scanFor =
   (ctx: ScanContext) =>
-  (directory: string): ScannedPackage[] => {
-    if (!isAbsolute(directory)) {
-      throw new InstallError(`refused: "${directory}" is not an absolute path`)
-    }
-    if (!existsSync(directory) || !statSync(directory).isDirectory()) {
-      throw new InstallError(`refused: "${directory}" is not an existing directory`)
-    }
-    const root = realpathSync(directory)
-    const found: ScannedPackage[] = []
-    for (const entry of readdirSync(root, { withFileTypes: true })) {
-      if (!entry.isDirectory()) continue
-      const dir = join(root, entry.name)
-      if (!existsSync(join(dir, MANIFEST))) continue
-      try {
-        const pkg = ctx.readPackageAt(entry.name, dir)
-        const shelfDir = join(ctx.storeDir, entry.name)
-        const shelf: ShelfState = !existsSync(shelfDir)
-          ? "absent"
-          : shelfFingerprint(shelfDir) === packageSourceFingerprint(dir)
-            ? "identical"
-            : "different"
-        found.push({ ...pkg, path: dir, shelf })
-      } catch {
+  (directory: string): InstallStep<ScannedPackage[]> =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem
+      if (!isAbsolute(directory)) {
+        return yield* new InstallError(`refused: "${directory}" is not an absolute path`)
+      }
+      const isDirectory = yield* fs.stat(directory).pipe(
+        Effect.map((info) => info.type === "Directory"),
+        Effect.orElseSucceed(() => false),
+      )
+      if (!isDirectory) {
+        return yield* new InstallError(`refused: "${directory}" is not an existing directory`)
+      }
+      const root = yield* fs.realPath(directory)
+      const found: ScannedPackage[] = []
+      for (const name of yield* subdirectories(root)) {
+        const dir = join(root, name)
+        if (!(yield* fs.exists(join(dir, MANIFEST)))) continue
+        const scanned = yield* Effect.gen(function* () {
+          const pkg = yield* ctx.readPackageAt(name, dir)
+          const shelfDir = join(ctx.storeDir, name)
+          const shelf: ShelfState = !(yield* fs.exists(shelfDir))
+            ? "absent"
+            : (yield* shelfFingerprint(shelfDir)) === (yield* packageSourceFingerprint(dir))
+              ? "identical"
+              : "different"
+          return { ...pkg, path: dir, shelf }
+        }).pipe(Effect.option)
         // Not a package (no manifest readable, lying name, missing cube directory) - not a
         // scan failure. The next directory may be one.
+        if (scanned._tag === "Some") found.push(scanned.value)
       }
-    }
-    return found.sort((a, b) => a.name.localeCompare(b.name))
-  }
+      return found.sort((a, b) => a.name.localeCompare(b.name))
+    })
 
 /**
  * Remove a shelf copy the store holds. Refuses while the package is installed: the shelf is
@@ -88,18 +92,20 @@ export const scanFor =
  */
 export const forgetShelfFor =
   (ctx: ScanContext) =>
-  (name: string): { readonly removed: string } => {
-    checkName("package", name)
-    const shelf = under(ctx.storeDir, join(ctx.storeDir, name))
-    if (!existsSync(shelf)) {
-      throw new InstallError(`refused: the store holds no package "${name}"`)
-    }
-    if (existsSync(destinationOf(ctx.readPackageAt(name, shelf)))) {
-      throw new InstallError(
-        `refused: "${name}" is installed. Remove the installed package first; ` +
-          `forgetting the shelf is for copies nothing is installed from.`,
-      )
-    }
-    rmSync(shelf, { recursive: true, force: true })
-    return { removed: shelf }
-  }
+  (name: string): InstallStep<{ readonly removed: string }> =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem
+      yield* checkName("package", name)
+      const shelf = yield* under(ctx.storeDir, join(ctx.storeDir, name))
+      if (!(yield* fs.exists(shelf))) {
+        return yield* new InstallError(`refused: the store holds no package "${name}"`)
+      }
+      if (yield* fs.exists(yield* destinationOf(yield* ctx.readPackageAt(name, shelf)))) {
+        return yield* new InstallError(
+          `refused: "${name}" is installed. Remove the installed package first; ` +
+            `forgetting the shelf is for copies nothing is installed from.`,
+        )
+      }
+      yield* fs.remove(shelf, { recursive: true })
+      return { removed: shelf }
+    })

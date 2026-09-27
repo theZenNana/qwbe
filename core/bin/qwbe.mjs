@@ -38,6 +38,7 @@ if (command === "drift") {
     process.exit(2)
   }
   const { storeDrift } = await import(installed ? "../dist/store-drift.js" : "../src/store-drift.ts")
+  const { runNode } = await import(installed ? "../dist/files.js" : "../src/files.ts")
   const { existsSync } = await import("node:fs")
   const { resolve } = await import("node:path")
   const storeDir = dirArg === undefined ? resolve(import.meta.dirname, "..", "store") : resolve(dirArg)
@@ -45,7 +46,7 @@ if (command === "drift") {
     console.error(`qwbe drift: no store directory at ${storeDir}`)
     process.exit(2)
   }
-  const verdicts = storeDrift(storeDir)
+  const verdicts = await runNode(storeDrift(storeDir))
   const red = verdicts.filter((v) => v.status !== "ok")
   for (const v of verdicts) {
     if (v.status === "ok") console.log(`  ok        ${v.name}  staged ${v.stagedAt} from ${v.sourcePath}`)

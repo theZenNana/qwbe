@@ -1,6 +1,8 @@
 import { createHash } from "node:crypto"
-import { lstatSync, readdirSync, readFileSync } from "node:fs"
-import { join, relative, sep } from "node:path"
+import { relative, sep } from "node:path"
+import { FileSystem } from "@effect/platform"
+import { Effect, Schema } from "effect"
+import { walk } from "./files.ts"
 
 // `frontend` belongs here for the same reason `probes` does: it is the authoring checkout's own
 // tooling, not part of the installable package. The contract scanner already skips it
@@ -41,41 +43,50 @@ export const PROVENANCE = "qwbe-source.json"
 /** The package manifest: what makes a directory a package (and what stays bookkeeping). */
 export const MANIFEST = "qwbe-package.json"
 
+/** The manifest's shape, decoded by both readers: the installer (kernel/install.ts) and the
+ * package contract (package-contract-scan.ts). Each adds the rules only it cares about. */
+export const PackageManifest = Schema.Struct({
+  name: Schema.NonEmptyString,
+  kind: Schema.optional(Schema.Literal("cube", "plugin")),
+  summary: Schema.optional(Schema.String),
+  cubes: Schema.optional(Schema.Array(Schema.String)),
+})
+
 /** Store bookkeeping files that are not part of the cube and never reach the destination:
  * one definition, shared by the install copy and the `qwbe check` sandbox copy. */
 export const isBookkeeping = (src: string): boolean => src.endsWith(sep + MANIFEST) || src.endsWith(sep + PROVENANCE)
 
 /** What a shelf's provenance records: the source directory, the content fingerprint at staging,
  * and the moment. Written by the staging flow, re-checked by store-drift against both sides. */
-export type Provenance = Readonly<{
-  sourcePath: string
-  fingerprint: string
-  stagedAt: string
-}>
+export const Provenance = Schema.Struct({
+  sourcePath: Schema.String,
+  fingerprint: Schema.String,
+  stagedAt: Schema.optional(Schema.String),
+})
+export type Provenance = typeof Provenance.Type
 
 /** The hash of every file under `dir` (path + sha256 of the bytes). Top-level `exclude`d names
  * (bookkeeping) never count. `skipLocalTooling` (the default) also skips top-level authoring
  * tooling (`isLocalSourceEntry`) -- the right rule for a SOURCE checkout. A shelf passes
  * `false`: staging never writes tooling into a shelf, so any foreign byte there is a manual
  * change and must change the hash -- that is the drift `qwbe drift` exists to catch. */
-export const packageSourceFingerprint = (
-  dir: string,
-  exclude: readonly string[] = [],
-  skipLocalTooling = true,
-): string => {
-  const entries: string[] = []
-  const walk = (current: string) => {
-    for (const entry of readdirSync(current, { withFileTypes: true })) {
-      if (current === dir && (exclude.includes(entry.name) || (skipLocalTooling && isLocalSourceEntry(entry.name))))
-        continue
-      const path = join(current, entry.name)
-      if (entry.isDirectory()) walk(path)
-      else entries.push(`${relative(dir, path)}:${createHash("sha256").update(readFileSync(path)).digest("hex")}`)
-    }
-  }
-  walk(dir)
-  return createHash("sha256").update(entries.sort().join("\n")).digest("hex")
-}
+export const packageSourceFingerprint = (dir: string, exclude: readonly string[] = [], skipLocalTooling = true) =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem
+    const entries = yield* walk(
+      dir,
+      (e) => e.top && (exclude.includes(e.name) || (skipLocalTooling && isLocalSourceEntry(e.name))),
+    )
+    const hashes = yield* Effect.forEach(
+      entries.filter((e) => e.type !== "Directory"),
+      (e) =>
+        Effect.map(
+          fs.readFile(e.path),
+          (bytes) => `${relative(dir, e.path)}:${createHash("sha256").update(bytes).digest("hex")}`,
+        ),
+    )
+    return createHash("sha256").update(hashes.sort().join("\n")).digest("hex")
+  })
 
 /** The shelf rule as ONE function: every reader that judges a store shelf copy (the drift
  * check, install-from reuse, the install scanner) hashes it through here -- strictly, nothing
@@ -83,22 +94,15 @@ export const packageSourceFingerprint = (
  * source side stays on `packageSourceFingerprint(dir)`: a live checkout legitimately carries
  * its tooling. package-source.test.ts pins every call site, so a reader re-deriving a shelf
  * hash by hand -- the lax regression review 14b found in the scanner -- fails there. */
-export const shelfFingerprint = (dir: string): string => packageSourceFingerprint(dir, [PROVENANCE], false)
+export const shelfFingerprint = (dir: string) => packageSourceFingerprint(dir, [PROVENANCE], false)
 
-export const validatePackageSourceTree = (root: string): string | undefined => {
-  const walk = (current: string): string | undefined => {
-    for (const entry of readdirSync(current)) {
-      if (current === root && isLocalSourceEntry(entry)) continue
-      const path = join(current, entry)
-      const stat = lstatSync(path)
-      if (stat.isSymbolicLink()) return `"${path}" is a symlink`
-      if (!stat.isFile() && !stat.isDirectory()) return `"${path}" is a special file`
-      if (stat.isDirectory()) {
-        const invalid = walk(path)
-        if (invalid) return invalid
-      }
-    }
-    return undefined
-  }
-  return walk(root)
-}
+/** The first entry that is not a plain file or directory, as a refusal fragment; undefined when clean. */
+export const validatePackageSourceTree = (root: string) =>
+  Effect.map(
+    walk(root, (e) => e.top && isLocalSourceEntry(e.name)),
+    (entries) => {
+      const bad = entries.find((e) => e.type !== "File" && e.type !== "Directory")
+      if (!bad) return undefined
+      return bad.type === "SymbolicLink" ? `"${bad.path}" is a symlink` : `"${bad.path}" is a special file`
+    },
+  )
