@@ -124,7 +124,7 @@ core/checks/live/         real servers and processes (`check:live`)
 core/checks/bench/        vitest bench against the qwbe.yaml budgets (`check:bench`)
 core/checks/_layers/      shared Effect layers: test database, booted server, API client
 core/checks/_fixtures/    fixture packs
-core/src/**/*.test.ts     kernel and cube tests, still on node:test
+core/src/**/*.test.ts     kernel and cube tests, on vitest (packs in core/plugins stay on node:test)
 ```
 
 The live checks start whatever servers they need and stop them afterwards. That is deliberate: a
