@@ -113,14 +113,13 @@ module.exports = {
       name: "core-src-no-node-fs-or-process",
       comment:
         "Non-test code in core/src uses @effect/platform FileSystem and Command instead of " +
-        "node:fs and node:child_process. Files listed in pathNot predate the rule.",
+        "node:fs and node:child_process.",
       severity: "error",
       from: {
         path: "^src/",
         pathNot: [
+          // Tests still build fixtures with node:fs; every production file is covered, no exceptions.
           "\\.test\\.ts$",
-          // Permanent (audit section 4): none today; no permanent exception imports these modules.
-          // To migrate (audit E4/E8/E2), delete the entry when the file moves to @effect/platform.
         ],
       },
       to: { path: "^(node:)?(fs|fs/promises|child_process)$" },

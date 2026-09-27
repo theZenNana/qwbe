@@ -16,44 +16,48 @@ layer(NodeContext.layer, { excludeTestServices: true })("install-from static con
     assert.equal(isOutsideDiscoveryRoots(contractValidationParent), true)
   })
 
-  it.scoped("refuses a TypeScript-invalid cube before publishing it to the store", () =>
-    Effect.gen(function* () {
-      const bench = yield* tempDir("qwbe-install-contract-")
-      const source = join(bench, "broken-cube")
-      const store = join(bench, "store")
-      mkdirSync(join(source, "cubes", "broken-cube"), { recursive: true })
-      writeFileSync(
-        join(source, "qwbe-package.json"),
-        JSON.stringify({ name: "broken-cube", kind: "plugin", cubes: ["broken-cube"] }),
-      )
-      writeFileSync(
-        join(source, "cubes", "broken-cube", "index.ts"),
-        "const mustBeText: string = 42\nexport { mustBeText }\n",
-      )
+  it.scoped(
+    "refuses a TypeScript-invalid cube before publishing it to the store",
+    () =>
+      Effect.gen(function* () {
+        const bench = yield* tempDir("qwbe-install-contract-")
+        const source = join(bench, "broken-cube")
+        const store = join(bench, "store")
+        mkdirSync(join(source, "cubes", "broken-cube"), { recursive: true })
+        writeFileSync(
+          join(source, "qwbe-package.json"),
+          JSON.stringify({ name: "broken-cube", kind: "plugin", cubes: ["broken-cube"] }),
+        )
+        writeFileSync(
+          join(source, "cubes", "broken-cube", "index.ts"),
+          "const mustBeText: string = 42\nexport { mustBeText }\n",
+        )
 
-      const pkg: CubePackage = {
-        name: "broken-cube",
-        kind: "plugin",
-        summary: "invalid TypeScript",
-        cubes: ["broken-cube"],
-        installed: false,
-        bytes: 1,
-        conflicts: [],
-      }
+        const pkg: CubePackage = {
+          name: "broken-cube",
+          kind: "plugin",
+          summary: "invalid TypeScript",
+          cubes: ["broken-cube"],
+          installed: false,
+          bytes: 1,
+          conflicts: [],
+        }
 
-      const install = stageAndInstall({
-        storeDir: store,
-        readPackageAt: () => Effect.succeed(pkg),
-        installExisting: () => Effect.succeed({ ...pkg, installed: true }),
-        checkPackageSource: async () => [], // no source findings: this case is about the stage, not the checker
-      })
+        const install = stageAndInstall({
+          storeDir: store,
+          readPackageAt: () => Effect.succeed(pkg),
+          installExisting: () => Effect.succeed({ ...pkg, installed: true }),
+          checkPackageSource: async () => [], // no source findings: this case is about the stage, not the checker
+        })
 
-      const error = yield* Effect.flip(Effect.provide(install(source), testConfigLayer()))
-      assert.ok(error instanceof InstallError)
-      assert.match(error.message, /TypeScript contract gate/)
-      assert.match(error.message, /TS2322/)
-      assert.deepEqual(existsSync(store) ? readdirSync(store) : [], [])
-    }),
+        const error = yield* Effect.flip(Effect.provide(install(source), testConfigLayer()))
+        assert.ok(error instanceof InstallError)
+        assert.match(error.message, /TypeScript contract gate/)
+        assert.match(error.message, /TS2322/)
+        assert.deepEqual(existsSync(store) ? readdirSync(store) : [], [])
+      }),
+    // Spawns a real tsc: about 3s alone, over the 5s default under full-suite load.
+    60_000,
   )
 
   // ponytail: spawns a real tsc, ~5s; vitest default is 5s so give it headroom
