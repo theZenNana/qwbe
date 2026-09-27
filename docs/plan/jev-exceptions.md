@@ -76,3 +76,23 @@ taken port and every readiness fetch has a 2 s timeout, so the hook fails fast i
 | file | scores under 70 |
 |---|---|
 | `core/src/customfields-runtime.test.ts` | lucian 49.8 (ponytail 71.9, unslop 93.4) |
+
+Earlier stage 6 commits, scored after the fact with `agents jev--score-run <run> --since <commit>^`
+on a worktree of each commit (81 scores). Folders d5c2d75 (run ae29ef10, EVE), config module
+0392480 (run 588e3320, EVE, none under 70), config callers 432aea1 (run 3a3d3b73, Pi), effect
+upgrade a3d9d38 (run 8b52d770, Pi). The callers diff is one reader call per line; `lucian` reads
+the whole surrounding function.
+
+| file | scores under 70 |
+|---|---|
+| `core/src/cubes/account/index.ts` | lucian 50.0 |
+| `core/src/kernel/install-parts.ts` | lucian 53.4, ponytail 67.8 |
+| `core/src/kernel/discovery.ts` | lucian 58.3 |
+| `core/src/origins.ts` | lucian 58.8 |
+| `core/src/main.ts` | lucian 62.7, ponytail 69.7 |
+| `core/src/kernel/install.ts` | lucian 64.2, ponytail 68.0 |
+| `core/src/kernel/migrate-ownership.ts` | lucian 64.2 |
+| `core/checks/live/admin-restart.test.ts` | ponytail 63.3 |
+| `core/checks/live/qwbe-check-bin.test.ts` | ponytail 66.1 |
+| `core/checks/bench/staging-pg.bench.ts` | ponytail 68.3 |
+| `core/checks/_layers/boot.ts` | lucian 68.4 |
