@@ -6,7 +6,7 @@
 import assert from "node:assert/strict"
 import { describe, it } from "vitest"
 
-import { whereClause } from "../pg/rows.ts"
+import { compileOnly, whereClause } from "../pg/rows.ts"
 import { listPageRequest, listWhere } from "./list.ts"
 import { MAX_LIMIT } from "./pagination.ts"
 
@@ -83,8 +83,14 @@ describe("the list query contract", () => {
 })
 
 describe("the SQL a list query becomes", () => {
+  // The fragment compiled with the Postgres dialect: the numbering is the client's, checked here.
+  const compiled = (where: Parameters<typeof whereClause>[1]) => {
+    const [sql, params] = compileOnly`${whereClause(compileOnly, where)}`.compile()
+    return { sql, params }
+  }
+
   it("numbers the parameters of several filters in order", () => {
-    const w = whereClause({
+    const w = compiled({
       equals: [
         { field: "name", value: "ada" },
         { field: "accountId", value: "acc-1" },
@@ -95,40 +101,40 @@ describe("the SQL a list query becomes", () => {
   })
 
   it("keeps the single-pair shape working, which relational.search still passes", () => {
-    assert.deepEqual(whereClause({ field: "bookmarkId", value: "b-1" }), {
+    assert.deepEqual(compiled({ field: "bookmarkId", value: "b-1" }), {
       sql: "AND body ->> $1::text = $2::text",
       params: ["bookmarkId", "b-1"],
     })
   })
 
   it("asks for a batch of ids in ONE bound array, not one parameter each", () => {
-    const w = whereClause({ ids: ["a", "b", "c"] })
+    const w = compiled({ ids: ["a", "b", "c"] })
     assert.equal(w.sql, "AND id = ANY($1::text[])")
     assert.deepEqual(w.params, [["a", "b", "c"]])
   })
 
   it("makes q a prefix match over every searchable field", () => {
-    const w = whereClause({ q: { text: "ad", fields: ["name", "email"] } })
-    assert.equal(w.sql, "AND (body ->> $2::text ILIKE $1 OR body ->> $3::text ILIKE $1)")
-    assert.deepEqual(w.params, ["ad%", "name", "email"])
+    const w = compiled({ q: { text: "ad", fields: ["name", "email"] } })
+    assert.equal(w.sql, "AND (body ->> $1::text ILIKE $2 OR body ->> $3::text ILIKE $4)")
+    assert.deepEqual(w.params, ["name", "ad%", "email", "ad%"])
   })
 
   it("does not let a caller's % or _ act as a wildcard", () => {
-    assert.deepEqual(whereClause({ q: { text: "50%_x", fields: ["name"] } }).params[0], "50\\%\\_x%")
+    assert.deepEqual(compiled({ q: { text: "50%_x", fields: ["name"] } }).params[1], "50\\%\\_x%")
   })
 
   it("combines filters, ids and q in one WHERE, numbered end to end", () => {
-    const w = whereClause({
+    const w = compiled({
       equals: [{ field: "accountId", value: "acc-1" }],
       ids: ["a"],
       q: { text: "ad", fields: ["name"] },
     })
-    assert.equal(w.sql, "AND body ->> $1::text = $2::text AND id = ANY($3::text[]) AND (body ->> $5::text ILIKE $4)")
-    assert.deepEqual(w.params, ["accountId", "acc-1", ["a"], "ad%", "name"])
+    assert.equal(w.sql, "AND body ->> $1::text = $2::text AND id = ANY($3::text[]) AND (body ->> $4::text ILIKE $5)")
+    assert.deepEqual(w.params, ["accountId", "acc-1", ["a"], "name", "ad%"])
   })
 
   it("compares a meta column as a column, not as a jsonb key", () => {
-    assert.deepEqual(whereClause({ equals: [{ field: "deleted", value: "true" }] }), {
+    assert.deepEqual(compiled({ equals: [{ field: "deleted", value: "true" }] }), {
       sql: "AND deleted = $1",
       params: [true],
     })

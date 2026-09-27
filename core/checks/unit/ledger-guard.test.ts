@@ -53,9 +53,7 @@ const trustedLedger = (snapshot: LedgerSnapshot): Ledger => (snapshot.state === 
 const thrownBy = (run: () => unknown) => Effect.flip(Effect.try({ try: run, catch: (error) => error }))
 
 const claimRefusal = (ledger: Ledger) =>
-  Effect.flatMap(Kernel, ({ checkMigrationOwnership }) =>
-    Effect.flip(Effect.tryPromise({ try: () => checkMigrationOwnership(EVIL_CLAIM, ledger), catch: (e) => e })),
-  )
+  Effect.flatMap(Kernel, ({ checkMigrationOwnership }) => thrownBy(() => checkMigrationOwnership(EVIL_CLAIM, ledger)))
 
 layer(Layer.scoped(Kernel, loadKernel).pipe(Layer.provideMerge(NodeContext.layer)), { excludeTestServices: true })(
   (it) => {

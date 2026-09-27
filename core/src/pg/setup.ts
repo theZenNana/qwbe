@@ -11,8 +11,9 @@
 // transaction with `SET LOCAL ROLE` -- so a cube's query against another cube's schema dies in
 // Postgres with a permission error. See checks/integration/pg-grants.test.ts.
 
+import { SqlClient, type SqlError, type Statement } from "@effect/sql"
+import { Cache, Context, Data, Duration, Effect, Exit, Layer } from "effect"
 import { MAX_CUSTOM_BYTES, MAX_CUSTOM_KEYS } from "../custom-values.ts"
-import { getPool, type Pool } from "./db.ts"
 
 /** The same identifier `storeFileName` produced for the file, without the extension. */
 export const schemaName = (cube: string): string => cube.replace(/\//g, "--")
@@ -20,17 +21,38 @@ export const schemaName = (cube: string): string => cube.replace(/\//g, "--")
 /** Every identifier in this module is quoted, always. Identifiers are never parameters. */
 export const q = (identifier: string): string => `"${identifier.replace(/"/g, '""')}"`
 
+/**
+ * An identifier as a SQL fragment. Not the client's `sql(name)`: its escaping splits on dots,
+ * so a declared table named `a.b` would become the qualified name `"a"."b"`. `q` keeps every
+ * name one identifier, exactly as before the move to @effect/sql.
+ */
+export const ident = (sql: Statement.Constructor, ...parts: ReadonlyArray<string>): Statement.Fragment =>
+  sql.literal(parts.map(q).join("."))
+
 export const roleName = (schema: string): string => `qwbe_cube_${schema}`
 
 /**
- * Schemas already set up in this process -- DDL runs once per cube, not per query. The value
- * is the IN-FLIGHT promise, not a completed flag: two concurrent first touches of the same
- * cube must not both run the DDL block (Postgres refuses the race with a duplicate-namespace
- * error, and an `Effect.promise` turns that into a 500 on the first burst of traffic). The
- * map entry is replaced by a resolved promise when the DDL commits, so a failed setup is
- * retried on the next call instead of being cached forever.
+ * The per-process setup memo, owned by the pool's layer: DDL runs once per cube (and per
+ * table), not per query. Each entry holds the IN-FLIGHT lookup, so two concurrent first
+ * touches of the same cube share one DDL run (Postgres refuses the race with a
+ * duplicate-namespace error). A failed lookup expires at once, so it is retried on the next
+ * call instead of being cached forever.
  */
-const ensuredSchemas = new Map<string, Promise<string>>()
+export class Setup extends Context.Tag("qwbe/pg/Setup")<
+  Setup,
+  {
+    readonly schema: (schema: string) => Effect.Effect<string, SqlError.SqlError>
+    readonly table: (schema: string, table: string) => Effect.Effect<void, SqlError.SqlError>
+    readonly activityReader: (schema: string) => Effect.Effect<void, SqlError.SqlError>
+  }
+>() {}
+
+const memo = <K, A>(lookup: (key: K) => Effect.Effect<A, SqlError.SqlError>) =>
+  Cache.makeWith({
+    capacity: Number.MAX_SAFE_INTEGER,
+    lookup,
+    timeToLive: Exit.match({ onFailure: () => Duration.zero, onSuccess: () => Duration.infinity }),
+  }).pipe(Effect.map((cache) => (key: K) => cache.get(key)))
 
 /**
  * Create the schema and its role if either is missing, then grant. Idempotent: boot and first
@@ -38,167 +60,109 @@ const ensuredSchemas = new Map<string, Promise<string>>()
  * nobody authenticates as a cube; the application role sets itself to the cube's role per
  * transaction, and membership is granted so that `SET ROLE` is allowed at all.
  *
- * Concurrency: the whole block runs on ONE client, inside one transaction that first takes a
+ * Concurrency: the whole block runs inside one transaction that first takes a
  * transaction-scoped advisory lock keyed on the schema name. Two processes racing to set up
  * the same cube serialize on the lock; the loser then sees the winner's schema and role and
- * its DDL statements are all no-ops. Combined with the in-flight-promise memoization above,
- * neither one process's burst nor two processes' boot can double-run the DDL.
+ * its DDL statements are all no-ops. Combined with the in-flight memo above, neither one
+ * process's burst nor two processes' boot can double-run the DDL.
  */
-export const ensureCubeSchema = async (cube: string): Promise<string> => {
-  const schema = schemaName(cube)
-  const inflight = ensuredSchemas.get(schema)
-  if (inflight) return inflight
-  const run = (async () => {
-    const p = getPool()
-    const role = roleName(schema)
-    const client = await p.connect()
-    let failed = false
-    try {
-      await client.query("BEGIN")
-      await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [schema])
+const createSchema = (sql: SqlClient.SqlClient, schema: string) =>
+  sql.withTransaction(
+    Effect.gen(function* () {
+      const role = roleName(schema)
+      const s = ident(sql, schema)
+      const r = ident(sql, role)
+      yield* sql`SELECT pg_advisory_xact_lock(hashtext(${schema}))`
       // A SECOND, global lock around the role DDL: `tuple concurrently updated` is what two
       // transactions updating pg_roles at the same moment get, and the schema-keyed lock does
       // not prevent that -- two DIFFERENT cubes booting concurrently both reach CREATE ROLE.
       // The customfields snapshot load runs at boot, racing the other
       // cubes' first touch. One lock key serializes every role creation; ordering (schema
       // lock, then this one) is the same everywhere, so no deadlock.
-      await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, ["qwbe/role-ddl"])
-      await client.query(`CREATE SCHEMA IF NOT EXISTS ${q(schema)}`)
-      const roleExists = await client.query(`SELECT 1 FROM pg_roles WHERE rolname = $1`, [role])
-      if ((roleExists.rowCount ?? 0) === 0) await client.query(`CREATE ROLE ${q(role)} NOLOGIN`)
+      yield* sql`SELECT pg_advisory_xact_lock(hashtext(${"qwbe/role-ddl"}))`
+      yield* sql`CREATE SCHEMA IF NOT EXISTS ${s}`
+      const roleExists = yield* sql`SELECT 1 FROM pg_roles WHERE rolname = ${role}`
+      if (roleExists.length === 0) yield* sql`CREATE ROLE ${r} NOLOGIN`
       // The grant target is the login that owns THIS session -- taken from current_user, not
       // from pool options, which are undefined when the pool was built from a connection
       // string (and defaulting to "postgres" would grant every cube role to the wrong login).
-      const me = await client.query(`SELECT current_user AS u`)
-      const appUser = String((me.rows[0] as { u: string }).u)
-      await client.query(`GRANT ${q(role)} TO ${q(appUser)}`)
-      await client.query(`REVOKE ALL ON SCHEMA ${q(schema)} FROM PUBLIC`)
-      await client.query(`GRANT USAGE ON SCHEMA ${q(schema)} TO ${q(role)}`)
+      const [me] = yield* sql<{ u: string }>`SELECT current_user AS u`
+      yield* sql`GRANT ${r} TO ${ident(sql, String(me?.u))}`
+      yield* sql`REVOKE ALL ON SCHEMA ${s} FROM PUBLIC`
+      yield* sql`GRANT USAGE ON SCHEMA ${s} TO ${r}`
       // ALL TABLES covers tables that already exist (a renamed-in schema, a migrated import);
       // DEFAULT PRIVILEGES covers the ones ensureTable creates afterwards.
-      await client.query(`GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA ${q(schema)} TO ${q(role)}`)
-      await client.query(
-        `ALTER DEFAULT PRIVILEGES IN SCHEMA ${q(schema)} GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO ${q(role)}`,
-      )
-      await client.query(`GRANT USAGE ON SCHEMA qwbe TO ${q(role)}`)
-      await client.query(`GRANT INSERT ON qwbe.outbox TO ${q(role)}`)
+      yield* sql`GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA ${s} TO ${r}`
+      yield* sql`ALTER DEFAULT PRIVILEGES IN SCHEMA ${s} GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO ${r}`
+      yield* sql`GRANT USAGE ON SCHEMA qwbe TO ${r}`
+      yield* sql`GRANT INSERT ON qwbe.outbox TO ${r}`
       // bigserial draws from a sequence; INSERT on the table alone does not cover it.
-      await client.query(`GRANT USAGE ON SEQUENCE qwbe.outbox_id_seq TO ${q(role)}`)
+      yield* sql`GRANT USAGE ON SEQUENCE qwbe.outbox_id_seq TO ${r}`
       // Echo A1: every cube role records activity for its committed row mutations; SELECT
       // stays off -- only the one role whose cube declares `readsActivity` reads the log
-      // (ensureActivityReader below, granted at mount time).
-      await client.query(`GRANT INSERT ON qwbe.activity TO ${q(role)}`)
-      await client.query(`GRANT USAGE ON SEQUENCE qwbe.activity_id_seq TO ${q(role)}`)
-      await client.query("COMMIT")
-    } catch (e) {
-      failed = true
-      await client.query("ROLLBACK").catch(() => {})
-      // The error goes to release() so pg DESTROYS the client: one whose rollback did not
-      // take must never rejoin the pool still inside a transaction -- the next checkout
-      // would inherit it.
-      if (e instanceof Error) client.release(e)
-      throw e
-    } finally {
-      if (!failed) client.release()
-    }
-    return schema
-  })()
-  ensuredSchemas.set(schema, run)
-  try {
-    return await run
-  } catch (e) {
-    ensuredSchemas.delete(schema)
-    throw e
-  }
-}
+      // (activityReader below, granted lazily by the activity tools).
+      yield* sql`GRANT INSERT ON qwbe.activity TO ${r}`
+      yield* sql`GRANT USAGE ON SEQUENCE qwbe.activity_id_seq TO ${r}`
+      return schema
+    }),
+  )
 
 /** The one row shape, created on first touch of a table -- the cube writes no migrations yet. */
-/** Created once per process: DDL under concurrency is lock churn for no information. Same
- * in-flight-promise memoization as ensureCubeSchema -- two first touches of one table must
- * not race the CREATE TABLE either. */
-const ensuredTables = new Map<string, Promise<void>>()
-
-export const ensureTable = async (schema: string, table: string): Promise<void> => {
-  const key = `${schema}.${table}`
-  const inflight = ensuredTables.get(key)
-  if (inflight) return inflight
-  const run = (async () => {
-    const p = getPool()
-    const client = await p.connect()
-    let failed = false
-    try {
-      await client.query("BEGIN")
-      await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [key])
-      await client.query(
-        `CREATE TABLE IF NOT EXISTS ${q(schema)}.${q(table)} (
+const createTable = (sql: SqlClient.SqlClient, schema: string, table: string) =>
+  sql.withTransaction(
+    Effect.gen(function* () {
+      const t = ident(sql, schema, table)
+      yield* sql`SELECT pg_advisory_xact_lock(hashtext(${`${schema}.${table}`}))`
+      yield* sql`CREATE TABLE IF NOT EXISTS ${t} (
            id text PRIMARY KEY,
            type text NOT NULL,
            created_at timestamptz NOT NULL,
            deleted boolean NOT NULL DEFAULT false,
            version integer NOT NULL DEFAULT 1,
            body jsonb NOT NULL
-         )`,
-      )
-      await client.query(
-        `CREATE INDEX IF NOT EXISTS ${q(`${table}_body_gin`)} ON ${q(schema)}.${q(table)} USING GIN (body)`,
-      )
-      await ensureCustomCaps(client as unknown as Pool, schema, table)
-      await client.query("COMMIT")
-    } catch (e) {
-      failed = true
-      await client.query("ROLLBACK").catch(() => {})
-      if (e instanceof Error) client.release(e)
-      throw e
-    } finally {
-      if (!failed) client.release()
-    }
-  })()
-  ensuredTables.set(key, run)
-  try {
-    return await run
-  } catch (e) {
-    ensuredTables.delete(key)
-    throw e
-  }
-}
+         )`
+      yield* sql`CREATE INDEX IF NOT EXISTS ${ident(sql, `${table}_body_gin`)} ON ${t} USING GIN (body)`
+      yield* ensureCustomCaps(sql, schema, table)
+    }),
+  )
+
+export const SetupLive = Layer.effect(
+  Setup,
+  Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient
+    const schema = yield* memo((s: string) => createSchema(sql, s))
+    const table = yield* memo(([s, t]: readonly [string, string]) => createTable(sql, s, t))
+    // Grant SELECT on `qwbe.activity` to exactly one cube role: the one whose manifest declares
+    // `readsActivity` (at-most-one checked at mount). Lazy because `mount` is synchronous and
+    // cube roles come into being lazily; idempotent like every GRANT.
+    const activityReader = yield* memo((s: string) =>
+      Effect.gen(function* () {
+        // The reader's role exists only once the schema setup has run for it: on a fresh
+        // database the GRANT below would otherwise hit `role "..." does not exist`.
+        yield* schema(s)
+        const r = ident(sql, roleName(s))
+        yield* sql`GRANT SELECT ON qwbe.activity TO ${r}`
+        // Echo A2 comments: the reader role is the ONLY role that may touch qwbe.comment (the
+        // comment write path runs under it, same-transaction with its activity row). Batch and
+        // every other cube role stay exactly as wide as A1 left them.
+        yield* sql`GRANT SELECT, INSERT, UPDATE ON qwbe.comment TO ${r}`
+      }),
+    )
+    return { schema, table: (s, t) => table(Data.tuple(s, t)), activityReader }
+  }),
+)
+
+export const ensureCubeSchema = (cube: string) => Effect.flatMap(Setup, (s) => s.schema(schemaName(cube)))
+
+export const ensureTable = (schema: string, table: string) => Effect.flatMap(Setup, (s) => s.table(schema, table))
+
+export const ensureActivityReader = (cube: string) => Effect.flatMap(Setup, (s) => s.activityReader(schemaName(cube)))
 
 /** Does the schema exist? The data-migration checks ask this instead of looking at files. */
-export const schemaExists = async (schema: string): Promise<boolean> => {
-  const r = await getPool().query(`SELECT 1 FROM information_schema.schemata WHERE schema_name = $1`, [schema])
-  return (r.rowCount ?? 0) > 0
-}
-
-/**
- * Grant SELECT on `qwbe.activity` to exactly one cube role: the one whose manifest declares
- * `readsActivity` (at-most-one checked at mount). Called lazily by the activity tools
- * (pg/activity.ts) because `mount` is synchronous and cube roles come into being lazily;
- * memoized per schema like the DDL above, idempotent like every GRANT.
- */
-const activityReaders = new Map<string, Promise<void>>()
-
-export const ensureActivityReader = async (cube: string): Promise<void> => {
-  const schema = schemaName(cube)
-  const inflight = activityReaders.get(schema)
-  if (inflight) return inflight
-  const run = (async () => {
-    // The reader's schema and role exist only once ensureCubeSchema has run for it, and every
-    // activity tool calls THIS before withRole: on a fresh database the GRANT below would
-    // otherwise hit `role "..." does not exist` on every call. Memoized and idempotent.
-    await ensureCubeSchema(cube)
-    await getPool().query(`GRANT SELECT ON qwbe.activity TO ${q(roleName(schema))}`)
-    // Echo A2 comments: the reader role is the ONLY role that may touch qwbe.comment (the
-    // comment write path runs under it, same-transaction with its activity row). Batch and
-    // every other cube role stay exactly as wide as A1 left them.
-    await getPool().query(`GRANT SELECT, INSERT, UPDATE ON qwbe.comment TO ${q(roleName(schema))}`)
-  })()
-  activityReaders.set(schema, run)
-  try {
-    return await run
-  } catch (e) {
-    activityReaders.delete(schema)
-    throw e
-  }
-}
+export const schemaExists = (schema: string) =>
+  Effect.flatMap(SqlClient.SqlClient, (sql) =>
+    Effect.map(sql`SELECT 1 FROM information_schema.schemata WHERE schema_name = ${schema}`, (r) => r.length > 0),
+  )
 
 /*
  * The custom-value caps as a DATABASE constraint. The app checks
@@ -223,45 +187,25 @@ const customCapsCheck = (): string => {
  * get the constraint on the next boot, and the lookups above run once per
  * process per table.
  */
-const ensureCustomCaps = async (client: Pool, schema: string, table: string): Promise<void> => {
-  const name = `${table}_custom_caps`
-  const exists = await client.query(`SELECT 1 FROM pg_constraint WHERE conname = $1 AND conrelid = $2::regclass`, [
-    name,
-    `${q(schema)}.${q(table)}`,
-  ])
-  if ((exists.rowCount ?? 0) === 0) {
-    await client.query(`ALTER TABLE ${q(schema)}.${q(table)} ADD CONSTRAINT ${q(name)} ${customCapsCheck()}`)
-  }
-}
+const ensureCustomCaps = (sql: SqlClient.SqlClient, schema: string, table: string) =>
+  Effect.gen(function* () {
+    const name = `${table}_custom_caps`
+    const exists =
+      yield* sql`SELECT 1 FROM pg_constraint WHERE conname = ${name} AND conrelid = ${`${q(schema)}.${q(table)}`}::regclass`
+    if (exists.length === 0) {
+      yield* sql`ALTER TABLE ${ident(sql, schema, table)} ADD CONSTRAINT ${ident(sql, name)} ${sql.literal(customCapsCheck())}`
+    }
+  })
 
 /**
- * One client, one transaction, the cube's role. Everything the store does goes through here,
- * so "every operation runs under the cube's role inside a transaction" is enforced in exactly
- * one place rather than remembered in six.
- *
- * Exported for the transaction test: the rollback guarantee is exactly this function's
- * catch branch, and the test drives it directly rather than duplicating its SQL.
+ * One transaction, the cube's role. Everything the store does goes through here, so "every
+ * operation runs under the cube's role inside a transaction" is enforced in exactly one place
+ * rather than remembered in six. `sql.withTransaction` rolls back on any failure or defect, and
+ * `SET LOCAL` ends with the transaction, so nothing leaks to the next checkout of the connection.
  */
-export const withRole = async <T>(cube: string, fn: (client: Pool) => Promise<T>): Promise<T> => {
-  const schema = await ensureCubeSchema(cube)
-  const p = getPool()
-  const client = await p.connect()
-  let failed = false
-  try {
-    await client.query("BEGIN")
-    await client.query(`SET LOCAL ROLE ${q(roleName(schema))}`)
-    const result = await fn(client as unknown as Pool)
-    await client.query("COMMIT")
-    return result
-  } catch (e) {
-    failed = true
-    await client.query("ROLLBACK").catch(() => {})
-    // The error goes to release() so pg destroys the client instead of reusing it: a
-    // connection whose rollback did not take must not rejoin the pool with the cube's
-    // `SET LOCAL ROLE` still in force for whoever checks it out next.
-    client.release(e as Error)
-    throw e
-  } finally {
-    if (!failed) client.release()
-  }
-}
+export const withRole = <A, E, R>(cube: string, effect: Effect.Effect<A, E, R>) =>
+  Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient
+    const schema = yield* ensureCubeSchema(cube)
+    return yield* sql.withTransaction(Effect.zipRight(sql`SET LOCAL ROLE ${ident(sql, roleName(schema))}`, effect))
+  })

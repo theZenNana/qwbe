@@ -4,6 +4,7 @@ import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import type pg from "pg"
+import { run } from "../../src/pg/db.ts"
 import { ensureCubeSchema, ensureTable, q, roleName } from "../../src/pg/setup.ts"
 import { connect, kernelStore, query } from "../_layers/postgres.ts"
 import { TestDb, testDb } from "../_layers/test-db.ts"
@@ -32,12 +33,14 @@ const loginUrl = (url: string, user: string, password: string) => {
 }
 
 /** Two cubes with one table each, through the store's own setup: the grants under test. */
-const createCubes = Effect.promise(async () => {
-  await ensureCubeSchema(CUBE_A)
-  await ensureCubeSchema(CUBE_B)
-  await ensureTable(CUBE_A, "secrets")
-  await ensureTable(CUBE_B, "notes")
-})
+const createCubes = run(
+  Effect.all([
+    ensureCubeSchema(CUBE_A),
+    ensureCubeSchema(CUBE_B),
+    ensureTable(CUBE_A, "secrets"),
+    ensureTable(CUBE_B, "notes"),
+  ]),
+)
 
 const createAppLogin = (admin: pg.Client) =>
   query(admin, `CREATE ROLE ${q(APP)} LOGIN PASSWORD '${PASSWORD}' IN ROLE ${q(ROLE_A)}, ${q(ROLE_B)}`)

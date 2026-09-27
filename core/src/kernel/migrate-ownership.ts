@@ -49,10 +49,10 @@ export type ValidatedMigration = DataMigration & { readonly declaredBy: string |
  *     QWBE_LEGACY_MIGRATIONS="bookmarks:example-plugin,tags:example-plugin" -- a decision
  *     from the operator's side, not from the package being checked.
  */
-export const checkMigrationOwnership = async (
+export const checkMigrationOwnership = (
   definitions: ReadonlyArray<{ name: string; plugin: string | null; definition: { manifest: Manifest } }>,
   ledger: Ledger,
-): Promise<Array<ValidatedMigration>> => {
+): Array<ValidatedMigration> => {
   const mounted = new Map(definitions.map((d) => [d.name, d.plugin]))
   const legacyAuthorized = new Map(
     readLegacyMigrations()

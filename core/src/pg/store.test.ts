@@ -10,29 +10,19 @@
 //      and the row's version after the write (ADR-0001 section 5).
 
 import assert from "node:assert/strict"
+import { Effect, Exit, Scope } from "effect"
 import { afterAll, beforeAll, describe, it } from "vitest"
-
-import { createTestDatabase } from "./test-db.ts"
-
-const db = await createTestDatabase("store")
-process.env.QWBE_DATABASE_URL = db.url
-
-const { initStore, closeAll } = await import("../kernel/store.ts")
-const { storeFor } = await import("./store.ts")
-const { getPool } = await import("./db.ts")
-const { withRole } = await import("./setup.ts")
+import { withRole } from "./setup.ts"
+import { storeFor } from "./store.ts"
+import { testStore, withSql } from "./test-db.ts"
 
 const store = storeFor("pgtest", ["items", "logs"], ["name"])
 
-beforeAll(async () => {
-  await closeAll()
-  await initStore()
-})
-
-afterAll(async () => {
-  await closeAll()
-  await db.drop()
-})
+// The database and the store live in this scope: closing it closes the pool and drops the
+// database, even when the setup itself failed half-way.
+const scope = Effect.runSync(Scope.make())
+beforeAll(() => Effect.runPromise(Scope.extend(testStore("store"), scope)))
+afterAll(() => Effect.runPromise(Scope.close(scope, Exit.void)))
 
 describe("CubeStore over Postgres", () => {
   it("inserts, reads, pages, counts and updates like the old store", async () => {
@@ -78,20 +68,19 @@ describe("CubeStore over Postgres", () => {
   it("rolls the whole transaction back: no row, no outbox entry", async () => {
     const before = await outboxCount()
     await assert.rejects(() =>
-      withRole("pgtest", async (c: { query: (sql: string, v?: unknown[]) => Promise<unknown> }) => {
-        const id = `itm-${Math.random().toString(16).slice(2, 10)}`
-        await c.query(
-          `INSERT INTO "pgtest"."items" (id, type, created_at, deleted, version, body)
-           VALUES ($1, 'item', now(), false, 1, '{}')`,
-          [id],
-        )
-        await c.query(
-          `INSERT INTO qwbe.outbox (cube, "table", row_id, op, version)
-                       VALUES ('pgtest', 'items', $1, 'insert', 1)`,
-          [id],
-        )
-        throw new Error("injected fault inside the transaction")
-      }),
+      withSql((sql) =>
+        withRole(
+          "pgtest",
+          Effect.gen(function* () {
+            const id = `itm-${Math.random().toString(16).slice(2, 10)}`
+            yield* sql`INSERT INTO "pgtest"."items" (id, type, created_at, deleted, version, body)
+                       VALUES (${id}, 'item', now(), false, 1, '{}')`
+            yield* sql`INSERT INTO qwbe.outbox (cube, "table", row_id, op, version)
+                       VALUES ('pgtest', 'items', ${id}, 'insert', 1)`
+            return yield* Effect.fail(new Error("injected fault inside the transaction"))
+          }),
+        ),
+      ),
     )
     // The injected insert used the same transaction as the store's writes do -- whatever the
     // transaction touched, the fault must have erased.
@@ -132,23 +121,19 @@ describe("CubeStore over Postgres", () => {
 
 // The store's operations are Effect values with a `never` error channel; in a test we just
 // run them and let a defect surface.
-import { Effect } from "effect"
-
 const Effect_run = async <T>(effect: Effect.Effect<T, never, never>): Promise<T> =>
   (await Effect.runPromise(effect)) as T
 
 const outboxCount = async (): Promise<number> => {
-  const r = await getPool().query(`SELECT COUNT(*)::int AS c FROM qwbe.outbox`)
-  return (r.rows[0] as unknown as { c: number }).c
+  const [r] = await withSql((sql) => sql<{ c: number }>`SELECT COUNT(*)::int AS c FROM qwbe.outbox`)
+  return r?.c ?? 0
 }
 
-const lastOutbox = async (): Promise<{ op: string; version: number; row_id: string; cube: string; table: string }> => {
-  const r = await getPool().query(`SELECT op, version, row_id, cube, "table" FROM qwbe.outbox ORDER BY id DESC LIMIT 1`)
-  return r.rows[0] as unknown as {
-    op: string
-    version: number
-    row_id: string
-    cube: string
-    table: string
-  }
+type Outbox = { op: string; version: number; row_id: string; cube: string; table: string }
+
+const lastOutbox = async (): Promise<Outbox> => {
+  const [r] = await withSql(
+    (sql) => sql<Outbox>`SELECT op, version, row_id, cube, "table" FROM qwbe.outbox ORDER BY id DESC LIMIT 1`,
+  )
+  return r as Outbox
 }

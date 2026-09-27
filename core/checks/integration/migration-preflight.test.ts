@@ -1,9 +1,10 @@
 import { randomBytes } from "node:crypto"
+import { SqlClient } from "@effect/sql"
 import { expect, layer } from "@effect/vitest"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import { MigrationConflictError, migrateDataSchemas } from "../../src/kernel/migrate.ts"
-import { getPool } from "../../src/pg/db.ts"
+import { run } from "../../src/pg/db.ts"
 import { q, schemaExists, schemaName } from "../../src/pg/setup.ts"
 import { kernelStore } from "../_layers/postgres.ts"
 import { TestDb, testDb } from "../_layers/test-db.ts"
@@ -23,7 +24,7 @@ const store = Layer.scopedDiscard(Effect.flatMap(TestDb, ({ url }) => kernelStor
 )
 
 const rowsOf = <Row extends object>(text: string, values: ReadonlyArray<unknown> = []) =>
-  Effect.promise(() => getPool().query<Row>(text, [...values])).pipe(Effect.map((result) => result.rows))
+  run(Effect.flatMap(SqlClient.SqlClient, (sql) => sql.unsafe<Row>(text, values)))
 
 /** A pre-ledger cube schema holding table `table` with the one row `row-1`, as a legacy install left it. */
 const plant = (schema: string, table: string) =>
@@ -34,13 +35,9 @@ const plant = (schema: string, table: string) =>
 
 /** Moves each flat cube under booktags; a refusal arrives in the error channel. */
 const migrate = (cubes: ReadonlyArray<string>) =>
-  Effect.tryPromise({
-    try: () =>
-      migrateDataSchemas(cubes.map((cube) => ({ fromCube: cube, toCube: nested(cube), fromPlugin: "example" }))),
-    catch: (refusal) => refusal,
-  })
+  migrateDataSchemas(cubes.map((cube) => ({ fromCube: cube, toCube: nested(cube), fromPlugin: "example" })))
 
-const exists = (cube: string) => Effect.promise(() => schemaExists(schemaName(cube)))
+const exists = (cube: string) => run(schemaExists(schemaName(cube)))
 
 const idsIn = (cube: string, table: string) =>
   rowsOf<{ id: string }>(`SELECT id FROM ${q(schemaName(cube))}.${q(table)}`).pipe(

@@ -20,10 +20,14 @@
 
 import assert from "node:assert/strict"
 import { randomBytes } from "node:crypto"
-import { Effect } from "effect"
+import { Effect, Exit, Scope } from "effect"
 import { afterAll, beforeAll, describe, it } from "vitest"
 
-import { createTestDatabase } from "./test-db.ts"
+import { CurrentActor } from "../kernel/actor.ts"
+import { activityToolsFor } from "./activity.ts"
+import { ident, roleName, schemaName, withRole } from "./setup.ts"
+import { rowStateFor, storeFor } from "./store.ts"
+import { testStore, withSql } from "./test-db.ts"
 
 if (process.env.QWBE_PG_PORT === undefined && process.env.QWBE_PG_ALLOW_DEFAULT !== "1") {
   throw new Error(
@@ -31,16 +35,6 @@ if (process.env.QWBE_PG_PORT === undefined && process.env.QWBE_PG_ALLOW_DEFAULT 
       "or QWBE_PG_ALLOW_DEFAULT=1 to accept the helper default (localhost:5433)",
   )
 }
-
-const db = await createTestDatabase("echo")
-process.env.QWBE_DATABASE_URL = db.url
-
-const { initStore, closeAll } = await import("../kernel/store.ts")
-const { storeFor, rowStateFor } = await import("./store.ts")
-const { activityToolsFor } = await import("./activity.ts")
-const { roleName, schemaName, withRole } = await import("./setup.ts")
-const { getPool } = await import("./db.ts")
-const { CurrentActor } = await import("../kernel/actor.ts")
 
 type Actor = { readonly id: string; readonly username: string }
 
@@ -64,8 +58,8 @@ const notes = storeFor(notesCube, ["notes", "tags"], [], false, "Note")
 const echo = activityToolsFor(echoCube)
 const state = rowStateFor(notesCube, ["notes", "tags"], "Note")
 
-const count = async (sql: string): Promise<number> =>
-  ((await getPool().query(`SELECT COUNT(*)::int AS c FROM ${sql}`)).rows[0] as { c: number }).c
+const count = async (table: string): Promise<number> =>
+  (await withSql((sql) => sql.unsafe<{ c: number }>(`SELECT COUNT(*)::int AS c FROM ${table}`)))[0]?.c ?? -1
 const counts = async () => ({
   activity: await count("qwbe.activity"),
   comment: await count("qwbe.comment"),
@@ -73,11 +67,14 @@ const counts = async () => ({
   notes: await count(`"${notesSchema}"."notes"`),
 })
 const roleExists = async (role: string): Promise<boolean> =>
-  ((await getPool().query(`SELECT 1 FROM pg_roles WHERE rolname = $1`, [role])).rowCount ?? 0) === 1
+  (await withSql((sql) => sql`SELECT 1 FROM pg_roles WHERE rolname = ${role}`)).length === 1
+
+// The database and the store live in this scope: closing it closes the pool and drops the
+// database, even when the setup below failed half-way.
+const scope = Effect.runSync(Scope.make())
 
 beforeAll(async () => {
-  await closeAll()
-  await initStore()
+  await Effect.runPromise(Scope.extend(testStore("echo"), scope))
   // Schema and tables are created lazily by the first store operation (ensureCubeSchema
   // creates only the schema and role; ensureTable creates the table). The `counts()` helper
   // reads the notes table with raw SQL, so warm it through the real read path first. A fresh
@@ -86,7 +83,8 @@ beforeAll(async () => {
   assert.equal(await run(notes.count("notes")), 0, "fresh database: notes table must start empty")
   // Test fixture ONLY: forces the activity INSERT to fail on demand, so the negative
   // atomicity cases go through the real store and comment code paths.
-  await getPool().query(`
+  await withSql((sql) =>
+    sql.unsafe(`
     CREATE FUNCTION qwbe.echo_test_fault() RETURNS trigger LANGUAGE plpgsql AS $$
     BEGIN
       IF NEW.changes ? 'boom' OR NEW.row_id LIKE 'fault-%' THEN
@@ -95,18 +93,16 @@ beforeAll(async () => {
       RETURN NEW;
     END $$;
     CREATE TRIGGER echo_test_fault BEFORE INSERT ON qwbe.activity
-      FOR EACH ROW EXECUTE FUNCTION qwbe.echo_test_fault()`)
+      FOR EACH ROW EXECUTE FUNCTION qwbe.echo_test_fault()`),
+  )
 })
 
 afterAll(async () => {
   // Roles outlive the database; drop ours so a shared cluster does not collect one per run.
   for (const role of [readerRole, notesRole]) {
-    await getPool()
-      .query(`DROP OWNED BY "${role}"; DROP ROLE "${role}"`)
-      .catch(() => {})
+    await withSql((sql) => sql.unsafe(`DROP OWNED BY "${role}"; DROP ROLE "${role}"`)).catch(() => {})
   }
-  await closeAll()
-  await db.drop()
+  await Effect.runPromise(Scope.close(scope, Exit.void))
 })
 
 describe("echo over a fresh Postgres", () => {
@@ -117,9 +113,14 @@ describe("echo over a fresh Postgres", () => {
   })
 
   it("a plain cube role can neither read the log nor the comments", async () => {
-    const denied = (e: unknown) => (e as { code?: string }).code === "42501"
-    await assert.rejects(() => withRole(notesCube, (c) => c.query(`SELECT 1 FROM qwbe.activity`)), denied)
-    await assert.rejects(() => withRole(notesCube, (c) => c.query(`SELECT 1 FROM qwbe.comment`)), denied)
+    const code = (table: string) =>
+      withSql((sql) =>
+        withRole(notesCube, sql.unsafe(`SELECT 1 FROM ${table}`)).pipe(
+          Effect.match({ onSuccess: () => "", onFailure: (e) => String((e.cause as { code?: string }).code) }),
+        ),
+      )
+    assert.equal(await code("qwbe.activity"), "42501")
+    assert.equal(await code("qwbe.comment"), "42501")
   })
 
   it("captures the declared type only; rowState reads the current row", async () => {
@@ -174,10 +175,13 @@ describe("echo over a fresh Postgres", () => {
     const row = (await run(as(ana, notes.insert("notes", "Note", "note", { title: "keep" })))) as { id: string }
     const before = await counts()
     const stored = async () =>
-      (await getPool().query(`SELECT version, body FROM "${notesSchema}"."notes" WHERE id = $1`, [row.id])).rows[0] as {
-        version: number
-        body: unknown
-      }
+      (
+        await withSql(
+          (sql) =>
+            sql<{ version: number; body: unknown }>`SELECT version, body FROM ${ident(sql, notesSchema, "notes")}
+                                                    WHERE id = ${row.id}`,
+        )
+      )[0]
     const was = await stored()
     await assert.rejects(() => run(as(ana, notes.update("notes", row.id, { boom: true }))), /injected activity fault/)
     assert.deepEqual(await stored(), was)

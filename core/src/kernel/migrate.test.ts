@@ -7,35 +7,41 @@
 // world changed under it. A half-moved batch must be reported, and rolled back where possible.
 
 import assert from "node:assert/strict"
+import { Effect } from "effect"
 import { describe, it } from "vitest"
 
-import { MigrationFailedError, migrateDataSchemas } from "./migrate.ts"
+import { MigrationConflictError, MigrationFailedError, migrateDataSchemas } from "./migrate.ts"
+
+/** The error the migration fails with; the test fails if it succeeds instead. */
+const refusal = (effect: ReturnType<typeof migrateDataSchemas>) => Effect.runPromise(Effect.flip(effect))
 
 describe("migrateDataSchemas rollback", () => {
-  it("restores the first schema when the second rename throws", async () => {
+  it("restores the first schema when the second rename fails", async () => {
     const moved: Array<[string, string]> = []
     let calls = 0
-    const failingAtSecond = async (from: string, to: string) => {
-      calls += 1
-      if (calls === 2) throw new Error("injected fault at the second move")
-      moved.push([from, to])
-    }
+    const failingAtSecond = (from: string, to: string) =>
+      Effect.suspend(() => {
+        calls += 1
+        if (calls === 2) return Effect.fail(new Error("injected fault at the second move"))
+        moved.push([from, to])
+        return Effect.void
+      })
     // Both source schemas exist, neither destination does -- a clean preflight.
-    const exists = async (schema: string) =>
-      schema === "bookmarks" || schema === "tags" || moved.some(([, to]) => to === schema)
+    const exists = (schema: string) =>
+      Effect.sync(() => schema === "bookmarks" || schema === "tags" || moved.some(([, to]) => to === schema))
 
-    await assert.rejects(
-      () =>
-        migrateDataSchemas(
-          [
-            { fromCube: "bookmarks", toCube: "booktags/bookmarks", fromPlugin: "example-plugin" },
-            { fromCube: "tags", toCube: "booktags/tags", fromPlugin: "example-plugin" },
-          ],
-          exists,
-          failingAtSecond,
-        ),
-      (e: Error) => e instanceof MigrationFailedError && e.message.includes("rolled back"),
+    const e = await refusal(
+      migrateDataSchemas(
+        [
+          { fromCube: "bookmarks", toCube: "booktags/bookmarks", fromPlugin: "example-plugin" },
+          { fromCube: "tags", toCube: "booktags/tags", fromPlugin: "example-plugin" },
+        ],
+        exists,
+        failingAtSecond,
+      ),
     )
+    assert.ok(e instanceof MigrationFailedError && e.message.includes("rolled back"))
+    assert.ok(e.message.includes("injected fault at the second move"))
     // The rollback is the same renamer, run backwards over what had MOVED: the first schema
     // is back under its old name, and the second move never happened at all -- the batch
     // stopped at the fault, exactly like the file-based test it replaces.
@@ -46,22 +52,21 @@ describe("migrateDataSchemas rollback", () => {
   })
 
   it("refuses a batch whose destination schema already exists", async () => {
-    const { MigrationConflictError } = await import("./migrate.ts")
-    await assert.rejects(
-      () =>
-        migrateDataSchemas(
-          [{ fromCube: "bookmarks", toCube: "booktags/bookmarks", fromPlugin: "example-plugin" }],
-          async (schema) => schema === "bookmarks" || schema === "booktags--bookmarks",
-        ),
-      MigrationConflictError,
+    const e = await refusal(
+      migrateDataSchemas(
+        [{ fromCube: "bookmarks", toCube: "booktags/bookmarks", fromPlugin: "example-plugin" }],
+        (schema) => Effect.succeed(schema === "bookmarks" || schema === "booktags--bookmarks"),
+      ),
     )
+    assert.ok(e instanceof MigrationConflictError)
   })
 
   it("does nothing when there is nothing to migrate", async () => {
-    await migrateDataSchemas([], async () => false)
-    await migrateDataSchemas(
-      [{ fromCube: "ghost", toCube: "booktags/ghost", fromPlugin: "example-plugin" }],
-      async () => false,
+    await Effect.runPromise(migrateDataSchemas([], () => Effect.succeed(false)))
+    await Effect.runPromise(
+      migrateDataSchemas([{ fromCube: "ghost", toCube: "booktags/ghost", fromPlugin: "example-plugin" }], () =>
+        Effect.succeed(false),
+      ),
     )
   })
 })

@@ -6,6 +6,7 @@
 // kernel. The `fail` and `failAfterSnapshot` continuations are injected so the ledger
 // restore-on-failure behaviour stays in main.ts, next to the snapshot it protects.
 
+import { Effect } from "effect"
 import type { CubeDefinition } from "./cube-contract.ts"
 import type { Ledger } from "./kernel/ledger.ts"
 import { migrateDataSchemas } from "./kernel/migrate.ts"
@@ -24,8 +25,8 @@ export const bootStorage = async (
   // rejection (exit 1 with a stack) and the ledger restore never runs. This shape is what
   // the old synchronous mount() path guaranteed.
   try {
-    const ms = await checkMigrationOwnership(definitions, ledgerSnapshot)
-    await migrateDataSchemas(ms)
+    const ms = checkMigrationOwnership(definitions, ledgerSnapshot)
+    await Effect.runPromise(migrateDataSchemas(ms))
     // The validated migrations travel back to main.ts: it records each source in the ledger,
     // so a completed migration stays attributable after its source schema
     // is gone -- the restart of a migrated system must not need the operator's env forever.

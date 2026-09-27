@@ -8,41 +8,49 @@
 // stored data; hiding it would make the orphan report's promise ("values stay and are
 // reportable") quietly false. Each row carries its `deleted` flag so the report can say which.
 
+import { SqlClient } from "@effect/sql"
 import { Effect } from "effect"
 import type { CustomRowView } from "../custom-defs-reader.ts"
-import { ensureCubeSchema, ensureTable, q, schemaName, withRole } from "./setup.ts"
+import { run } from "./db.ts"
+import { ensureCubeSchema, ensureTable, ident, schemaName, withRole } from "./setup.ts"
 
 /** Page size for the scan: bounded memory per step, few round trips. */
 const PAGE = 500
 
+type Raw = { readonly id: string; readonly custom: unknown; readonly deleted: boolean }
+
+const isObject = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v)
+
 export const customRows = (cube: string, tables: ReadonlyArray<string>): Effect.Effect<ReadonlyArray<CustomRowView>> =>
-  Effect.promise(async () => {
-    const out: Array<CustomRowView> = []
-    for (const t of tables) {
-      await ensureCubeSchema(cube)
-      await ensureTable(schemaName(cube), t)
-      await withRole(cube, async (c) => {
-        for (let offset = 0; ; offset += PAGE) {
-          const r = await c.query(
-            `SELECT id, body->'custom' AS custom, deleted FROM ${q(schemaName(cube))}.${q(t)}
-             WHERE body ? 'custom' ORDER BY created_at ASC LIMIT $1 OFFSET $2`,
-            [PAGE, offset],
-          )
-          for (const row of r.rows as Array<Record<string, unknown>>) {
-            const custom = row.custom
-            if (typeof custom === "object" && custom !== null && !Array.isArray(custom)) {
-              out.push({ id: String(row.id), custom: custom as Record<string, unknown>, deleted: row.deleted === true })
+  run(
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient
+      const out: Array<CustomRowView> = []
+      for (const t of tables) {
+        yield* ensureCubeSchema(cube)
+        yield* ensureTable(schemaName(cube), t)
+        yield* withRole(
+          cube,
+          Effect.gen(function* () {
+            for (let offset = 0; ; offset += PAGE) {
+              const rows = yield* sql<Raw>`SELECT id, body->'custom' AS custom, deleted
+                                          FROM ${ident(sql, schemaName(cube), t)} WHERE body ? 'custom'
+                                          ORDER BY created_at ASC LIMIT ${PAGE} OFFSET ${offset}`
+              for (const row of rows) {
+                if (isObject(row.custom))
+                  out.push({ id: String(row.id), custom: row.custom, deleted: row.deleted === true })
+              }
+              if (rows.length < PAGE) return
             }
-          }
-          if (r.rows.length < PAGE) break
-        }
-      })
-    }
-    return out
-  })
+          }),
+        )
+      }
+      return out
+    }),
+  )
 
 /**
- * ONE row's custom values, read with `WHERE id = $1`.
+ * ONE row's custom values, read by primary key.
  *
  * The full walk above exists for the ORPHAN report, which genuinely must see every row. A
  * form render asking for one row's values used to ride that same walk -- a paged scan of the
@@ -55,28 +63,19 @@ export const customRowById = (
   tables: ReadonlyArray<string>,
   id: string,
 ): Effect.Effect<CustomRowView | undefined> =>
-  Effect.promise(async () => {
-    for (const t of tables) {
-      await ensureCubeSchema(cube)
-      await ensureTable(schemaName(cube), t)
-      const row = await withRole(cube, async (c) => {
-        const r = await c.query(
-          `SELECT id, body->'custom' AS custom, deleted FROM ${q(schemaName(cube))}.${q(t)} WHERE id = $1`,
-          [id],
+  run(
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient
+      for (const t of tables) {
+        yield* ensureCubeSchema(cube)
+        yield* ensureTable(schemaName(cube), t)
+        const [row] = yield* withRole(
+          cube,
+          sql<Raw>`SELECT id, body->'custom' AS custom, deleted FROM ${ident(sql, schemaName(cube), t)} WHERE id = ${id}`,
         )
-        return r.rows[0] as Record<string, unknown> | undefined
-      })
-      if (row) {
-        const custom = row.custom
-        return {
-          id: String(row.id),
-          custom:
-            typeof custom === "object" && custom !== null && !Array.isArray(custom)
-              ? (custom as Record<string, unknown>)
-              : {},
-          deleted: row.deleted === true,
-        }
+        if (row)
+          return { id: String(row.id), custom: isObject(row.custom) ? row.custom : {}, deleted: row.deleted === true }
       }
-    }
-    return undefined
-  })
+      return undefined
+    }),
+  )
