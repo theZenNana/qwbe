@@ -121,13 +121,6 @@ module.exports = {
           "\\.test\\.ts$",
           // Permanent (audit section 4): none today; no permanent exception imports these modules.
           // To migrate (audit E4/E8/E2), delete the entry when the file moves to @effect/platform.
-          // ledger.ts fsyncs its directory; audit section 4 has not confirmed FileSystem can.
-          "^src/check-manifests\\.mjs$",
-          "^src/check-package\\.ts$",
-          "^src/check-probes\\.ts$",
-          "^src/kernel/ledger\\.ts$",
-          "^src/kernel/space\\.ts$",
-          "^src/metadata/schema-drift\\.ts$",
           "^src/pg/db\\.ts$",
         ],
       },
