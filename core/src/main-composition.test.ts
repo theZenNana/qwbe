@@ -17,9 +17,9 @@
 
 import assert from "node:assert/strict"
 import { HttpApiEndpoint, HttpApiGroup } from "@effect/platform"
+import { describe, it } from "@effect/vitest"
 import { Context, Effect, Layer, Schema } from "effect"
 import { defineCube } from "qwbe-core/cube"
-import { describe, it } from "vitest"
 import type { MountedCube } from "./kernel/discovery.ts"
 import { Registry } from "./kernel/registry.ts"
 
@@ -65,26 +65,26 @@ const registry = Layer.succeed(Registry, {
 } as unknown as Context.Tag.Service<typeof Registry>)
 
 describe("the kernel's layer composition stays cast-free and serving (QWB-38)", () => {
-  it("a cube layer, composed the way main.ts composes it, provides its service", async () => {
-    const layer = asMainSeesIt({
-      manifest: fixture.manifest,
-      name: "fixture",
-      parts,
-      plugin: null,
-      commands: [],
-    })
-    assert.ok(layer, "the fixture cube must contribute a layer, or this probe proves nothing")
-    // The three steps of main.ts, in order: registry provided back, error channel closed
-    // (the former cast's job, now done honestly by orDie), then the merge. The Provided side
-    // is erased to `never` exactly as discovery erases it, so the served tag is recovered
-    // the same way the running server recovers it: by trusting the composition, and
-    // failing the test the day the trust is broken.
-    const composed = layer.pipe(Layer.provide(registry), Layer.orDie) as Layer.Layer<ProbeTag, never, never>
-    const served = await Effect.runPromise(
-      Effect.gen(function* () {
+  it.effect("a cube layer, composed the way main.ts composes it, provides its service", () =>
+    Effect.gen(function* () {
+      const layer = asMainSeesIt({
+        manifest: fixture.manifest,
+        name: "fixture",
+        parts,
+        plugin: null,
+        commands: [],
+      })
+      assert.ok(layer, "the fixture cube must contribute a layer, or this probe proves nothing")
+      // The three steps of main.ts, in order: registry provided back, error channel closed
+      // (the former cast's job, now done honestly by orDie), then the merge. The Provided side
+      // is erased to `never` exactly as discovery erases it, so the served tag is recovered
+      // the same way the running server recovers it: by trusting the composition, and
+      // failing the test the day the trust is broken.
+      const composed = layer.pipe(Layer.provide(registry), Layer.orDie) as Layer.Layer<ProbeTag, never, never>
+      const served = yield* Effect.gen(function* () {
         return (yield* ProbeTag).speaks
-      }).pipe(Effect.provide(Layer.mergeAll(composed))),
-    )
-    assert.equal(served, "provided")
-  })
+      }).pipe(Effect.provide(Layer.mergeAll(composed)))
+      assert.equal(served, "provided")
+    }),
+  )
 })

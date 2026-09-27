@@ -17,6 +17,7 @@ import { EntityMeta, type SummaryRow } from "qwbe-core/entity"
 import { Forbidden, NotFound } from "qwbe-core/errors"
 import { PageOf } from "qwbe-core/http"
 import { PageParams, pageRequest } from "qwbe-core/pagination"
+import { requireTool, storeRelational } from "../shared.ts"
 import { notesCommands } from "./commands.ts"
 import { migrateLegacyNotes, visibleNotesPage } from "./permissions.ts"
 
@@ -85,8 +86,10 @@ export const cube = defineCube(group, {
     usesEntityPermissions: true,
   },
 
-  create: ({ store, bus, entityPermissions }: CubeTools) => {
-    if (!entityPermissions) throw new Error("notes requires the entity permissions capability")
+  create: (tools: CubeTools) => {
+    const { store, bus } = tools
+    const entityPermissions = requireTool(tools.entityPermissions, "notes requires the entity permissions capability")
+    const stored = storeRelational<NoteRow>(store, TABLE, summary)
     const actor = (user: CurrentUser["Type"]) => ({ userId: user.id, roles: user.roles })
     const reference = (note: NoteRow) => ({ cube: "notes", entityType: ENTITY, entityId: note.id })
     const ensureOwn = (note: NoteRow) =>
@@ -155,20 +158,8 @@ export const cube = defineCube(group, {
             return { rows: rows.slice(page.offset, page.offset + page.limit).map(summary), total: rows.length }
           }),
 
-        summaryById: (id) =>
-          Effect.gen(function* () {
-            const n = yield* store.byId<NoteRow>(TABLE, id)
-            if (!n || n.deleted) return undefined
-            return summary(n)
-          }),
-
-        fieldValue: (id, field) =>
-          Effect.gen(function* () {
-            const n = yield* store.byId<NoteRow>(TABLE, id)
-            if (!n || n.deleted) return null
-            const v = (n as Record<string, unknown>)[field]
-            return typeof v === "string" ? v : null
-          }),
+        summaryById: stored.summaryById,
+        fieldValue: stored.fieldValue,
       },
     }
   },

@@ -5,8 +5,8 @@
 // in core/src/pg/custom-caps.test.ts; the two together are the evidence the ticket asks for.
 
 import assert from "node:assert/strict"
+import { describe, it } from "@effect/vitest"
 import { Effect } from "effect"
-import { describe, it } from "vitest"
 
 import type { PackTools } from "./context.ts"
 import type { DefRow } from "./schema.ts"
@@ -27,44 +27,48 @@ const defRow = {
 } as unknown as DefRow
 
 describe("rowFields reads one row, not the table", () => {
-  it("goes through row(cube, id) and never through rows(cube)", async () => {
-    let rowCalls = 0
-    let rowsCalls = 0
-    const tools = {
-      store: { all: () => Effect.succeed([defRow]) },
-      bus: {},
-      catalogue: () => [],
-      customFields: {
-        // The scan the old implementation used per form render. If this is ever called again,
-        // the count below turns red -- that is the point.
-        rows: () => {
-          rowsCalls += 1
-          return Effect.succeed([])
+  it.effect("goes through row(cube, id) and never through rows(cube)", () =>
+    Effect.gen(function* () {
+      let rowCalls = 0
+      let rowsCalls = 0
+      const tools = {
+        store: { all: () => Effect.succeed([defRow]) },
+        bus: {},
+        catalogue: () => [],
+        customFields: {
+          // The scan the old implementation used per form render. If this is ever called again,
+          // the count below turns red -- that is the point.
+          rows: () => {
+            rowsCalls += 1
+            return Effect.succeed([])
+          },
+          row: (cube: string, rowId: string) => {
+            rowCalls += 1
+            assert.equal(cube, "crm/contacts")
+            assert.equal(rowId, "cont-1")
+            return Effect.succeed({ id: rowId, custom: { cnp: "9" }, deleted: false })
+          },
         },
-        row: (cube: string, rowId: string) => {
-          rowCalls += 1
-          assert.equal(cube, "crm/contacts")
-          assert.equal(rowId, "cont-1")
-          return Effect.succeed({ id: rowId, custom: { cnp: "9" }, deleted: false })
-        },
-      },
-    } as unknown as PackTools
+      } as unknown as PackTools
 
-    const result = await Effect.runPromise(rowFields(tools, "crm/contacts", "cont-1"))
-    assert.equal(result.fields[0]?.name, "cnp")
-    assert.equal(result.fields[0]?.value, "9")
-    assert.equal(rowCalls, 1)
-    assert.equal(rowsCalls, 0)
-  })
+      const result = yield* rowFields(tools, "crm/contacts", "cont-1")
+      assert.equal(result.fields[0]?.name, "cnp")
+      assert.equal(result.fields[0]?.value, "9")
+      assert.equal(rowCalls, 1)
+      assert.equal(rowsCalls, 0)
+    }),
+  )
 
-  it("a row the reader cannot find answers an empty field list, as before", async () => {
-    const tools = {
-      store: { all: () => Effect.succeed([defRow]) },
-      bus: {},
-      catalogue: () => [],
-      customFields: { rows: () => Effect.succeed([]), row: () => Effect.succeed(undefined) },
-    } as unknown as PackTools
-    const result = await Effect.runPromise(rowFields(tools, "crm/contacts", "gone"))
-    assert.deepEqual(result.fields[0]?.value, "")
-  })
+  it.effect("a row the reader cannot find answers an empty field list, as before", () =>
+    Effect.gen(function* () {
+      const tools = {
+        store: { all: () => Effect.succeed([defRow]) },
+        bus: {},
+        catalogue: () => [],
+        customFields: { rows: () => Effect.succeed([]), row: () => Effect.succeed(undefined) },
+      } as unknown as PackTools
+      const result = yield* rowFields(tools, "crm/contacts", "gone")
+      assert.deepEqual(result.fields[0]?.value, "")
+    }),
+  )
 })

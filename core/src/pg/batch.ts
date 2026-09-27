@@ -14,9 +14,11 @@
 // the statements are the CALLER's own constants; field names and ids travel as bound
 // parameters, never concatenated into the SQL text.
 
+import { SqlClient } from "@effect/sql"
 import { Effect } from "effect"
 import type { CubeStore } from "../kernel/store-contract.ts"
-import { ensureCubeSchema, q, schemaName, withRole } from "./setup.ts"
+import { run } from "./db.ts"
+import { q, schemaName, withRole } from "./setup.ts"
 
 /** One SQL statement inside a batch: text plus bound values. Identifiers are never parameters
  *  and never arrive here -- the caller quotes them itself (see `q`), values are always bound. */
@@ -36,20 +38,22 @@ export type BatchStore = CubeStore & {
 export const batchFor =
   (cube: string): BatchStore["batch"] =>
   (statements) =>
-    Effect.promise(async () => {
-      await ensureCubeSchema(cube)
-      return withRole(cube, async (c) => {
-        // The cube's statements use its OWN table names unqualified -- the schema is the
-        // cube's context, like the SQLite file was. search_path is set per transaction, so an
-        // unqualified name can only ever resolve inside the cube's own schema.
-        await c.query(`SELECT set_config('search_path', $1, true)`, [q(schemaName(cube))])
-        // The schema name is QUOTED: child cube names contain `--`, and the GUC value is a raw
-        // string, not an identifier.
-        const results: Array<ReadonlyArray<Record<string, unknown>>> = []
-        for (const s of statements) {
-          const r = await c.query(s.text, [...(s.values ?? [])])
-          results.push(r.rows as ReadonlyArray<Record<string, unknown>>)
-        }
-        return results
-      })
-    })
+    run(
+      Effect.gen(function* () {
+        const sql = yield* SqlClient.SqlClient
+        return yield* withRole(
+          cube,
+          Effect.gen(function* () {
+            // The cube's statements use its OWN table names unqualified -- the schema is the
+            // cube's context, like the SQLite file was. search_path is set per transaction, so
+            // an unqualified name can only ever resolve inside the cube's own schema. The schema
+            // name is QUOTED: child cube names contain `--`, and the GUC value is a raw string,
+            // not an identifier.
+            yield* sql`SELECT set_config('search_path', ${q(schemaName(cube))}, true)`
+            return yield* Effect.forEach(statements, (s) =>
+              sql.unsafe<Record<string, unknown>>(s.text, [...(s.values ?? [])]),
+            )
+          }),
+        )
+      }),
+    )

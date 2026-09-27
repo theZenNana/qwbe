@@ -12,6 +12,8 @@
 //   3. One request cannot write an unbounded jsonb blob into a GIN-indexed row body: the key
 //      count and the serialized size of the `custom` object are capped here, in one place.
 
+import { Either, ParseResult, Predicate, Schema } from "effect"
+
 /** The reserved sub-object of a row body where undeclared keys are kept. One name, everywhere. */
 export const CUSTOM = "custom"
 
@@ -50,8 +52,7 @@ export const checkCustomObject = (custom: unknown): string | undefined => {
 
 type FoldResult = { readonly ok: true; readonly payload: unknown } | { readonly ok: false; readonly message: string }
 
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null && !Array.isArray(value)
+const { isRecord } = Predicate
 
 // Keys that can never be plain data: assigning them through a normal object literal hits the
 // `Object.prototype` setters and silently drops or poisons the value. The custom object is
@@ -69,26 +70,26 @@ export const checkCustomValue = (def: CustomFieldDef, value: unknown): string | 
     return def.required ? `"${def.name}" is required and cannot be emptied` : undefined
   }
   const asString = typeof value === "string" ? value : (JSON.stringify(value) ?? String(value))
-  switch (def.fieldType) {
-    case "text":
-      return typeof value === "string"
-        ? value.length > 1000
-          ? `"${def.name}" is longer than 1000 characters`
-          : undefined
-        : `"${def.name}" must be text`
-    case "number":
-      return Number.isFinite(Number(value)) ? undefined : `"${def.name}" must be a number`
-    case "date":
-      return /^\d{4}-\d{2}-\d{2}$/.test(asString) && !Number.isNaN(Date.parse(asString))
-        ? undefined
-        : `"${def.name}" must be a date as YYYY-MM-DD`
-    case "bool":
-      return typeof value === "boolean" || value === "true" || value === "false"
-        ? undefined
-        : `"${def.name}" must be a boolean`
-    case "select":
-      return def.options.includes(asString) ? undefined : `"${asString}" is not one of the options for "${def.name}"`
+  const rule = (ok: (value: unknown) => boolean, message: string) =>
+    Schema.Unknown.pipe(Schema.filter(ok, { message: () => message }))
+  const rules: Record<CustomFieldDef["fieldType"], Schema.Schema.AnyNoContext> = {
+    text: Schema.String.annotations({ message: () => `"${def.name}" must be text` }).pipe(
+      Schema.maxLength(1000, { message: () => `"${def.name}" is longer than 1000 characters` }),
+    ),
+    number: rule((v) => Number.isFinite(Number(v)), `"${def.name}" must be a number`),
+    date: rule(
+      () => /^\d{4}-\d{2}-\d{2}$/.test(asString) && !Number.isNaN(Date.parse(asString)),
+      `"${def.name}" must be a date as YYYY-MM-DD`,
+    ),
+    bool: Schema.Union(Schema.Boolean, Schema.Literal("true", "false")).annotations({
+      message: () => ({ message: `"${def.name}" must be a boolean`, override: true }),
+    }),
+    select: rule(() => def.options.includes(asString), `"${asString}" is not one of the options for "${def.name}"`),
   }
+  return Either.match(Schema.decodeUnknownEither(rules[def.fieldType])(value), {
+    onLeft: (error) => ParseResult.TreeFormatter.formatErrorSync(error),
+    onRight: () => undefined,
+  })
 }
 
 /**

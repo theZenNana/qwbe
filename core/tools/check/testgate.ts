@@ -1,7 +1,7 @@
 import { join } from "node:path"
 import * as FileSystem from "@effect/platform/FileSystem"
 import * as Effect from "effect/Effect"
-import { IS_TEST, walk } from "../../src/package-size.ts"
+import { IS_TEST, sourceFiles } from "../../src/package-size.ts"
 
 // Where one unit is one child directory; units are found on disk, never from a list.
 const UNIT_HOLDERS = ["core/src/cubes", "core/src/spaces"]
@@ -49,7 +49,7 @@ const unitDirs = (root: string) =>
     return [...singles, ...cubes, ...packCubes]
   })
 
-const unitFiles = (root: string, unit: string) => Effect.sync(() => walk(join(root, unit), { includeTests: true }))
+const unitFiles = (root: string, unit: string) => sourceFiles(join(root, unit), { includeTests: true })
 
 // Returns the units with source but no test that `excused` does not cover.
 export const testgate = (root: string, excused: ReadonlyArray<string>) =>

@@ -50,6 +50,7 @@ import { Authorization, CurrentUser, requirePermission } from "../../kernel/auth
 import { Forbidden } from "../../kernel/errors.ts"
 import type { ActivityRow, CommentRow } from "../../kernel/manifest.ts"
 import { Registry } from "../../kernel/registry.ts"
+import { requireTool } from "../shared.ts"
 import { commentAuthority, type FeedTargetMeta, feedRowVisible, readRouteCap, visiblePage } from "./feed.ts"
 
 /** The comment as the comment routes and the feed carry it. `body` is "" once deleted. */
@@ -162,12 +163,12 @@ export const cube = defineCube(group, {
     routes: ROUTES,
   },
 
-  create: ({ activity, catalogue, entityPermissions }) => {
-    if (!activity) throw new Error("echo requires the readsActivity capability")
-    if (!activity.comments) throw new Error("echo requires the comment seam on the activity tool")
-    if (!entityPermissions) throw new Error("echo requires the entity permissions capability")
+  create: (tools) => {
+    const { catalogue } = tools
+    const activity = requireTool(tools.activity, "echo requires the readsActivity capability")
+    const comments = requireTool(activity.comments, "echo requires the comment seam on the activity tool")
+    const entityPermissions = requireTool(tools.entityPermissions, "echo requires the entity permissions capability")
     const page = activity.page
-    const comments = activity.comments
     const authorize = entityPermissions.authorize
 
     /**

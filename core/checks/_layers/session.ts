@@ -1,5 +1,5 @@
 import * as Effect from "effect/Effect"
-import { type CallOptions, call, login } from "./api-client.ts"
+import { type CallOptions, call, login } from "../../src/api-client.ts"
 import { boot, USERS } from "./boot.ts"
 import { TestServer } from "./test-server.ts"
 

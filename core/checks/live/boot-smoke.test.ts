@@ -1,7 +1,7 @@
 import { expect, layer } from "@effect/vitest"
 import * as Effect from "effect/Effect"
 import * as Schema from "effect/Schema"
-import { call } from "../_layers/api-client.ts"
+import { call } from "../../src/api-client.ts"
 import { asAdmin, type Session, sessionAs } from "../_layers/session.ts"
 import { TestServer, testServer } from "../_layers/test-server.ts"
 

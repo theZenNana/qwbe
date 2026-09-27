@@ -1,4 +1,5 @@
 import { Schema } from "effect"
+import { PageOf } from "./http-contracts.ts"
 import type { AuditEvent, AuditQuery, AuditValue } from "./permissions-model.ts"
 
 const isAuditValue = (value: unknown): value is AuditValue => {
@@ -38,13 +39,7 @@ export const AuditEventSchema = Schema.Struct({
   before: AuditValueSchema,
   after: AuditValueSchema,
 }).annotations({ identifier: "PermissionAuditEvent" })
-export const AuditEventPageSchema = Schema.Struct({
-  rows: Schema.Array(AuditEventSchema),
-  total: Schema.Number,
-  offset: Schema.Number,
-  limit: Schema.Number,
-  sortedBy: Schema.String,
-}).annotations({ identifier: "PermissionAuditPage" })
+export const AuditEventPageSchema = PageOf(AuditEventSchema).annotations({ identifier: "PermissionAuditPage" })
 
 const containsGroup = (value: AuditValue, groupId: string): boolean => {
   if (Array.isArray(value)) return (value as readonly AuditValue[]).some((item) => containsGroup(item, groupId))

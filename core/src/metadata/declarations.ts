@@ -16,7 +16,7 @@
  */
 
 import { Schema } from "effect"
-import { SortField } from "../kernel/pagination.ts"
+import { FIELD_NAME, SortField } from "../kernel/pagination.ts"
 
 export type MetadataDeclarations = {
   readonly version?: string
@@ -46,9 +46,6 @@ export type MetadataDeclarations = {
 // --- The same two functions answer "what may a caller filter by" for BOTH the served
 // list (kernel/list.ts) and the published metadata (metadata.ts). They live here, next to the
 // declarations they read, precisely so the two answers cannot drift apart.
-
-/** A field name that can be an SQL identifier or a jsonb key without quoting games. */
-const SAFE_FIELD = /^[A-Za-z_][A-Za-z0-9_]*$/
 
 /** `field` or `field:asc` or `field:desc`. Rejected in the schema, so a bad value is a 400 with
  *  a reason in the emitted OpenAPI -- not a silently ignored parameter. */
@@ -87,11 +84,11 @@ const RESERVED = new Set(LIST_PARAMS)
 
 /** What `q=` scans: exactly the fields the cube declares searchable. */
 export const searchFields = (m: MetadataDeclarations): ReadonlyArray<string> =>
-  (m.searchable ?? []).filter((f) => SAFE_FIELD.test(f) && !RESERVED.has(f))
+  (m.searchable ?? []).filter((f) => FIELD_NAME.test(f) && !RESERVED.has(f))
 
 /** What `<field>=<value>` accepts: the searchable fields plus every declared relation. A
  *  relation field is filterable by construction -- that is what a relation IS in a list. */
 export const filterFields = (m: MetadataDeclarations): ReadonlyArray<string> =>
   [...new Set([...searchFields(m), ...Object.keys(m.relations ?? {})])]
-    .filter((f) => SAFE_FIELD.test(f) && !RESERVED.has(f))
+    .filter((f) => FIELD_NAME.test(f) && !RESERVED.has(f))
     .sort()

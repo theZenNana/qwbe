@@ -16,14 +16,13 @@
 // kernel has never recorded is refused unless the OPERATOR authorizes it
 // (QWBE_LEGACY_MIGRATIONS). The manifest does not get a vote; neither does a fresh database.
 
-import { readLegacyMigrations } from "../config.ts"
+import { Data } from "effect"
 import type { Ledger } from "./ledger.ts"
 import type { DataMigration, Manifest } from "./manifest.ts"
 
-export class MigrationOwnershipError extends Error {
+export class MigrationOwnershipError extends Data.TaggedError("MigrationOwnershipError")<{ readonly message: string }> {
   constructor(reason: string) {
-    super(`Data migration refused by the ownership rules: ${reason}`)
-    this.name = "MigrationOwnershipError"
+    super({ message: `Data migration refused by the ownership rules: ${reason}` })
   }
 }
 
@@ -49,13 +48,15 @@ export type ValidatedMigration = DataMigration & { readonly declaredBy: string |
  *     QWBE_LEGACY_MIGRATIONS="bookmarks:example-plugin,tags:example-plugin" -- a decision
  *     from the operator's side, not from the package being checked.
  */
-export const checkMigrationOwnership = async (
+export const checkMigrationOwnership = (
   definitions: ReadonlyArray<{ name: string; plugin: string | null; definition: { manifest: Manifest } }>,
   ledger: Ledger,
-): Promise<Array<ValidatedMigration>> => {
+  /** QWBE_LEGACY_MIGRATIONS, from the caller's config. */
+  legacyMigrations = "",
+): Array<ValidatedMigration> => {
   const mounted = new Map(definitions.map((d) => [d.name, d.plugin]))
   const legacyAuthorized = new Map(
-    readLegacyMigrations()
+    legacyMigrations
       .split(",")
       .map((s) => s.trim())
       .filter(Boolean)

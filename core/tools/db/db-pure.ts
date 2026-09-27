@@ -9,21 +9,6 @@ export const COMPOSE_ARGV = {
 // prefixes only, so the demo stack's qwbe_crm_local can never match.
 export const LEAK_PREFIXES = ["qwbe_qwb50_", "qwbe_ticket05_", "qwbe_test_", "qwbe_probe_", "qwbe_booktags_"] as const
 
-// The admin connection from the QWBE_PG_* values; each unset one falls back to the local stack.
-export const adminUrl = (
-  host: string | undefined,
-  port: string | undefined,
-  user: string | undefined,
-  password: string | undefined,
-) => {
-  const url = new URL("postgres://localhost/postgres")
-  url.hostname = host ?? "localhost"
-  url.port = port ?? "5433"
-  url.username = user ?? "postgres"
-  url.password = password ?? "qwbe"
-  return url.toString()
-}
-
 // One LIKE parameter per prefix. LIKE treats `_` as a wildcard; escaped, each prefix matches only itself.
 export const leakSearch = (prefixes: ReadonlyArray<string>) => ({
   text: `SELECT datname FROM pg_database WHERE ${prefixes.map((_, i) => `datname LIKE $${i + 1}`).join(" OR ")} ORDER BY datname`,

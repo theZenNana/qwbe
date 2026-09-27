@@ -107,6 +107,24 @@ module.exports = {
       to: { path: "^(node:)?(sqlite|fs|fs/promises|child_process|worker_threads|module|vm)$" },
     },
     {
+      // Audit E13: new kernel code reaches the filesystem and processes through
+      // @effect/platform, not node:fs or node:child_process. The pathNot list only shrinks.
+      // Tests (*.test.ts) are outside this rule for now; audit E12 moves them later.
+      name: "core-src-no-node-fs-or-process",
+      comment:
+        "Non-test code in core/src uses @effect/platform FileSystem and Command instead of " +
+        "node:fs and node:child_process.",
+      severity: "error",
+      from: {
+        path: "^src/",
+        pathNot: [
+          // Tests still build fixtures with node:fs; every production file is covered, no exceptions.
+          "\\.test\\.ts$",
+        ],
+      },
+      to: { path: "^(node:)?(fs|fs/promises|child_process)$" },
+    },
+    {
       // The package checker is the one kernel module that EXECUTES foreign code: with the
       // `hierarchy` option it imports a pack's cube modules to read their manifests, and
       // `import()` runs arbitrary top-level code from a caller-supplied directory. Execution is
@@ -139,7 +157,9 @@ module.exports = {
           "^src/check-package\\.ts$",
         ],
       },
-      to: { path: "^src/package-contract.*\\.ts$" },
+      // The lexer is text in, text out, with no imports: it cannot run anything, and
+      // package-size.ts shares it instead of keeping a second copy.
+      to: { path: "^src/package-contract.*\\.ts$", pathNot: "^src/package-contract-lex\\.ts$" },
     },
     {
       name: "no-circular",

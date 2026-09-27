@@ -18,7 +18,7 @@
 // module only wraps, so nothing here needs to import the schema-widening machinery back.
 
 import { Effect } from "effect"
-import { definitionsFromStore } from "./custom-defs-reader.ts"
+import { CustomFields } from "./custom-defs-reader.ts"
 import { foldCustom } from "./custom-values.ts"
 import { BadRequest } from "./kernel/errors.ts"
 import { CustomCapError } from "./pg/errors.ts"
@@ -32,7 +32,7 @@ export const withCustomFold = (
   const impl = implementation as (request: unknown) => Effect.Effect<unknown, unknown>
   return (request: unknown) =>
     Effect.gen(function* () {
-      const defs = yield* Effect.orDie(definitionsFromStore(cubeName))
+      const defs = yield* Effect.orDie(Effect.flatMap(CustomFields, (fields) => fields.definitions(cubeName)))
       if (typeof request === "object" && request !== null && !Array.isArray(request) && "payload" in request) {
         const folded = foldCustom(request.payload, declared, defs, mode)
         if (!folded.ok) return yield* Effect.fail(new BadRequest({ message: folded.message }))

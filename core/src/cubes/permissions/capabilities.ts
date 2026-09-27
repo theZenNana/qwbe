@@ -16,7 +16,7 @@
 // revoke retires EVERY live row of the target's (capability, subject), so a revoke is
 // complete whichever id the manager passes. ponytail: a unique index needs a store primitive.
 
-import { Effect, Schema } from "effect"
+import { DateTime, Effect, Schema } from "effect"
 import type { CubeTools } from "qwbe-core/cube"
 import type { CapabilityGrant, GrantSubject, PermissionActor, PermissionService } from "qwbe-core/permissions"
 import {
@@ -91,7 +91,7 @@ export const capabilitiesFrom = (
         }
         const subjectKey = subjectKeyOf(subject)
         const existing = (yield* bySubject(subjectKey)).find((row) => row.capability === capability)
-        const createdAt = new Date().toISOString()
+        const createdAt = DateTime.formatIso(yield* DateTime.now)
         const row = existing
           ? existing
           : ((yield* state.store.insert(tables.capabilities, "CapabilityGrant", "cap", {

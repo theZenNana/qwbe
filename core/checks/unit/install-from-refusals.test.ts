@@ -8,20 +8,23 @@ import { expect, layer } from "@effect/vitest"
 import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
+import { installerFor } from "../../src/kernel/install.ts"
 import { PROVENANCE, packageSourceFingerprint } from "../../src/package-source.ts"
-import { importUnderTempDirs } from "./temp-env.ts"
+import { testConfig } from "../../src/test-config.ts"
 
-// install.ts and install-parts.ts read QWBE_STORE_DIR and QWBE_PLUGINS_DIR at import. Sources sit
-// in a third temp directory. The source-contract checker is injected as "no findings": every row
+// The installer gets its store and plugins roots from its config; each is a scoped temp directory,
+// and sources sit in a third. The source-contract checker is injected as "no findings": every row
 // is refused before it.
 const loadBench = Effect.gen(function* () {
-  const { dirs, kernel } = yield* importUnderTempDirs(
-    ["QWBE_STORE_DIR", "QWBE_PLUGINS_DIR"],
-    () => import("../../src/kernel/install.ts"),
+  const fs = yield* FileSystem.FileSystem
+  const store = yield* fs.makeTempDirectoryScoped()
+  const plugins = yield* fs.makeTempDirectoryScoped()
+  const sources = yield* fs.makeTempDirectoryScoped()
+  const installer = installerFor(
+    () => Promise.resolve([]),
+    testConfig({ QWBE_STORE_DIR: store, QWBE_PLUGINS_DIR: plugins }),
   )
-  const sources = yield* (yield* FileSystem.FileSystem).makeTempDirectoryScoped()
-  const installer = kernel.installerFor(() => Promise.resolve([]))
-  return { installer, store: dirs.QWBE_STORE_DIR, plugins: dirs.QWBE_PLUGINS_DIR, sources }
+  return { installer, store, plugins, sources }
 })
 
 class Bench extends Context.Tag("checks/unit/InstallBench")<Bench, Effect.Effect.Success<typeof loadBench>>() {}

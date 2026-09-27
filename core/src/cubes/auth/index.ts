@@ -18,7 +18,7 @@
 
 import { createHash, randomBytes } from "node:crypto"
 import { HttpApiEndpoint, HttpApiGroup, HttpServerRequest } from "@effect/platform"
-import { type Context, Effect, Layer, Option, Redacted } from "effect"
+import { Clock, type Context, DateTime, Duration, Effect, Either, Layer, Option, Redacted } from "effect"
 import { type CubeTools, defineCube } from "qwbe-core/cube"
 import { Credentials, Me, Ok, SessionToken } from "../../http-contracts.ts"
 import { Authorization, CurrentUser } from "../../kernel/auth-contract.ts"
@@ -27,7 +27,7 @@ import { callerOf } from "../../kernel/refusal-log.ts"
 import { Registry } from "../../kernel/registry.ts"
 
 const SESSIONS = "sessions"
-const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000
+const SESSION_TTL = Duration.days(7)
 
 type Session = { id: string; tokenHash: string; accountId: string; expiresAt: string }
 
@@ -92,10 +92,10 @@ export const cube = defineCube(group, {
   create: ({ store, bus, permissions, credentials, entityPermissions }: CubeTools) => {
     /** Drop expired rows. Cheap, and it keeps validation from scanning dead history. */
     const dropExpiredSessions = Effect.gen(function* () {
-      const now = Date.now()
+      const now = yield* Clock.currentTimeMillis
       const rows = yield* store.all<Session>(SESSIONS)
       for (const s of rows) {
-        if (new Date(s.expiresAt).getTime() <= now) yield* store.update(SESSIONS, s.id, { deleted: true })
+        if (Date.parse(s.expiresAt) <= now) yield* store.update(SESSIONS, s.id, { deleted: true })
       }
     })
 
@@ -123,14 +123,14 @@ export const cube = defineCube(group, {
      * layer is being built, and closed over.
      */
     // The four ways to fail are four different words, and they reach the log through the
-    // refusal body (kernel/refusal-log.ts).
-    type Validated = { readonly user: CurrentUser["Type"] } | { readonly reason: string }
+    // refusal body (kernel/refusal-log.ts). Left is the reason, Right the user.
+    type Validated = Either.Either<CurrentUser["Type"], string>
 
     const makeValidate =
       (registry: Context.Tag.Service<typeof Registry>) =>
       (token: string): Effect.Effect<Validated, never, never> =>
         Effect.gen(function* () {
-          if (token === "") return { reason: "no token" }
+          if (token === "") return Either.left("no token")
           const th = sha256(token)
           // Filtered in SQL with a bound parameter and LIMIT 1, rather than reading every row
           // and searching in JavaScript. The old version parsed the entire session history on
@@ -139,11 +139,11 @@ export const cube = defineCube(group, {
           const s = page.rows[0]
           // No row at all means this server never issued the token, or logout dropped it --
           // exactly the case a shared cookie produces, and the one worth naming separately.
-          if (!s) return { reason: "unknown token" }
-          if (new Date(s.expiresAt).getTime() <= Date.now()) return { reason: "expired token" }
+          if (!s) return Either.left("unknown token")
+          if (Date.parse(s.expiresAt) <= (yield* Clock.currentTimeMillis)) return Either.left("expired token")
 
           const summary = yield* registry.summary("Account", s.accountId)
-          if (!summary) return { reason: "unknown account" }
+          if (!summary) return Either.left("unknown account")
 
           const roles = detail(summary, "roles")
             .split(",")
@@ -153,17 +153,15 @@ export const cube = defineCube(group, {
           // per request, so a revoke is effective on the next request of ANY session. No
           // provider mounted means no grants (late-bound wrapper), never more.
           const granted = entityPermissions ? yield* entityPermissions.capabilitiesFor(summary.id) : []
-          return {
-            user: {
-              id: summary.id,
-              username: summary.title,
-              roles,
-              permissions: [...new Set([...permissionsFor(roles), ...granted])].sort(),
-              // The row's own id travels with the user: it is what makes per-session logout
-              // possible instead of logout-everywhere.
-              sessionId: s.id,
-            },
-          }
+          return Either.right({
+            id: summary.id,
+            username: summary.title,
+            roles,
+            permissions: [...new Set([...permissionsFor(roles), ...granted])].sort(),
+            // The row's own id travels with the user: it is what makes per-session logout
+            // possible instead of logout-everywhere.
+            sessionId: s.id,
+          })
         })
 
     // The implementation of the tag the kernel declares. The only place in the system that
@@ -178,11 +176,9 @@ export const cube = defineCube(group, {
           // The token arrives as `Redacted`, not a string — Effect hides it on purpose so it
           // cannot land in logs by accident. Unwrap explicitly.
           bearer: (token) =>
-            Effect.gen(function* () {
-              const result = yield* validate(Redacted.value(token))
-              if (!("user" in result)) return yield* Effect.fail(new Unauthorized({ message: result.reason }))
-              return result.user
-            }),
+            Effect.flatMap(validate(Redacted.value(token)), (result) =>
+              Either.mapLeft(result, (reason) => new Unauthorized({ message: reason })),
+            ),
         })
       }),
     )
@@ -209,7 +205,7 @@ export const cube = defineCube(group, {
             yield* dropExpiredSessions
 
             const token = randomBytes(32).toString("base64url")
-            const expiresAt = new Date(Date.now() + SESSION_TTL_MS).toISOString()
+            const expiresAt = DateTime.formatIso(DateTime.addDuration(yield* DateTime.now, SESSION_TTL))
             yield* store.insert(SESSIONS, "Session", "ses", {
               tokenHash: sha256(token),
               accountId: identity.id,

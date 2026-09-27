@@ -5,11 +5,11 @@
 // would hide what to fix. Anything else (a disk error, a bug) must become a 500 WITHOUT the
 // message: a system error is the operator's log to read, not something a caller is shown.
 //
-// The seam that makes this one rule: `toInstallError` (kernel/install-parts.ts) keeps
-// `InstallError` on the error channel and re-throws everything else as a defect; the
-// settings handler maps `InstallError` to `BadRequest` and lets defects pass to the
-// platform, which answers 500. This test exercises BOTH branches through the real router,
-// the real handler and the real `tried` bridge -- only the installer itself is a fixture,
+// The seam that makes this one rule: `face` (kernel/install-parts.ts) keeps `InstallError` on
+// the error channel and turns every filesystem error into a defect; the settings handler maps
+// `InstallError` to `BadRequest` and lets defects pass to the platform, which answers 500.
+// This test exercises BOTH branches through the real router, the real handler and the real
+// `face` -- only the installer itself is a fixture,
 // because a real installer's IO failures depend on the machine, not on the code under test.
 //
 // Composed like capability-gates.test.ts: the real auth and permissions cubes issue the
@@ -17,37 +17,48 @@
 
 import assert from "node:assert/strict"
 import { HttpApiBuilder, HttpServer } from "@effect/platform"
+import { SystemError } from "@effect/platform/Error"
 import { type Context, Effect, Layer } from "effect"
 import { describe, it } from "vitest"
 import { cube as authCube } from "./cubes/auth/index.ts"
 import { cube as permissionsCube } from "./cubes/permissions/index.ts"
 import { cube as settingsCube } from "./cubes/settings/index.ts"
+import { CustomFields, customFieldsRegistry } from "./custom-defs-reader.ts"
 import type { MountedCube } from "./kernel/discovery.ts"
-import { tried } from "./kernel/install-parts.ts"
+import { face } from "./kernel/install-parts.ts"
 import { InstallError } from "./kernel/manifest.ts"
 import { Registry } from "./kernel/registry.ts"
 import { buildApi, buildHandlers } from "./runtime-composition.ts"
+import { testConfig } from "./test-config.ts"
 import { memoryStore } from "./test-cube-tools.ts"
 
-// The fixture installer speaks through the production bridge `tried`, so the branch the test
-// proves is the branch production takes: an `InstallError` stays on the error channel; a raw
-// throw becomes a defect the way a real EACCES would.
-const contractRefusal = () =>
-  tried(() => {
-    throw new InstallError('refused: "bad-pkg" is already installed.')
-  })
+const config = testConfig()
+
+// The fixture installer speaks through the production `face`, so the branch the test proves is
+// the branch production takes: an `InstallError` stays on the error channel; a platform
+// SystemError becomes a defect the way a real EACCES does.
+const contractRefusal = () => face(config, Effect.fail(new InstallError('refused: "bad-pkg" is already installed.')))
 const diskFailure = () =>
-  tried(() => {
-    throw new Error("EACCES: permission denied, mkdir '/usr/local/lib/qwbe'")
-  })
+  face(
+    config,
+    Effect.fail(
+      new SystemError({
+        reason: "PermissionDenied",
+        module: "FileSystem",
+        method: "makeDirectory",
+        pathOrDescriptor: "/usr/local/lib/qwbe",
+        description: "EACCES: permission denied, mkdir '/usr/local/lib/qwbe'",
+      }),
+    ),
+  )
 
 const installerFixture = {
   install: (name: string) => (name === "bad-pkg" ? contractRefusal() : diskFailure()),
-  available: () => [],
+  available: () => Effect.succeed([]),
   uninstallPackage: () => diskFailure(),
-  cubeOnDisk: () => false,
+  cubeOnDisk: () => Effect.succeed(false),
   remove: () => diskFailure(),
-  restart: () => {},
+  restart: () => Effect.void,
   scanDirectory: () => diskFailure(),
   forgetShelf: () => diskFailure(),
   stageAndInstall: () => diskFailure(),
@@ -112,7 +123,11 @@ const world = () => {
   const webHandler = HttpApiBuilder.toWebHandler(
     Layer.mergeAll(
       HttpApiBuilder.api(api).pipe(
-        Layer.provide(buildHandlers(api, cubes).pipe(Layer.provide(registry))),
+        Layer.provide(
+          buildHandlers(api, cubes).pipe(
+            Layer.provide(Layer.merge(registry, Layer.succeed(CustomFields, customFieldsRegistry().service))),
+          ),
+        ),
         Layer.provide(authLive),
       ),
       HttpServer.layerContext,

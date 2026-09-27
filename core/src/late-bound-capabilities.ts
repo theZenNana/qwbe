@@ -1,51 +1,62 @@
-import { Effect } from "effect"
+import { Effect, Option, Ref } from "effect"
+import type { CredentialVerifier } from "./kernel/manifest.ts"
 import type { IdentityDirectory, PermissionService } from "./permissions-contracts.ts"
 import { PermissionInvalid } from "./permissions-contracts.ts"
 
+/**
+ * A service whose provider is bound after the consumer received it: every method reads the
+ * provider bound NOW and calls it, or answers what `fallback` answers when none is bound yet.
+ * `fallback` is typed as the full service, so it names every method -- that list is the one the
+ * wrapper is built from.
+ */
+export const lateBound = <S extends object>(bound: Ref.Ref<Option.Option<S>>, fallback: S): S =>
+  Object.fromEntries(
+    Object.keys(fallback).map((method) => [
+      method,
+      (...args: ReadonlyArray<unknown>) =>
+        Effect.flatMap(Ref.get(bound), (current) => {
+          const target = Option.getOrElse(current, () => fallback) as Record<
+            string,
+            (...a: ReadonlyArray<unknown>) => unknown
+          >
+          return target[method]!(...args) as Effect.Effect<unknown, unknown>
+        }),
+    ]),
+  ) as S
+
 const unavailable = () => Effect.fail(new PermissionInvalid({ message: "entity permissions provider unavailable" }))
 
-export const lateBoundIdentityDirectory = (holder: { current?: IdentityDirectory }): IdentityDirectory => ({
-  resolveUsername: (username) =>
-    holder.current ? holder.current.resolveUsername(username) : Effect.succeed(undefined),
-})
+/** No credentials provider: nobody verifies. */
+export const noCredentials: CredentialVerifier = { verify: () => Effect.succeed(undefined) }
 
-export const lateBoundPermissionService = (holder: { current?: PermissionService }): PermissionService => ({
-  claim: (actor, ref) => (holder.current ? holder.current.claim(actor, ref) : unavailable()),
-  ownership: (ref) => (holder.current ? holder.current.ownership(ref) : Effect.succeed(undefined)),
-  authorize: (actor, ref, action) =>
-    holder.current ? holder.current.authorize(actor, ref, action) : Effect.succeed({ allowed: false, source: "none" }),
-  assignCubeAdmin: (actor, cube, userId) =>
-    holder.current ? holder.current.assignCubeAdmin(actor, cube, userId) : unavailable(),
-  revokeCubeAdmin: (actor, cube, userId) =>
-    holder.current ? holder.current.revokeCubeAdmin(actor, cube, userId) : unavailable(),
-  cubeAdmins: (actor, cube) => (holder.current ? holder.current.cubeAdmins(actor, cube) : unavailable()),
-  transferOwnership: (actor, ref, userId) =>
-    holder.current ? holder.current.transferOwnership(actor, ref, userId) : unavailable(),
-  audit: (query) => (holder.current ? holder.current.audit(query) : Effect.succeed([])),
-  createGroup: (actor, cube, name) => (holder.current ? holder.current.createGroup(actor, cube, name) : unavailable()),
-  renameGroup: (actor, groupId, name) =>
-    holder.current ? holder.current.renameGroup(actor, groupId, name) : unavailable(),
-  groups: (actor, cube) => (holder.current ? holder.current.groups(actor, cube) : unavailable()),
-  addGroupMember: (actor, groupId, userId) =>
-    holder.current ? holder.current.addGroupMember(actor, groupId, userId) : unavailable(),
-  removeGroupMember: (actor, groupId, userId) =>
-    holder.current ? holder.current.removeGroupMember(actor, groupId, userId) : unavailable(),
-  groupMembers: (actor, groupId) => (holder.current ? holder.current.groupMembers(actor, groupId) : unavailable()),
-  grantUser: (actor, ref, userId, actions) =>
-    holder.current ? holder.current.grantUser(actor, ref, userId, actions) : unavailable(),
-  grantGroup: (actor, ref, groupId, actions) =>
-    holder.current ? holder.current.grantGroup(actor, ref, groupId, actions) : unavailable(),
-  revokeGrant: (actor, grantId) => (holder.current ? holder.current.revokeGrant(actor, grantId) : unavailable()),
-  listGrants: (actor, ref) => (holder.current ? holder.current.listGrants(actor, ref) : unavailable()),
-  grantCapability: (actor, subject, capability) =>
-    holder.current ? holder.current.grantCapability(actor, subject, capability) : unavailable(),
-  revokeCapabilityGrant: (actor, grantId) =>
-    holder.current ? holder.current.revokeCapabilityGrant(actor, grantId) : unavailable(),
-  listCapabilityGrants: (actor, cube) =>
-    holder.current ? holder.current.listCapabilityGrants(actor, cube) : unavailable(),
+/** No identity directory: no username resolves. */
+export const noIdentityDirectory: IdentityDirectory = { resolveUsername: () => Effect.succeed(undefined) }
+
+/** No entity permissions provider: reads answer "nothing", writes answer "unavailable". */
+export const noPermissionService: PermissionService = {
+  claim: unavailable,
+  ownership: () => Effect.succeed(undefined),
+  authorize: () => Effect.succeed({ allowed: false, source: "none" }),
+  assignCubeAdmin: unavailable,
+  revokeCubeAdmin: unavailable,
+  cubeAdmins: unavailable,
+  transferOwnership: unavailable,
+  audit: () => Effect.succeed([]),
+  createGroup: unavailable,
+  renameGroup: unavailable,
+  groups: unavailable,
+  addGroupMember: unavailable,
+  removeGroupMember: unavailable,
+  groupMembers: unavailable,
+  grantUser: unavailable,
+  grantGroup: unavailable,
+  revokeGrant: unavailable,
+  listGrants: unavailable,
+  grantCapability: unavailable,
+  revokeCapabilityGrant: unavailable,
+  listCapabilityGrants: unavailable,
   // No provider, no grants: the auth middleware unions this with the role permissions.
-  capabilitiesFor: (userId) => (holder.current ? holder.current.capabilitiesFor(userId) : Effect.succeed([])),
-  listVisible: (actor, cube, view) =>
-    holder.current ? holder.current.listVisible(actor, cube, view) : Effect.succeed([]),
-  setHidden: (actor, ref, hidden) => (holder.current ? holder.current.setHidden(actor, ref, hidden) : unavailable()),
-})
+  capabilitiesFor: () => Effect.succeed([]),
+  listVisible: () => Effect.succeed([]),
+  setHidden: unavailable,
+}

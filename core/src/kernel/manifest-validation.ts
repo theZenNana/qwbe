@@ -3,6 +3,7 @@
 // manifest.ts keeps WHAT a cube declares; this file checks that the declaration
 // cannot lie, against the real artefacts (directory names, endpoint lists).
 
+import { Data } from "effect"
 import { AGENT_SURFACE } from "../agent-contracts.ts"
 import { containsStatus } from "../entity-contract.ts"
 import { groupEndpoints } from "../metadata/ast.ts"
@@ -51,14 +52,14 @@ export const validateAgentSurface = (cube: string, m: Manifest, group: CubeGroup
 
 // --- manifest validation, run at mount ---
 
-export class InvalidManifestError extends Error {
+export class InvalidManifestError extends Data.TaggedError("InvalidManifestError")<{ readonly message: string }> {
   constructor(directory: string, reasons: ReadonlyArray<string>) {
-    super(
-      `Invalid manifest in cube "${directory}":\n` +
+    super({
+      message:
+        `Invalid manifest in cube "${directory}":\n` +
         reasons.map((r) => `  - ${r}`).join("\n") +
         `\nThe cube does not mount. Fix the manifest in that cube's index.ts.`,
-    )
-    this.name = "InvalidManifestError"
+    })
   }
 }
 

@@ -1,8 +1,14 @@
 import { Schema } from "effect"
-import { EntityActions, TotalActions } from "./permissions-model.ts"
+import { PageOf } from "./http-contracts.ts"
 
+export const EntityActions = ["read", "create", "edit", "delete", "share", "transfer"] as const
 export const GrantAction = Schema.Literal(...EntityActions)
 export type GrantAction = typeof GrantAction.Type
+export const TotalActions: ReadonlyArray<GrantAction> = [...EntityActions]
+export const GrantSubjectSchema = Schema.Union(
+  Schema.Struct({ kind: Schema.Literal("user"), userId: Schema.String }),
+  Schema.Struct({ kind: Schema.Literal("group"), groupId: Schema.String }),
+)
 export const PermissionGroupSchema = Schema.Struct({
   id: Schema.String,
   cube: Schema.String,
@@ -22,10 +28,7 @@ export const EntityGrantSchema = Schema.Struct({
   cube: Schema.String,
   entityType: Schema.String,
   entityId: Schema.String,
-  subject: Schema.Union(
-    Schema.Struct({ kind: Schema.Literal("user"), userId: Schema.String }),
-    Schema.Struct({ kind: Schema.Literal("group"), groupId: Schema.String }),
-  ),
+  subject: GrantSubjectSchema,
   actions: Schema.Array(GrantAction),
   createdBy: Schema.String,
   createdAt: Schema.String,
@@ -74,10 +77,7 @@ export const CapabilityGrantSchema = Schema.Struct({
   id: Schema.String,
   cube: Schema.String,
   capability: Schema.String,
-  subject: Schema.Union(
-    Schema.Struct({ kind: Schema.Literal("user"), userId: Schema.String }),
-    Schema.Struct({ kind: Schema.Literal("group"), groupId: Schema.String }),
-  ),
+  subject: GrantSubjectSchema,
   createdBy: Schema.String,
   createdAt: Schema.String,
 }).annotations({ identifier: "CapabilityGrant" })
@@ -123,23 +123,13 @@ export const EntityVisibilitySchema = Schema.Struct({
   hidden: Schema.Boolean,
   sharedWithCount: Schema.Number,
 }).annotations({ identifier: "EntityVisibility" })
-export const EntityVisibilityPageSchema = Schema.Struct({
-  rows: Schema.Array(EntityVisibilitySchema),
-  total: Schema.Number,
-  offset: Schema.Number,
-  limit: Schema.Number,
-  sortedBy: Schema.String,
-}).annotations({ identifier: "EntityVisibilityPage" })
+export const EntityVisibilityPageSchema = PageOf(EntityVisibilitySchema).annotations({
+  identifier: "EntityVisibilityPage",
+})
 export const VisibilityMutationSchema = Schema.Struct({ hidden: Schema.Boolean }).annotations({
   identifier: "VisibilityMutation",
 })
-export const EntityGrantPageSchema = Schema.Struct({
-  rows: Schema.Array(EntityGrantSchema),
-  total: Schema.Number,
-  offset: Schema.Number,
-  limit: Schema.Number,
-  sortedBy: Schema.String,
-}).annotations({ identifier: "EntityGrantPage" })
+export const EntityGrantPageSchema = PageOf(EntityGrantSchema).annotations({ identifier: "EntityGrantPage" })
 export const EntityGrantListParams = Schema.Struct({
   offset: Schema.optionalWith(Schema.NumberFromString, { default: () => 0 }),
   limit: Schema.optionalWith(Schema.NumberFromString, { default: () => 50 }),

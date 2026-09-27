@@ -27,6 +27,14 @@ describe("cube contract", () => {
     )
   })
 
+  it("keeps a tagged contract error an Error with its old name", () => {
+    const error = new InvalidCubeContractError("reference", "why")
+    assert.ok(error instanceof Error)
+    assert.equal(error.name, "InvalidCubeContractError")
+    assert.equal(error._tag, "InvalidCubeContractError")
+    assert.equal(error.message, 'Invalid cube contract "reference": why')
+  })
+
   it("refuses extra handlers after runtime discovery erases concrete types", () => {
     assert.throws(
       () =>

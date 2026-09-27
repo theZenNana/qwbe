@@ -35,4 +35,4 @@ export const refreshSnapshot = (store: Store, snapshot: Snapshot) =>
   Effect.gen(function* () {
     const rows = yield* store.all<DefRow>(DEFS)
     snapshot.current = rows.filter((d) => d.deleted === false)
-  }).pipe(Effect.catchAll(() => Effect.succeed(undefined)))
+  }).pipe(Effect.catchAllCause(() => Effect.void))

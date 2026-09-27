@@ -1,7 +1,8 @@
 // The CubeStore implementation over Postgres. Six operations, same signatures, error channel
 // `never` -- the cubes were written against the SQLite store and NONE of them changes now. A
 // driver failure is a defect, exactly as an unexpected SQLite error was: it escapes the Effect
-// as a die, not as a failure a cube could "handle".
+// as a die, not as a failure a cube could "handle". The SqlError is typed everywhere inside
+// core/src/pg and turned into that defect in one place, `run` in db.ts.
 //
 // Two invariants carry over from the old file and are restated here because they are the
 // reason this module is shaped the way it is:
@@ -10,15 +11,16 @@
 //      an empty array. The check runs BEFORE any SQL is built, so a computed table name cannot
 //      reach the engine.
 //   2. Only declared meta columns are interpolated into SQL. Everything else -- field names in
-//      `sortBy` and `where` -- is a bound parameter (`body ->> $n`), so a field name can never
-//      become SQL.
+//      `sortBy` and `where` -- is a bound parameter (`body ->> field`), so a field name can
+//      never become SQL.
 //
 // Every operation, read or write, is one transaction that begins with `SET LOCAL ROLE` to the
 // cube's role. That transaction is also where isolation lives: Postgres refuses anything the
 // role was not granted, and `SET LOCAL` ends with the transaction, so nothing leaks between
 // operations on a pooled connection.
 
-import { Effect, FiberRef } from "effect"
+import { SqlClient, type SqlError, type Statement } from "@effect/sql"
+import { DateTime, Effect, FiberRef } from "effect"
 import { CurrentActor } from "../kernel/actor.ts"
 // RowState is declared in the leaf store contract; re-exported here so kernel/store.ts keeps
 // its public surface (QWB-70).
@@ -26,21 +28,12 @@ import type { CubeStore, RowState } from "../kernel/store-contract.ts"
 
 export type { RowState }
 
-import type { ListWhere, Page, PageRequest } from "../kernel/pagination.ts"
+import type { ListWhere, PageRequest } from "../kernel/pagination.ts"
 import { type BatchStore, batchFor } from "./batch.ts"
+import { run } from "./db.ts"
 import { ForeignTableError } from "./errors.ts"
-import {
-  activityInsert,
-  decode,
-  diffBody,
-  mergeCustom,
-  newId,
-  orderClause,
-  outboxInsert,
-  renumber,
-  whereClause,
-} from "./rows.ts"
-import { ensureCubeSchema, ensureTable, q, schemaName, withRole } from "./setup.ts"
+import { activityInsert, decode, diffBody, mergeCustom, newId, orderClause, outboxInsert, whereClause } from "./rows.ts"
+import { ensureCubeSchema, ensureTable, ident, schemaName, withRole } from "./setup.ts"
 
 export { ForeignTableError } from "./errors.ts"
 
@@ -64,6 +57,8 @@ export const capturesType = (captureEntity: string | undefined, type: string): b
 const asStored = <A extends Record<string, unknown>>(row: A): A =>
   Object.fromEntries(Object.entries(row).filter(([, v]) => v !== undefined)) as A
 
+type Row = Record<string, unknown>
+
 export const storeFor = (
   cube: string,
   tables: ReadonlyArray<string>,
@@ -81,169 +76,124 @@ export const storeFor = (
 ): CubeStore & { readonly batch?: BatchStore["batch"] } => {
   const allowed = new Set(tables)
   const sortableFields = new Set(sortable)
+  const schema = schemaName(cube)
 
-  const check = (table: string): string => {
-    if (!allowed.has(table)) throw new ForeignTableError(cube, table, tables)
-    return table
-  }
+  /**
+   * The path all six operations take: the table check before any SQL exists, the cube's
+   * schema and table set up, then one transaction under the cube's role. `f` gets the client
+   * and the quoted, schema-qualified table.
+   */
+  const onTable = <A>(
+    table: string,
+    f: (sql: SqlClient.SqlClient, t: Statement.Fragment) => Effect.Effect<A, SqlError.SqlError, SqlClient.SqlClient>,
+  ): Effect.Effect<A> =>
+    run(
+      Effect.gen(function* () {
+        if (!allowed.has(table)) throw new ForeignTableError(cube, table, tables)
+        const sql = yield* SqlClient.SqlClient
+        yield* ensureCubeSchema(cube)
+        yield* ensureTable(schema, table)
+        return yield* withRole(cube, f(sql, ident(sql, schema, table)))
+      }),
+    )
 
   return {
     all: <A>(table: string) =>
-      Effect.promise(async () => {
-        const t = check(table)
-        await ensureCubeSchema(cube)
-        await ensureTable(schemaName(cube), t)
-        return withRole(cube, async (c) => {
-          const r = await c.query(
-            `SELECT * FROM ${q(schemaName(cube))}.${q(t)} WHERE deleted = false ORDER BY created_at ASC`,
-          )
-          return r.rows.map(decode) as ReadonlyArray<A>
-        })
-      }),
+      onTable(table, (sql, t) =>
+        Effect.map(
+          sql<Row>`SELECT * FROM ${t} WHERE deleted = false ORDER BY created_at ASC`,
+          (rows) => rows.map(decode) as ReadonlyArray<A>,
+        ),
+      ),
 
     page: <A>(
       table: string,
       page: PageRequest,
       where?: { readonly field: string; readonly value: string } | ListWhere,
     ) =>
-      Effect.promise(async (): Promise<Page<A>> => {
-        const t = check(table)
-        await ensureCubeSchema(cube)
-        await ensureTable(schemaName(cube), t)
-        return withRole(cube, async (c) => {
-          const w = whereClause(where)
-          const o = orderClause(page.sortBy, page.descending ?? false, sortableFields)
-          const n = w.params.length
-          const osql = renumber(o.sql, n)
-          // The sort parameter (if any) takes index n+1; LIMIT and OFFSET come after whatever
-          // the WHERE and ORDER clauses actually used.
-          const limitIdx = n + 1 + o.params.length
-          const offsetIdx = limitIdx + 1
-          const count = await c.query(
-            `SELECT COUNT(*)::int AS c FROM ${q(schemaName(cube))}.${q(t)} WHERE deleted = false ${w.sql}`,
-            w.params,
-          )
-          const rows = await c.query(
-            `SELECT * FROM ${q(schemaName(cube))}.${q(t)} WHERE deleted = false ${w.sql} ${osql} LIMIT $${limitIdx} OFFSET $${offsetIdx}`,
-            [...w.params, ...o.params, page.limit, page.offset],
-          )
+      onTable(table, (sql, t) =>
+        Effect.gen(function* () {
+          const w = whereClause(sql, where)
+          const o = orderClause(sql, page.sortBy, page.descending ?? false, sortableFields)
+          const [count] = yield* sql<{ c: number }>`SELECT COUNT(*)::int AS c FROM ${t} WHERE deleted = false ${w}`
+          const rows = yield* sql<Row>`SELECT * FROM ${t} WHERE deleted = false ${w} ${o.sql}
+                                       LIMIT ${page.limit} OFFSET ${page.offset}`
           return {
-            rows: rows.rows.map(decode) as ReadonlyArray<A>,
-            total: (count.rows[0] as unknown as { c: number }).c,
+            rows: rows.map(decode) as ReadonlyArray<A>,
+            total: count?.c ?? 0,
             offset: page.offset,
             limit: page.limit,
             sortedBy: o.applied,
           }
-        })
-      }),
+        }),
+      ),
 
     byId: <A>(table: string, id: string) =>
-      Effect.promise(async () => {
-        const t = check(table)
-        await ensureCubeSchema(cube)
-        await ensureTable(schemaName(cube), t)
-        return withRole(cube, async (c) => {
-          const r = await c.query(`SELECT * FROM ${q(schemaName(cube))}.${q(t)} WHERE id = $1 AND deleted = false`, [
-            id,
-          ])
-          return r.rows[0] ? (decode(r.rows[0] as Record<string, unknown>) as A) : undefined
-        })
-      }),
+      onTable(table, (sql, t) =>
+        Effect.map(sql<Row>`SELECT * FROM ${t} WHERE id = ${id} AND deleted = false`, ([row]) =>
+          row ? (decode(row) as A) : undefined,
+        ),
+      ),
 
     insert: (table: string, entityType: string, prefix: string, values: Record<string, unknown>) =>
-      // The actor is read BEFORE the promise: a FiberRef read needs no Effect requirement, so
-      // the store keeps `R = never` (a cube could not provide a service it cannot see).
-      Effect.gen(function* () {
-        const actor = yield* FiberRef.get(CurrentActor)
-        return yield* Effect.promise(async () => {
-          const t = check(table)
-          await ensureCubeSchema(cube)
-          await ensureTable(schemaName(cube), t)
-          return withRole(cube, async (c) => {
-            const row = asStored({
-              id: newId(prefix),
-              type: entityType,
-              createdAt: new Date().toISOString(),
-              deleted: false,
-              ...values,
-            })
-            const { id, type, createdAt, deleted, ...body } = row
-            await c.query(
-              `INSERT INTO ${q(schemaName(cube))}.${q(t)} (id, type, created_at, deleted, version, body)
-             VALUES ($1, $2, $3::timestamptz, $4, 1, $5)`,
-              [id, type, createdAt, deleted, JSON.stringify(body)],
-            )
-            await c.query(outboxInsert(cube, t, id, "insert", 1))
-            if (capturesType(captureEntity, entityType)) {
-              await c.query(activityInsert(cube, entityType, id, "create", 1, actor, diffBody(null, body)))
-            }
-            return row
+      onTable(table, (sql, t) =>
+        Effect.gen(function* () {
+          // A FiberRef read needs no Effect requirement, so the store keeps `R = never` (a cube
+          // could not provide a service it cannot see).
+          const actor = yield* FiberRef.get(CurrentActor)
+          const row = asStored({
+            id: newId(prefix),
+            type: entityType,
+            createdAt: DateTime.formatIso(yield* DateTime.now),
+            deleted: false,
+            ...values,
           })
-        })
-      }),
+          const { id, type, createdAt, deleted, ...body } = row
+          yield* sql`INSERT INTO ${t} (id, type, created_at, deleted, version, body)
+                     VALUES (${id}, ${type}, ${createdAt}::timestamptz, ${deleted}, 1, ${JSON.stringify(body)})`
+          yield* outboxInsert(sql, cube, table, id, "insert", 1)
+          if (capturesType(captureEntity, entityType)) {
+            yield* activityInsert(sql, cube, entityType, id, "create", 1, actor, diffBody(null, body))
+          }
+          return row
+        }),
+      ),
 
     update: (table: string, id: string, patch: Record<string, unknown>) =>
-      Effect.gen(function* () {
-        const actor = yield* FiberRef.get(CurrentActor)
-        return yield* Effect.promise(async () => {
-          const t = check(table)
-          await ensureCubeSchema(cube)
-          await ensureTable(schemaName(cube), t)
-          return withRole(cube, async (c) => {
-            const current = await c.query(`SELECT * FROM ${q(schemaName(cube))}.${q(t)} WHERE id = $1`, [id])
-            if (!current.rows[0]) return undefined
-            const merged = { ...decode(current.rows[0] as Record<string, unknown>), ...patch }
-            // `custom` merges (rows.ts), so a partial PATCH cannot wipe sibling values.
-            const withCustom = mergeCustom(current.rows[0] as Record<string, unknown>, merged)
-            const { id: _i, type, createdAt, deleted, ...body } = withCustom
-            const version = ((current.rows[0] as { version: number }).version ?? 1) + 1
-            await c.query(
-              `UPDATE ${q(schemaName(cube))}.${q(t)}
-             SET type = $1, created_at = $2::timestamptz, deleted = $3, version = $4, body = $5
-             WHERE id = $6`,
-              [String(type), String(createdAt), deleted, version, JSON.stringify(body), id],
-            )
-            // ADR-0001 section 5 lists delete as its own op: a soft delete is not an update.
-            await c.query(outboxInsert(cube, t, id, deleted === true ? "delete" : "update", version))
-            if (capturesType(captureEntity, String(type))) {
-              const {
-                id: _pi,
-                type: _pt,
-                createdAt: _pc,
-                deleted: _pd,
-                ...prevBody
-              } = decode(current.rows[0] as Record<string, unknown>)
-              await c.query(
-                activityInsert(
-                  cube,
-                  String(type),
-                  id,
-                  deleted === true ? "delete" : "update",
-                  version,
-                  actor,
-                  deleted === true ? {} : diffBody(prevBody, body),
-                ),
-              )
-            }
-            // The row stores the MERGE, so the response must too -- a
-            // PATCH response reporting `custom` as only the patched keys would lie about the row.
-            return asStored({ ...withCustom, id })
-          })
-        })
-      }),
+      onTable(table, (sql, t) =>
+        Effect.gen(function* () {
+          const actor = yield* FiberRef.get(CurrentActor)
+          const [current] = yield* sql<Row>`SELECT * FROM ${t} WHERE id = ${id}`
+          if (!current) return undefined
+          const previous = decode(current)
+          // `custom` merges (rows.ts), so a partial PATCH cannot wipe sibling values.
+          const withCustom = mergeCustom(current, { ...previous, ...patch })
+          const { id: _i, type, createdAt, deleted, ...body } = withCustom
+          const version = ((current as { version?: number }).version ?? 1) + 1
+          yield* sql`UPDATE ${t}
+                     SET type = ${String(type)}, created_at = ${String(createdAt)}::timestamptz, deleted = ${deleted},
+                         version = ${version}, body = ${JSON.stringify(body)}
+                     WHERE id = ${id}`
+          // ADR-0001 section 5 lists delete as its own op: a soft delete is not an update.
+          const op = deleted === true ? "delete" : "update"
+          yield* outboxInsert(sql, cube, table, id, op, version)
+          if (capturesType(captureEntity, String(type))) {
+            const { id: _pi, type: _pt, createdAt: _pc, deleted: _pd, ...prevBody } = previous
+            const changes = deleted === true ? {} : diffBody(prevBody, body)
+            yield* activityInsert(sql, cube, String(type), id, op, version, actor, changes)
+          }
+          // The row stores the MERGE, so the response must too -- a
+          // PATCH response reporting `custom` as only the patched keys would lie about the row.
+          return asStored({ ...withCustom, id })
+        }),
+      ),
 
     ...(withBatch ? { batch: batchFor(cube) } : {}),
 
     count: (table: string) =>
-      Effect.promise(async () => {
-        const t = check(table)
-        await ensureCubeSchema(cube)
-        await ensureTable(schemaName(cube), t)
-        return withRole(cube, async (c) => {
-          const r = await c.query(`SELECT COUNT(*)::int AS c FROM ${q(schemaName(cube))}.${q(t)} WHERE deleted = false`)
-          return (r.rows[0] as { c: number }).c
-        })
-      }),
+      onTable(table, (sql, t) =>
+        Effect.map(sql<{ c: number }>`SELECT COUNT(*)::int AS c FROM ${t} WHERE deleted = false`, ([r]) => r?.c ?? 0),
+      ),
   }
 }
 
@@ -259,18 +209,21 @@ export const storeFor = (
 export const rowStateFor =
   (cube: string, tables: ReadonlyArray<string>, captureEntity: string) =>
   (id: string): Effect.Effect<RowState | undefined, never, never> =>
-    Effect.promise(async () => {
-      await ensureCubeSchema(cube)
-      for (const t of tables) await ensureTable(schemaName(cube), t)
-      return withRole(cube, async (c) => {
-        for (const t of tables) {
-          const r = await c.query(
-            `SELECT id, type, deleted FROM ${q(schemaName(cube))}.${q(t)} WHERE id = $1 AND type = $2`,
-            [id, captureEntity],
-          )
-          const row = r.rows[0] as { id: string; type: string; deleted: boolean } | undefined
-          if (row) return { id: row.id, type: row.type, deleted: row.deleted === true }
-        }
-        return undefined
-      })
-    })
+    run(
+      Effect.gen(function* () {
+        const sql = yield* SqlClient.SqlClient
+        const schema = yield* ensureCubeSchema(cube)
+        for (const t of tables) yield* ensureTable(schema, t)
+        return yield* withRole(
+          cube,
+          Effect.gen(function* () {
+            for (const t of tables) {
+              const [row] = yield* sql<RowState>`SELECT id, type, deleted FROM ${ident(sql, schema, t)}
+                                                 WHERE id = ${id} AND type = ${captureEntity}`
+              if (row) return { id: row.id, type: row.type, deleted: row.deleted === true }
+            }
+            return undefined
+          }),
+        )
+      }),
+    )

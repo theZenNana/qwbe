@@ -5,20 +5,20 @@ import { fileURLToPath } from "node:url"
 import type { CommandExecutor } from "@effect/platform/CommandExecutor"
 import * as Effect from "effect/Effect"
 import * as Schema from "effect/Schema"
+import { adminUrl } from "../../src/pg/admin-url.ts"
 import { GateFailed, inheritOk } from "../shared/process.ts"
 import { runTool } from "../shared/run-tool.ts"
 import { clean } from "./db-clean.ts"
-import { adminUrl, COMPOSE_ARGV } from "./db-pure.ts"
+import { COMPOSE_ARGV } from "./db-pure.ts"
 
 const Subcommand = Schema.Literal("up", "down", "clean")
 
 const root = fileURLToPath(new URL("../../..", import.meta.url))
-const { QWBE_PG_HOST, QWBE_PG_PORT, QWBE_PG_USER, QWBE_PG_PASSWORD } = process.env
 const usage = new GateFailed({ message: "usage: node core/tools/db/db.ts <up|down|clean>", status: 2 })
 
 const run = (subcommand: typeof Subcommand.Type): Effect.Effect<void, { readonly message: string }, CommandExecutor> =>
   subcommand === "clean"
-    ? clean(adminUrl(QWBE_PG_HOST, QWBE_PG_PORT, QWBE_PG_USER, QWBE_PG_PASSWORD))
+    ? Effect.flatMap(Effect.orDie(adminUrl), clean)
     : Effect.asVoid(inheritOk(COMPOSE_ARGV[subcommand], root))
 
 runTool(

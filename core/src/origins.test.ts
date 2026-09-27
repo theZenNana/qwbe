@@ -2,8 +2,13 @@
 // tests do not need to touch process.env or boot a server: parse, assert, done.
 
 import assert from "node:assert/strict"
+import { Either } from "effect"
 import { describe, it } from "vitest"
-import { allowedOrigins } from "./origins.ts"
+import { allowedOrigins as parseOrigins } from "./origins.ts"
+
+// The parser returns an Either; a Left becomes a throw so the assertions read as before.
+const allowedOrigins = (env: string | undefined) =>
+  Either.getOrThrowWith(parseOrigins(env), (e) => new Error(e.message))
 
 describe("allowedOrigins", () => {
   it('defaults to ["*"] when the variable is undefined', () => {

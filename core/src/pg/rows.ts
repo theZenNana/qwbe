@@ -1,11 +1,18 @@
 // Row mapping and SQL-clause building for the Postgres store, split out of store.ts.
-// when the file passed its cap. Pure functions: no pool, no transactions.
+// when the file passed its cap. Pure functions: no pool, no transactions -- the `sql` they take
+// only builds fragments, it runs nothing.
 
 import { randomBytes } from "node:crypto"
+import { Statement } from "@effect/sql"
+import { PgClient } from "@effect/sql-pg"
+import { DateTime, Effect } from "effect"
 import { checkCustomObject } from "../custom-values.ts"
 import type { ListWhere } from "../kernel/pagination.ts"
 import { CustomCapError } from "./errors.ts"
-import { q } from "./setup.ts"
+import { ident } from "./setup.ts"
+
+/** Builds and compiles statements with the Postgres dialect and runs nothing: for no-DB tests. */
+export const compileOnly = Statement.make(Effect.dieMessage("compile only"), PgClient.makeCompiler(), [], undefined)
 
 /** Ids are random, not sequential -- see the comment this replaces from the SQLite store. */
 export const newId = (prefix: string) => `${prefix}-${randomBytes(4).toString("hex")}`
@@ -13,7 +20,7 @@ export const newId = (prefix: string) => `${prefix}-${randomBytes(4).toString("h
 export const decode = (row: Record<string, unknown>): Record<string, unknown> => ({
   id: row.id,
   type: row.type,
-  createdAt: new Date(row.created_at as string).toISOString(),
+  createdAt: DateTime.formatIso(DateTime.unsafeMake(row.created_at as Date)),
   deleted: row.deleted === true,
   ...(row.body as Record<string, unknown>),
 })
@@ -21,16 +28,22 @@ export const decode = (row: Record<string, unknown>): Record<string, unknown> =>
 /** Only these may be interpolated into SQL. Everything else is a bound parameter. */
 const META_COLUMNS = new Set(["id", "type", "createdAt", "deleted"])
 
-export const outboxInsert = (cube: string, table: string, id: string, op: string, version: number) => ({
-  text: `INSERT INTO qwbe.outbox (cube, "table", row_id, op, version) VALUES ($1, $2, $3, $4, $5)`,
-  values: [cube, table, id, op, version],
-})
+export const outboxInsert = (
+  sql: Statement.Constructor,
+  cube: string,
+  table: string,
+  id: string,
+  op: string,
+  version: number,
+) =>
+  sql`INSERT INTO qwbe.outbox (cube, "table", row_id, op, version) VALUES (${cube}, ${table}, ${id}, ${op}, ${version})`
 
 /**
  * The activity row (Echo A1), written in the SAME transaction as the mutation. The actor is
  * the authenticated account or `undefined` (recorded as NULL) -- never caller-supplied.
  */
 export const activityInsert = (
+  sql: Statement.Constructor,
   cube: string,
   entityType: string,
   id: string,
@@ -40,21 +53,10 @@ export const activityInsert = (
   changes: Record<string, { from?: unknown; to?: unknown }>,
   /** Echo A2 comments: set only by the comment seam, linking the row to qwbe.comment. */
   commentId: string | null = null,
-) => ({
-  text: `INSERT INTO qwbe.activity (cube, entity_type, row_id, op, version, actor_id, actor_username, changes, comment_id)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9)`,
-  values: [
-    cube,
-    entityType,
-    id,
-    op,
-    version,
-    actor?.id ?? null,
-    actor?.username ?? null,
-    JSON.stringify(changes),
-    commentId,
-  ],
-})
+) =>
+  sql`INSERT INTO qwbe.activity (cube, entity_type, row_id, op, version, actor_id, actor_username, changes, comment_id)
+      VALUES (${cube}, ${entityType}, ${id}, ${op}, ${version}, ${actor?.id ?? null}, ${actor?.username ?? null},
+              ${JSON.stringify(changes)}::jsonb, ${commentId})`
 
 const sameJson = (a: unknown, b: unknown): boolean => JSON.stringify(a) === JSON.stringify(b)
 
@@ -101,19 +103,21 @@ export const diffBody = (
 }
 
 /** Prepared together with the WHERE clause so COUNT and the page always share a predicate. */
-export const orderClause = (sortBy: string | undefined, descending: boolean, sortableFields: ReadonlySet<string>) => {
-  const dir = descending ? "DESC" : "ASC"
-  const fallback = { sql: `ORDER BY created_at ${dir}`, params: [] as Array<string>, applied: "createdAt" }
+export const orderClause = (
+  sql: Statement.Constructor,
+  sortBy: string | undefined,
+  descending: boolean,
+  sortableFields: ReadonlySet<string>,
+): { readonly sql: Statement.Fragment; readonly applied: string } => {
+  const dir = sql.literal(descending ? "DESC" : "ASC")
+  const fallback = { sql: sql`ORDER BY created_at ${dir}`, applied: "createdAt" }
   if (!sortBy) return fallback
-  if (META_COLUMNS.has(sortBy)) {
-    const column = sortBy === "createdAt" ? "created_at" : sortBy
-    return { sql: `ORDER BY ${q(column)} ${dir}`, params: [] as Array<string>, applied: sortBy }
-  }
+  if (META_COLUMNS.has(sortBy)) return { sql: sql`ORDER BY ${column(sql, sortBy)} ${dir}`, applied: sortBy }
   if (!sortableFields.has(sortBy)) return fallback
-  // jsonb ordering (`body -> $n`), not text ordering (`body ->> $n`): the SQLite store sorted
-  // by the JSON value's own type, so 9 < 10 numerically and true > false. Text ordering would
-  // put "10" before "9" and silently change every numeric cube's page order and boundaries.
-  return { sql: `ORDER BY body -> $SORTBY ${dir}`, params: [sortBy], applied: sortBy }
+  // jsonb ordering (`body -> field`), not text ordering (`body ->> field`): the SQLite store
+  // sorted by the JSON value's own type, so 9 < 10 numerically and true > false. Text ordering
+  // would put "10" before "9" and silently change every numeric cube's page order and boundaries.
+  return { sql: sql`ORDER BY body -> ${sortBy} ${dir}`, applied: sortBy }
 }
 
 /**
@@ -130,58 +134,43 @@ export const orderClause = (sortBy: string | undefined, descending: boolean, sor
  * search -- is built HERE, in SQL, and never by reading rows and filtering them in JavaScript.
  * One pair or the full ListWhere.
  */
-/** Bind a value and return the placeholder it got. The order of calls IS the parameter order. */
-const bind = (params: Array<unknown>, value: unknown): string => {
-  params.push(value)
-  return `$${params.length}`
-}
+const column = (sql: Statement.Constructor, field: string) => ident(sql, field === "createdAt" ? "created_at" : field)
 
-const column = (field: string): string => q(field === "createdAt" ? "created_at" : field)
-
-const equalsSql = (params: Array<unknown>, field: string, value: string): string => {
-  if (field === "deleted") return `AND deleted = ${bind(params, value === "true")}`
-  if (META_COLUMNS.has(field)) return `AND ${column(field)}::text = ${bind(params, value)}`
-  return `AND body ->> ${bind(params, field)}::text = ${bind(params, value)}::text`
+const equalsSql = (sql: Statement.Constructor, field: string, value: string) => {
+  if (field === "deleted") return sql`AND deleted = ${value === "true"}`
+  if (META_COLUMNS.has(field)) return sql`AND ${column(sql, field)}::text = ${value}`
+  return sql`AND body ->> ${field}::text = ${value}::text`
 }
 
 // ILIKE reads `%` and `_` as wildcards, so a caller searching for "50%" must not match every
 // row. Escaped with the default backslash escape character.
 const escapeLike = (text: string): string => text.replaceAll(/([\\%_])/g, "\\$1")
 
-const searchSql = (params: Array<unknown>, text: string, fields: ReadonlyArray<string>): string => {
-  if (fields.length === 0) return ""
-  // One pattern parameter shared by every OR branch -- the prefix is the same for all of them.
-  const pattern = bind(params, `${escapeLike(text)}%`)
+const searchSql = (sql: Statement.Constructor, text: string, fields: ReadonlyArray<string>) => {
+  // The same prefix for every OR branch, bound once per branch.
+  const pattern = `${escapeLike(text)}%`
   const branches = fields.map((f) =>
-    META_COLUMNS.has(f) ? `${column(f)}::text ILIKE ${pattern}` : `body ->> ${bind(params, f)}::text ILIKE ${pattern}`,
+    META_COLUMNS.has(f) ? sql`${column(sql, f)}::text ILIKE ${pattern}` : sql`body ->> ${f}::text ILIKE ${pattern}`,
   )
-  return `AND (${branches.join(" OR ")})`
+  return sql`AND (${sql.join(" OR ", false)(branches)})`
 }
 
 export const whereClause = (
+  sql: Statement.Constructor,
   where?: { field: string; value: string } | ListWhere,
-): { sql: string; params: Array<unknown> } => {
-  if (!where) return { sql: "", params: [] }
+): Statement.Fragment => {
+  if (!where) return sql.literal("")
   const criteria: ListWhere = "field" in where ? { equals: [where] } : where
-  const params: Array<unknown> = []
-  const parts: Array<string> = []
-  for (const e of criteria.equals ?? []) parts.push(equalsSql(params, e.field, e.value))
-  // `= ANY($n::text[])` is one bound array, so a batch of ids costs one parameter whatever its
-  // size -- and an id never becomes SQL text.
-  if (criteria.ids && criteria.ids.length > 0) {
-    parts.push(`AND id = ANY(${bind(params, [...criteria.ids])}::text[])`)
+  const parts: Array<Statement.Fragment> = []
+  for (const e of criteria.equals ?? []) parts.push(equalsSql(sql, e.field, e.value))
+  // `= ANY(array::text[])` is one bound array, so a batch of ids costs one parameter whatever
+  // its size -- and an id never becomes SQL text.
+  if (criteria.ids && criteria.ids.length > 0) parts.push(sql`AND id = ANY(${[...criteria.ids]}::text[])`)
+  if (criteria.q && criteria.q.text !== "" && criteria.q.fields.length > 0) {
+    parts.push(searchSql(sql, criteria.q.text, criteria.q.fields))
   }
-  if (criteria.q && criteria.q.text !== "") {
-    const sql = searchSql(params, criteria.q.text, criteria.q.fields)
-    if (sql !== "") parts.push(sql)
-  }
-  return { sql: parts.join(" "), params }
+  return sql.join(" ", false)(parts)
 }
-
-// $SORTBY is a placeholder for the parameter index, which depends on how many WHERE
-// parameters came before it. Renumbering happens in `page` -- the one place both clauses are
-// combined and the only place the numbering is known.
-export const renumber = (sql: string, offset: number) => sql.replace("$SORTBY", `$${offset + 1}`)
 
 /**
  * `custom` is the reserved sub-object of a row body holding undeclared (custom-field)

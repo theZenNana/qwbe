@@ -2,13 +2,14 @@
 
 import { createHash, randomBytes } from "node:crypto"
 import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema } from "@effect/platform"
-import { Effect, Schema } from "effect"
+import { Effect, Redacted, Schema } from "effect"
 import { type CubeTools, defineCube } from "qwbe-core/cube"
-import { readAdminPassword, readReaderPassword } from "../../config.ts"
+import { QwbeConfig, QwbeConfigLive } from "../../config.ts"
 import { Authorization, requirePermission } from "../../kernel/auth-contract.ts"
 import { Forbidden, NotFound } from "../../kernel/errors.ts"
 import { genericList, ListParams } from "../../kernel/list.ts"
 import { PageOf } from "../../kernel/pagination.ts"
+import { storeRelational } from "../shared.ts"
 import { identityDirectory } from "./identity.ts"
 import { Account, type AccountRow, publicShape, summary } from "./model.ts"
 import { constantTimeEquals, hashPassword, verifyPassword } from "./password.ts"
@@ -81,22 +82,25 @@ export const cube = defineCube(group, {
     /** Seed once. A generated bootstrap password is printed once when no external secret exists. */
     const seed = Effect.gen(function* () {
       if ((yield* store.count(TABLE)) > 0) return
-      const adminPassword = readAdminPassword() || randomBytes(24).toString("base64url")
+      const passwords = yield* Effect.orDie(Effect.provide(QwbeConfig, QwbeConfigLive))
+      const configured = passwords.adminPassword && Redacted.value(passwords.adminPassword)
+      const adminPassword = Redacted.make(configured || randomBytes(24).toString("base64url"))
       yield* store.insert(TABLE, ENTITY, "acc", {
         username: "admin",
-        passwordHash: hashPassword(adminPassword),
+        passwordHash: yield* hashPassword(Redacted.value(adminPassword)),
         displayName: "Administrator",
         email: "",
         roles: ["admin"],
       })
-      if (!readAdminPassword()) {
-        console.error(`[qwbe bootstrap] admin password (shown once): ${adminPassword}`)
+      // The one deliberate disclosure: without it the operator has no way in on first boot.
+      if (!configured) {
+        yield* Effect.logWarning(`[qwbe bootstrap] admin password (shown once): ${Redacted.value(adminPassword)}`)
       }
-      const readerPassword = readReaderPassword()
+      const readerPassword = passwords.readerPassword && Redacted.value(passwords.readerPassword)
       if (readerPassword) {
         yield* store.insert(TABLE, ENTITY, "acc", {
           username: "reader",
-          passwordHash: hashPassword(readerPassword),
+          passwordHash: yield* hashPassword(readerPassword),
           displayName: "Read Only",
           email: "",
           roles: ["reader"],
@@ -113,13 +117,13 @@ export const cube = defineCube(group, {
             yield* seed
             const rows = yield* store.all<AccountRow>(TABLE)
             const found = rows.find((a) => a.username === username)
-            const expected = found?.passwordHash ?? hashPassword(randomBytes(24).toString("base64url"))
+            const expected = found?.passwordHash ?? (yield* hashPassword(randomBytes(24).toString("base64url")))
             const legacy = /^[a-f0-9]{64}$/.test(expected)
             const matches = legacy
               ? constantTimeEquals(legacyHash(password), expected)
-              : verifyPassword(password, expected)
+              : yield* verifyPassword(password, expected)
             if (!found || !matches) return undefined
-            if (legacy) yield* store.update(TABLE, found.id, { passwordHash: hashPassword(password) })
+            if (legacy) yield* store.update(TABLE, found.id, { passwordHash: yield* hashPassword(password) })
             return { id: found.id, username: found.username, roles: found.roles ?? [] }
           }),
       },
@@ -172,36 +176,16 @@ export const cube = defineCube(group, {
             const { password, ...rest } = payload
             const a = (yield* store.insert(TABLE, ENTITY, "acc", {
               ...rest,
-              passwordHash: hashPassword(password),
+              passwordHash: yield* hashPassword(password),
             })) as AccountRow
             yield* bus.publish("account.created", { id: a.id, title: a.username })
             return publicShape(a)
           }),
       },
 
-      relational: {
-        // Seeding runs here too: `auth` looks a user up through the registry before any HTTP
-        // handler has necessarily run, so the very first login must find the seeded admin.
-        search: (field, value, page) =>
-          Effect.gen(function* () {
-            yield* seed
-            const p = yield* store.page<AccountRow>(TABLE, page, { field, value })
-            return { rows: p.rows.map(summary), total: p.total }
-          }),
-
-        summaryById: (id) =>
-          Effect.gen(function* () {
-            const a = yield* store.byId<AccountRow>(TABLE, id)
-            return a ? summary(a) : undefined
-          }),
-
-        fieldValue: (id, field) =>
-          Effect.gen(function* () {
-            const a = yield* store.byId<AccountRow>(TABLE, id)
-            const v = a ? (a as unknown as Record<string, unknown>)[field] : null
-            return typeof v === "string" ? v : null
-          }),
-      },
+      // Seeding runs before search too: `auth` looks a user up through the registry before any
+      // HTTP handler has necessarily run, so the very first login must find the seeded admin.
+      relational: storeRelational<AccountRow>(store, TABLE, summary, seed),
     }
   },
 })

@@ -3,12 +3,12 @@
 // dispatcher: empty input, unknown commands and per-caller permission filtering.
 
 import assert from "node:assert/strict"
+import { describe, it } from "@effect/vitest"
 import { Effect } from "effect"
 import type { CubeTools } from "qwbe-core/cube"
-import { describe, it } from "vitest"
 import { CurrentUser } from "../../kernel/auth-contract.ts"
 import { BadRequest, Forbidden } from "../../kernel/errors.ts"
-import type { CommandRunner, CommandSpec } from "../../kernel/manifest.ts"
+import { type CommandRunner, type CommandSpec, UnknownCommand } from "../../kernel/manifest.ts"
 import { routeContracts } from "../../metadata/metadata.ts"
 import { baseTools, currentUser } from "../../test-cube-tools.ts"
 import { cube } from "./index.ts"
@@ -36,7 +36,7 @@ const cliTools = (
 const okInvoke: NonNullable<CommandRunner>["invoke"] = (name, _args, _perms) =>
   name === "cli:help"
     ? Effect.succeed({ command: name, output: `ran ${name}`, ok: true })
-    : Effect.fail({ _tag: "UnknownCommand" })
+    : Effect.fail(new UnknownCommand())
 
 const runExec = (line: string, permissions: ReadonlyArray<string> = ["cli:exec"]) => {
   const p = cube.create(cliTools(okInvoke))
@@ -73,49 +73,61 @@ describe("cli cube contract (QWB-69)", () => {
 })
 
 describe("cli exec gate (QWB-69)", () => {
-  it("refuses an empty command with BadRequest", async () => {
-    const err = await Effect.runPromise(Effect.flip(runExec("   ")))
-    assert.ok(err instanceof BadRequest)
-    assert.equal(err.message, "empty command")
-  })
+  it.effect("refuses an empty command with BadRequest", () =>
+    Effect.gen(function* () {
+      const err = yield* Effect.flip(runExec("   "))
+      assert.ok(err instanceof BadRequest)
+      assert.equal(err.message, "empty command")
+    }),
+  )
 
-  it("refuses an unknown command without running anything", async () => {
-    const err = await Effect.runPromise(Effect.flip(runExec("definitely-not-a-command")))
-    assert.ok(err instanceof BadRequest)
-    assert.match(err.message, /unknown command/)
-  })
+  it.effect("refuses an unknown command without running anything", () =>
+    Effect.gen(function* () {
+      const err = yield* Effect.flip(runExec("definitely-not-a-command"))
+      assert.ok(err instanceof BadRequest)
+      assert.match(err.message, /unknown command/)
+    }),
+  )
 
-  it("refuses a caller without cli:exec even for a known command", async () => {
-    const err = await Effect.runPromise(Effect.flip(runExec("cli:help", [])))
-    assert.ok(err instanceof Forbidden)
-    assert.equal((err as Forbidden).needed, "cli:exec")
-  })
+  it.effect("refuses a caller without cli:exec even for a known command", () =>
+    Effect.gen(function* () {
+      const err = yield* Effect.flip(runExec("cli:help", []))
+      assert.ok(err instanceof Forbidden)
+      assert.equal(err.needed, "cli:exec")
+    }),
+  )
 
-  it("dispatches a declared command to the kernel with the caller's permissions", async () => {
-    const result = await Effect.runPromise(runExec("cli:help"))
-    assert.deepEqual(result, { command: "cli:help", output: "ran cli:help", ok: true })
-  })
+  it.effect("dispatches a declared command to the kernel with the caller's permissions", () =>
+    Effect.gen(function* () {
+      const result = yield* runExec("cli:help")
+      assert.deepEqual(result, { command: "cli:help", output: "ran cli:help", ok: true })
+    }),
+  )
 
-  it("marks each listed command allowed or not, per the caller's permissions", async () => {
-    const commands: ReadonlyArray<CommandSpec> = [
-      { name: "a", summary: "allowed one", permission: "cli:read", run: () => Effect.succeed("a") },
-      { name: "b", summary: "denied one", permission: "settings:write", run: () => Effect.succeed("b") },
-    ]
-    const p = cube.create(cliTools(okInvoke, commands))
-    const run = p.handlers.commands as unknown as () => Effect.Effect<unknown, never, CurrentUser>
-    const out = (await Effect.runPromise(
-      Effect.provideService(run(), CurrentUser, currentUser({ permissions: ["cli:read"] })),
-    )) as ReadonlyArray<{ name: string; permission: string; allowed: boolean }>
-    // Per-caller marking: `a` (cli:read) allowed, `b` (settings:write) not.
-    assert.deepEqual(
-      out.map((c) => ({ name: c.name, allowed: c.allowed })),
-      [
-        { name: "a", allowed: true },
-        { name: "b", allowed: false },
-      ],
-    )
-    // The full listing still carries what the UI renders; only the flag is per caller.
-    assert.deepEqual(out[0]!.permission, "cli:read")
-    assert.deepEqual(out[1]!.permission, "settings:write")
-  })
+  it.effect("marks each listed command allowed or not, per the caller's permissions", () =>
+    Effect.gen(function* () {
+      const commands: ReadonlyArray<CommandSpec> = [
+        { name: "a", summary: "allowed one", permission: "cli:read", run: () => Effect.succeed("a") },
+        { name: "b", summary: "denied one", permission: "settings:write", run: () => Effect.succeed("b") },
+      ]
+      const p = cube.create(cliTools(okInvoke, commands))
+      const run = p.handlers.commands as unknown as () => Effect.Effect<unknown, never, CurrentUser>
+      const out = (yield* Effect.provideService(
+        run(),
+        CurrentUser,
+        currentUser({ permissions: ["cli:read"] }),
+      )) as ReadonlyArray<{ name: string; permission: string; allowed: boolean }>
+      // Per-caller marking: `a` (cli:read) allowed, `b` (settings:write) not.
+      assert.deepEqual(
+        out.map((c) => ({ name: c.name, allowed: c.allowed })),
+        [
+          { name: "a", allowed: true },
+          { name: "b", allowed: false },
+        ],
+      )
+      // The full listing still carries what the UI renders; only the flag is per caller.
+      assert.deepEqual(out[0]!.permission, "cli:read")
+      assert.deepEqual(out[1]!.permission, "settings:write")
+    }),
+  )
 })

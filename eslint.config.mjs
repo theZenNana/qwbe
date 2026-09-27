@@ -93,6 +93,13 @@ export default tseslint.config(
       "@typescript-eslint/no-unnecessary-type-assertion": "off",
     },
   },
+  // Audit E9: kernel logs go through Effect.log*, not console. Tests stay outside for now (audit
+  // E12).
+  {
+    files: ["core/src/**/*.ts"],
+    ignores: ["**/*.test.ts"],
+    rules: { "no-console": "error" },
+  },
   {
     files: ["core/src/runtime-composition.ts"],
     rules: {

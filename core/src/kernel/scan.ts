@@ -4,85 +4,86 @@
 // directory whose subdirectories are themselves cubes is a PARENT, children are addressed
 // `<parent>/<child>`, and discovery is one level deep only (docs/booktags-hierarchy.md).
 
-import { existsSync, readdirSync } from "node:fs"
-import { dirname, join, resolve } from "node:path"
+import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
-import { readPluginsDir } from "../config.ts"
+import { FileSystem } from "@effect/platform"
+import type { PlatformError } from "@effect/platform/Error"
+import { Effect } from "effect"
+import { QwbeConfig } from "../config.ts"
+import { subdirectories as directoriesIn } from "../files.ts"
 import { BrokenCubeError, DuplicateCubeError } from "./errors-discovery.ts"
 
 const here = dirname(fileURLToPath(import.meta.url))
 const cubesDir = join(here, "..", "cubes")
 
-/** A core cube's entry file: `index.ts` in a checkout, `index.js` in the compiled kernel the
+/** A directory counts only if it carries a cube entry: index.ts for a plugin (packs ship
+ *  sources), index.ts or index.js for a core cube -- `index.js` in the compiled kernel the
  *  tarball installs (dist/ has the .js emit, not the .ts source). Packs always ship TypeScript
  *  sources -- their cubes are read from their own directory, outside node_modules -- so plugin
  *  cubes stay .ts and only the kernel's own need the lookup. */
-const coreEntry = (dir: string): string | null => {
-  if (existsSync(join(dir, "index.ts"))) return "index.ts"
-  if (existsSync(join(dir, "index.js"))) return "index.js"
-  return null
-}
+const entryOf = (dir: string, plugin: string | null) =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem
+    if (yield* fs.exists(join(dir, "index.ts"))) return "index.ts"
+    if (!plugin && (yield* fs.exists(join(dir, "index.js")))) return "index.js"
+    return null
+  })
 
-/** A directory counts only if it carries a cube entry: index.ts for a plugin (packs ship
- *  sources), index.ts or index.js for a core cube (source vs compiled kernel). */
-const entryOf = (dir: string, plugin: string | null): string | null =>
-  plugin ? (existsSync(join(dir, "index.ts")) ? "index.ts" : null) : coreEntry(dir)
-
-/** Where installed packages live. Exported so the boot-time package contract judges the same
- *  directory discovery mounts from -- two spellings of this path would drift. Overridable the
- *  way the store is (QWBE_STORE_DIR): `qwbe check` points it at a sandbox holding exactly the
- *  one package being checked, so a check never touches the packages a checkout really has. */
-export const pluginsDir = resolve(readPluginsDir(join(here, "..", "..", "plugins")))
-
-export const subdirectories = (dir: string): ReadonlyArray<string> => {
-  if (!existsSync(dir)) return []
-  return readdirSync(dir, { withFileTypes: true })
-    .filter((d) => d.isDirectory() && !d.name.startsWith("_") && !d.name.startsWith("."))
-    .map((d) => d.name)
-    .sort()
-}
+const subdirectories = (dir: string) =>
+  Effect.map(directoriesIn(dir), (names) => names.filter((n) => !n.startsWith("_") && !n.startsWith(".")).sort())
 
 /** Everything on disk, in load order: core cubes first, then each plugin's. */
-export const discover = (): ReadonlyArray<{ name: string; plugin: string | null; specifier: string }> => {
+// Installed packages live in the config's `pluginsDir` -- the one spelling the boot-time package
+// contract and the installer read too. `qwbe check` points it (QWBE_PLUGINS_DIR) at a sandbox
+// holding exactly the one package being checked, so a check never touches a checkout's packages.
+export const discover = Effect.gen(function* () {
+  const { pluginsDir } = yield* QwbeConfig
   const found: Array<{ name: string; plugin: string | null; specifier: string }> = []
 
-  const scan = (dir: string, plugin: string | null, parent: string | null): void => {
-    for (const name of subdirectories(dir)) {
-      const nested = join(dir, name)
-      const entry = entryOf(nested, plugin)
-      if (entry === null) continue
-      const specifier = parent
-        ? plugin
-          ? join(pluginsDir, plugin, "cubes", parent, name, entry)
-          : join(cubesDir, parent, name, entry)
-        : plugin
-          ? join(pluginsDir, plugin, "cubes", name, entry)
-          : join(cubesDir, name, entry)
-      // Only directories that actually export a cube are scanned. A parent may hold assets/,
-      // fixtures/ or migrations/ next to its children -- those are NOT cubes, and importing
-      // their index.ts would stop the boot. A cube directory without index.ts is caught as
-      // BrokenCubeError at load time, exactly like a flat one.
-      const full = parent ? `${parent}/${name}` : name
-      found.push({ name: full, plugin, specifier })
-      if (parent) {
-        // One level only (DIRECTION.md section 2.4). Deeper directories are refused loudly.
-        const deep = subdirectories(nested).filter((d) => entryOf(join(nested, d), plugin) !== null)
-        if (deep.length > 0) {
-          throw new BrokenCubeError(
-            full,
-            `contains nested cube directories (${deep.join(", ")}) -- hierarchy is exactly one level. ` +
-              `See docs/booktags-hierarchy.md section invariants.`,
+  const scan = (
+    dir: string,
+    plugin: string | null,
+    parent: string | null,
+  ): Effect.Effect<void, BrokenCubeError | PlatformError, FileSystem.FileSystem | QwbeConfig> =>
+    Effect.gen(function* () {
+      for (const name of yield* subdirectories(dir)) {
+        const nested = join(dir, name)
+        const entry = yield* entryOf(nested, plugin)
+        if (entry === null) continue
+        const specifier = parent
+          ? plugin
+            ? join(pluginsDir, plugin, "cubes", parent, name, entry)
+            : join(cubesDir, parent, name, entry)
+          : plugin
+            ? join(pluginsDir, plugin, "cubes", name, entry)
+            : join(cubesDir, name, entry)
+        // Only directories that actually export a cube are scanned. A parent may hold assets/,
+        // fixtures/ or migrations/ next to its children -- those are NOT cubes, and importing
+        // their index.ts would stop the boot. A cube directory without index.ts is caught as
+        // BrokenCubeError at load time, exactly like a flat one.
+        const full = parent ? `${parent}/${name}` : name
+        found.push({ name: full, plugin, specifier })
+        if (parent) {
+          // One level only (DIRECTION.md section 2.4). Deeper directories are refused loudly.
+          const deep = yield* Effect.filter(yield* subdirectories(nested), (d) =>
+            Effect.map(entryOf(join(nested, d), plugin), (e) => e !== null),
           )
+          if (deep.length > 0) {
+            return yield* new BrokenCubeError(
+              full,
+              `contains nested cube directories (${deep.join(", ")}) -- hierarchy is exactly one level. ` +
+                `See docs/booktags-hierarchy.md section invariants.`,
+            )
+          }
+        } else {
+          yield* scan(nested, plugin, name)
         }
-      } else {
-        scan(nested, plugin, name)
       }
-    }
-  }
+    })
 
-  scan(cubesDir, null, null)
-  for (const plugin of subdirectories(pluginsDir)) {
-    scan(join(pluginsDir, plugin, "cubes"), plugin, null)
+  yield* scan(cubesDir, null, null)
+  for (const plugin of yield* subdirectories(pluginsDir)) {
+    yield* scan(join(pluginsDir, plugin, "cubes"), plugin, null)
   }
 
   // Names collide across the flat namespace -> refuse, with both sources named.
@@ -90,9 +91,9 @@ export const discover = (): ReadonlyArray<{ name: string; plugin: string | null;
   for (const f of found) {
     const source = f.plugin ? `plugin "${f.plugin}"` : "core"
     const previous = seen.get(f.name)
-    if (previous) throw new DuplicateCubeError(f.name, [previous, source])
+    if (previous) return yield* new DuplicateCubeError(f.name, [previous, source])
     seen.set(f.name, source)
   }
 
   return found
-}
+})

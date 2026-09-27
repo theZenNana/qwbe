@@ -1,4 +1,4 @@
-import { Effect } from "effect"
+import { DateTime, Effect } from "effect"
 import type { GroupMembership, PermissionGroup, PermissionService } from "qwbe-core/permissions"
 import { PermissionForbidden, PermissionInvalid, PermissionNotFound } from "qwbe-core/permissions"
 import type { PermissionState, StoredMembership } from "./state.ts"
@@ -41,7 +41,7 @@ export const groupsFrom = (
           return yield* Effect.fail(new PermissionInvalid({ message: "group name must not be empty" }))
         }
         yield* requireCubeAccess(actor, cube)
-        const createdAt = new Date().toISOString()
+        const createdAt = DateTime.formatIso(yield* DateTime.now)
         const row = yield* state.store.insert(tables.groups, "PermissionGroup", "grp", {
           cube,
           name,
@@ -89,7 +89,7 @@ export const groupsFrom = (
           (item) => item.deleted !== true && item.groupId === groupId && item.userId === userId,
         )
         if (existing) return existing
-        const createdAt = new Date().toISOString()
+        const createdAt = DateTime.formatIso(yield* DateTime.now)
         const row = yield* state.store.insert(tables.memberships, "GroupMembership", "mem", {
           groupId,
           userId,

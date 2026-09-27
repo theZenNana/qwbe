@@ -14,36 +14,28 @@
 
 import { randomBytes } from "node:crypto"
 import type { SqlStatement } from "./batch.ts"
-import { TABLES } from "./contract.ts"
+import { type StagingSet, TABLES } from "./contract.ts"
 import { csvHeaderOf, type Malformed, type ParsedRecord, parseChunk } from "./parse.ts"
 
 /** Keep at most this many malformed lines ON the set; the counts keep the full total. */
 export const MALFORMED_SAMPLE_MAX = 20
 
-export type SetRow = {
-  readonly id: string
-  readonly name: string
-  readonly format: "jsonl" | "csv"
-  readonly sourceFile: string
-  readonly state: "importing" | "done" | "failed"
-  readonly rowCount: number
-  readonly malformedCount: number
-  readonly malformedSample: ReadonlyArray<{ readonly line: number; readonly reason: string }>
-  readonly sensitiveFields: ReadonlyArray<string>
+export type SetRow = StagingSet & {
   /** CSV only: the header stored at the first chunk, reused to parse every later chunk. */
   readonly csvHeader?: ReadonlyArray<string>
-  readonly createdAt: string
 }
 
 /**
  * One multi-row INSERT per `batchSize` rows -- parameters, never concatenated values. The row
  * number base is the LIVE row count of the set (same transaction, after the advisory lock the
  * caller put first in the batch), so concurrent chunks cannot overlap rowNums. Per row five
- * bound values; the relative row offset `rn` comes as a value, the base is SQL.
+ * bound values; the relative row offset `rn` comes as a value, the base is SQL. `createdAt` is
+ * read from the Clock by the caller, once per chunk.
  */
 export const insertRowsStatement = (
   records: ReadonlyArray<ParsedRecord>,
   setId: string,
+  createdAt: string,
   batchSize = 500,
 ): ReadonlyArray<SqlStatement> => {
   const statements: SqlStatement[] = []
@@ -55,13 +47,7 @@ export const insertRowsStatement = (
       // live as a duplicate-key failure at ~64k rows. Deterministic ids would be safer still,
       // but a re-import of a deleted set would then collide with nothing left to distinguish.
       const n = values.length
-      values.push(
-        `row-${randomBytes(12).toString("hex")}`,
-        "staging.row",
-        new Date().toISOString(),
-        start + i,
-        JSON.stringify(record),
-      )
+      values.push(`row-${randomBytes(12).toString("hex")}`, "staging.row", createdAt, start + i, JSON.stringify(record))
       return `($${n + 1}, $${n + 2}, $${n + 3}, $${n + 4}::int, $${n + 5}::jsonb)`
     })
     statements.push({
@@ -122,6 +108,7 @@ export const applyChunk = (
   set: SetRow,
   text: string,
   startLine: number,
+  createdAt: string,
 ): {
   readonly parsed: number
   readonly malformed: ReadonlyArray<Malformed>
@@ -140,7 +127,7 @@ export const applyChunk = (
   const header = isCsv && firstChunk && text.trim() !== "" ? csvHeaderOf(text) : undefined
   const statements = [
     lockStatement(set.id),
-    ...insertRowsStatement(records, set.id),
+    ...insertRowsStatement(records, set.id, createdAt),
     tallyStatement(set.id, records.length, malformed.length, malformed, header),
   ]
   return { parsed: records.length, malformed, statements }

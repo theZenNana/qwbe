@@ -9,7 +9,7 @@
 // not cast: a kernel that stops handing this capability over is a kernel bug, and failing
 // at startup beats a 500 on the first click.
 
-import { Effect } from "effect"
+import { Data, Effect } from "effect"
 import type { CubeTools } from "qwbe-core/cube"
 import { requirePermission } from "../../kernel/auth-contract.ts"
 import { BadRequest } from "../../kernel/errors.ts"
@@ -29,9 +29,17 @@ type Deps = Readonly<{
 
 const requireWrite = (route: keyof typeof ROUTES) => requirePermission(ROUTES[route])
 
+/** The kernel did not hand settings what its manifest asks for: a kernel bug, raised by `create`
+ *  at startup (which is synchronous, so it throws) rather than as a 500 on the first click. */
+export class MissingCapabilities extends Data.TaggedError("MissingCapabilities")<{ readonly message: string }> {
+  constructor() {
+    super({ message: "settings missing kernel capabilities" })
+  }
+}
+
 export const packagesHandlers = ({ catalogue, installer, entityPermissions }: Deps) => {
   if (!("scanDirectory" in installer) || !("forgetShelf" in installer)) {
-    throw new Error("settings missing kernel capabilities")
+    throw new MissingCapabilities()
   }
   const pkgInstaller = installer as ScanInstaller
 
@@ -39,7 +47,7 @@ export const packagesHandlers = ({ catalogue, installer, entityPermissions }: De
     packages: () =>
       Effect.gen(function* () {
         yield* requireWrite("packages")
-        return pkgInstaller.available()
+        return yield* pkgInstaller.available()
       }),
 
     install: ({ path }: { path: { name: string } }) =>
@@ -102,7 +110,7 @@ export const packagesHandlers = ({ catalogue, installer, entityPermissions }: De
         const mounted = catalogue()
           .filter((c) => c.required)
           .map((c) => c.name)
-        const pkg = pkgInstaller.available().find((p) => p.name === path.name)
+        const pkg = (yield* pkgInstaller.available()).find((p) => p.name === path.name)
         const clash = (pkg?.cubes ?? []).filter((c) => mounted.includes(c))
         if (clash.length > 0) {
           return yield* Effect.fail(

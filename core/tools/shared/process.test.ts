@@ -46,7 +46,15 @@ it.layer(NodeContext.layer)("capture", (it) => {
       process.env.npm_config_allow_scripts = "x"
       const result = yield* capture(node("console.log(Object.keys(process.env).join(' '))"), ".")
       expect(result.stdout.toLowerCase()).not.toContain("npm_config_allow_scripts")
-    }),
+    }).pipe(
+      // Files share a module graph now (no per-file isolation): leave the env as it was found.
+      Effect.ensuring(
+        Effect.sync(() => {
+          delete process.env.NPM_CONFIG_ALLOW_SCRIPTS
+          delete process.env.npm_config_allow_scripts
+        }),
+      ),
+    ),
   )
 
   it("withoutAllowScripts unsets only the allow-scripts keys", () => {

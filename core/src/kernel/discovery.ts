@@ -15,11 +15,12 @@
 // would mean starting with half the cubes and nobody noticing until production.
 
 import { pathToFileURL } from "node:url"
-import { Effect } from "effect"
+import { type Context, Data, Effect } from "effect"
 import { capabilityRuntime } from "../capability-runtime.ts"
-import { buildCatalogue } from "../catalogue.ts"
-import { readMounted } from "../config.ts"
+import { buildCatalogue, metadataCache } from "../catalogue.ts"
+import { QwbeConfig } from "../config.ts"
 import { type CubeDefinition, decodeCubeExport, validateCubeParts } from "../cube-contract.ts"
+import { type CustomFields, customFieldsRegistry } from "../custom-defs-reader.ts"
 import { assertPackageContracts, checkPackageSource } from "../package-contract.ts"
 import { busFrom } from "./bus.ts"
 import { installerFor } from "./install.ts"
@@ -32,6 +33,7 @@ import type { Subscription } from "../catalogue.ts"
 import { captureEntity } from "../entity-enforcement.ts"
 import { BrokenCubeError, DoubleCapabilityError, DoublePrivilegeError } from "./errors-discovery.ts"
 import type { Catalogue, CommandInfo, CommandRunner, CommandSpec, CubeParts, Manifest } from "./manifest.ts"
+import { NotAllowed, TooManyArgs, UnknownCommand } from "./manifest.ts"
 import {
   fullName,
   leafOf,
@@ -56,6 +58,16 @@ export type MountedCube = {
   readonly commands: ReadonlyArray<CommandSpec>
 }
 
+/** A QWBE_MOUNTED name with no directory: a typo must not look like a missing cube. */
+export class MountedNotOnDisk extends Data.TaggedError("MountedNotOnDisk")<{ readonly message: string }> {}
+
+/**
+ * The kernel's synchronous checks throw their refusal (a tagged error); this puts it on the
+ * error channel instead. A cube's `create` is synchronous cube code and may throw anything.
+ */
+export const refusal = <A>(check: () => A): Effect.Effect<A, Error> =>
+  Effect.try({ try: check, catch: (e) => (e instanceof Error ? e : new Error(String(e))) })
+
 /**
  * Load the definitions.
  *
@@ -63,12 +75,10 @@ export type MountedCube = {
  * deleting files. A requested name with no directory is an error -- otherwise a typo would look
  * exactly like a missing cube and cost an hour.
  */
-export const loadDefinitions = async (): Promise<
-  ReadonlyArray<{ name: string; plugin: string | null; definition: CubeDefinition }>
-> => {
-  const onDisk = discover()
+export const loadDefinitions = Effect.gen(function* () {
+  const onDisk = yield* discover
 
-  const mounted = readMounted()
+  const { mounted } = yield* QwbeConfig
   const requested = mounted
     ? mounted
         .split(",")
@@ -78,10 +88,11 @@ export const loadDefinitions = async (): Promise<
 
   const missing = requested.filter((n) => !onDisk.some((c) => c.name === n))
   if (missing.length > 0) {
-    throw new Error(
-      `QWBE_MOUNTED names cubes that are not on disk: ${missing.join(", ")}. ` +
+    return yield* new MountedNotOnDisk({
+      message:
+        `QWBE_MOUNTED names cubes that are not on disk: ${missing.join(", ")}. ` +
         `Found: [${onDisk.map((c) => c.name).join(", ")}].`,
-    )
+    })
   }
 
   // A child cannot be requested without its parent -- the mask would make it unreachable and
@@ -95,17 +106,15 @@ export const loadDefinitions = async (): Promise<
   const mounting = onDisk.filter((c) => expanded.has(c.name))
   // The package contract, enforced by the kernel rather than by the pack. Runs before
   // the first plugin import below, so a package that breaks it never executes.
-  await assertPackageContracts(mounting)
+  yield* assertPackageContracts(mounting)
 
   const out: Array<{ name: string; plugin: string | null; definition: CubeDefinition }> = []
   for (const entry of mounting) {
-    let mod: unknown
-    try {
-      mod = await import(pathToFileURL(entry.specifier).href)
-    } catch (e) {
-      throw new BrokenCubeError(entry.name, e instanceof Error ? e.message : String(e))
-    }
-    const definition = decodeCubeExport(mod, entry.name)
+    const mod = yield* Effect.tryPromise({
+      try: () => import(pathToFileURL(entry.specifier).href) as Promise<unknown>,
+      catch: (e) => new BrokenCubeError(entry.name, e instanceof Error ? e.message : String(e)),
+    })
+    const definition = yield* refusal(() => decodeCubeExport(mod, entry.name))
 
     // The manifest is checked against the DIRECTORY it came from, not against what it says
     // about itself. A cube cannot lie about who it is. For a child the layout check extends
@@ -113,10 +122,10 @@ export const loadDefinitions = async (): Promise<
     // `booktags` directory -- both halves come from disk, never from the manifest alone.
     const leaf = leafOf(entry.name)
     const declaredParent = parentOf(entry.name)
-    validateManifest(leaf, definition.manifest)
+    yield* refusal(() => validateManifest(leaf, definition.manifest))
     const m = definition.manifest
     if (m.parent !== declaredParent) {
-      throw new BrokenCubeError(
+      return yield* new BrokenCubeError(
         entry.name,
         m.parent
           ? `manifest declares parent "${m.parent}" but the directory sits at "${entry.name}" -- they must match`
@@ -127,7 +136,7 @@ export const loadDefinitions = async (): Promise<
     out.push({ name: entry.name, plugin: entry.plugin, definition })
   }
   return out
-}
+})
 
 type MountedSystem = {
   readonly cubes: ReadonlyArray<MountedCube>
@@ -140,6 +149,10 @@ type MountedSystem = {
   /** Parent-masked enablement: a child is off while its parent is off. Use this at the edge. */
   readonly isEnabled: (cube: string) => boolean
   readonly entityPermissions: import("../permissions-contracts.ts").PermissionService
+  /** The mount's custom-field definitions; `main.ts` provides them to the handlers. */
+  readonly customFields: Context.Tag.Service<CustomFields>
+  /** Derived metadata of every mounted cube, through the same cache the catalogue reads. */
+  readonly metadata: () => ReadonlyArray<import("../metadata/schemas.ts").CubeMetadata>
 }
 
 /**
@@ -166,197 +179,219 @@ export const singleHolderOf = (manifests: ReadonlyArray<Manifest>, flag: SingleH
   return holders
 }
 
+/** The switches for these definitions, read from disk once before `mount`. */
+export const switchesFor = (definitions: ReadonlyArray<{ definition: CubeDefinition }>) =>
+  switchesFrom(
+    definitions.map(({ definition: { manifest: m } }) => ({ name: fullName(m), required: m.required === true })),
+  )
+
 export const mount = (
   definitions: ReadonlyArray<{ name: string; plugin: string | null; definition: CubeDefinition }>,
   spaces: ReadonlyArray<SpaceDefinition>,
+  switches: Switches,
   // Storage boot (Postgres init plus declared data migrations) happens in main.ts via
   // bootStorage; the only remaining caller of mount is main.ts, AFTER bootStorage succeeded.
   // Mounting against an unmigrated database is therefore unreachable from this module.
-): MountedSystem => {
-  const manifests = definitions.map((d) => d.definition.manifest)
+) =>
+  Effect.gen(function* () {
+    const config = yield* QwbeConfig
+    const manifests = definitions.map((d) => d.definition.manifest)
 
-  checkUniqueTables(manifests.map((m) => ({ name: fullName(m), tables: m.tables })))
+    yield* refusal(() => checkUniqueTables(manifests.map((m) => ({ name: fullName(m), tables: m.tables }))))
 
-  // Credential verification is a declared capability with exactly one provider and one
-  // consumer. Both are named in manifests, so `grep -r providesCredentials` shows the whole
-  // arrangement -- the same visibility rule as `managesCubes`.
-  const runners = manifests.filter((m) => m.runsCommands).map((m) => fullName(m))
-  if (runners.length > 1) throw new DoubleCapabilityError("runsCommands", runners)
-  // The single-holder privileges: each flag below hands out a privilege over OTHER cubes'
-  // data with no permission gate between holders (managesCubes: cube registry;
-  // providesCustomFields: unrestricted row reader under the holder's own DB role;
-  // readsActivity (Echo A1): SELECT on the whole activity log -- every entity cube's
-  // history). Two holders would read each other's users' data with no gate between them.
-  singleHolderOf(manifests, "managesCubes")
-  singleHolderOf(manifests, "providesCustomFields")
-  singleHolderOf(manifests, "readsActivity")
-  // The provider fills this during its own `create`; the consumer receives a wrapper that reads
-  // it at call time. Late binding on purpose -- otherwise the two cubes would have to be created
-  // in a particular order, and mount order is just the order of directory names on disk.
-  const capabilities = capabilityRuntime(manifests)
-
-  const switches = switchesFrom(manifests.map((m) => ({ name: fullName(m), required: m.required === true })))
-
-  // A child lives under its parent's switch: disabling `booktags` disables everything below
-  // it, and the state file cannot express "child on, parent off" -- the mask is applied at
-  // read time, so there is no such state to represent. A child may still be switched off
-  // alone; its own entry persists and takes effect the moment the parent comes back on.
-  const isEnabled = (cube: string): boolean => {
-    if (!switches.isEnabled(cube)) return false
-    const slash = cube.indexOf("/")
-    return slash === -1 || switches.isEnabled(cube.slice(0, slash))
-  }
-
-  const permissions = new Map<string, ReadonlyArray<string>>()
-  for (const m of manifests) {
-    for (const p of m.permissions ?? []) permissions.set(p.name, p.roles)
-  }
-
-  const subscriptions: Array<{ cube: string; subscription: Subscription }> = []
-  const bus = busFrom(subscriptions, isEnabled)
-
-  const liveLinks = () =>
-    activeLinks(
-      spaces,
-      manifests.map((m) => ({ name: fullName(m), entity: m.entity })),
-      isEnabled,
-    )
-
-  // Functions, not values: switch state changes at runtime and the frontend draws its tabs
-  // from these, so they must see the state of NOW.
-  // The full specs, INCLUDING `run`, never leave this closure. Cubes see metadata; only the
-  // dispatcher below can execute, and only after checking the caller's permissions.
-  const allCommands: Array<CommandSpec> = []
-  const liveSpecs = () => allCommands.filter((c) => isEnabled(c.name.split(":")[0] as string))
-
-  const commands = (): ReadonlyArray<CommandInfo> =>
-    liveSpecs().map((c) => ({
-      name: c.name,
-      summary: c.summary,
-      permission: c.permission,
-      maxArgs: c.maxArgs ?? 0,
-    }))
-
-  const runner: CommandRunner = {
-    invoke: (name, args, callerPermissions) =>
-      Effect.gen(function* () {
-        // A Map, so a name from Object.prototype cannot resolve to something inherited.
-        const table = new Map(liveSpecs().map((c) => [c.name, c]))
-        const command = table.get(name)
-        if (!command) return yield* Effect.fail({ _tag: "UnknownCommand" as const })
-
-        // The check lives HERE, with the dispatcher -- not in whoever calls it. That is the whole
-        // point of moving it: before, the permission was checked in the CLI gate while `run` was
-        // handed to every cube, so any cube could skip the gate entirely.
-        if (!callerPermissions.includes(command.permission)) {
-          return yield* Effect.fail({ _tag: "NotAllowed" as const, permission: command.permission })
-        }
-
-        const allowed = command.maxArgs ?? 0
-        if (args.length > allowed) {
-          return yield* Effect.fail({ _tag: "TooManyArgs" as const, allowed, got: args.length })
-        }
-
-        // Permisiunile apelantului se dau comenzii, nu se lasă s-o ceară ea din context. Vezi
-        // `CommandSpec.run` în `manifest.ts` pentru de ce e asta granița.
-        const result = yield* command.run(args, callerPermissions).pipe(
-          Effect.map((output) => ({ output, ok: true })),
-          Effect.catchAll((message) => Effect.succeed({ output: String(message), ok: false })),
-        )
-        return { command: name, output: result.output, ok: result.ok }
-      }),
-  }
-
-  const catalogue = (): Catalogue =>
-    buildCatalogue(
-      definitions.map(({ name, plugin, definition }) => ({
-        name,
-        plugin,
-        manifest: definition.manifest,
-        cube: cubes.find((cube) => cube.name === name),
-      })),
-      isEnabled,
-      pathPrefix,
-      liveLinks(),
-    )
-
-  const cubes: Array<MountedCube> = definitions.map(({ plugin, definition }) => {
-    const m = definition.manifest
-    const full = fullName(m)
-    const created = definition.create({
-      // The batch capability is a declared privilege (`usesBatch`): a cube that did not ask
-      // gets the six-operation store only. See manifest.ts for why it is declared, not assumed.
-      // The activity capture entity reuses the mediation predicate, so what is recorded and
-      // what is mediated can never disagree (entity-enforcement.ts).
-      store: storeFor(full, m.tables, m.sortable ?? [], m.usesBatch === true, captureEntity(m)),
-      bus: bus.for(full, m.publishes),
-      catalogue,
-      permissions: () => permissions,
-      commands,
-      switches: m.managesCubes ? { list: switches.list, set: switches.set } : undefined,
-      // The same declared basis as the switches: writing to the cubes directory is a privilege,
-      // and it goes to the one cube that asked for `managesCubes` in the open.
-      installer: m.managesCubes ? installerFor(checkPackageSource) : undefined,
-      credentials: m.usesCredentials ? capabilities.credentials : undefined,
-      identities: m.usesIdentityDirectory ? capabilities.identities : undefined,
-      entityPermissions: m.usesEntityPermissions ? capabilities.permissions : undefined,
-      runCommands: m.runsCommands ? runner : undefined,
-      customFields: m.providesCustomFields
-        ? customFieldToolsFor((name) => cubes.find((c) => c.name === name))
-        : undefined,
-      activity: m.readsActivity ? activityToolsFor(full) : undefined,
+    // Credential verification is a declared capability with exactly one provider and one
+    // consumer. Both are named in manifests, so `grep -r providesCredentials` shows the whole
+    // arrangement -- the same visibility rule as `managesCubes`.
+    const runners = manifests.filter((m) => m.runsCommands).map((m) => fullName(m))
+    if (runners.length > 1) return yield* new DoubleCapabilityError("runsCommands", runners)
+    // The single-holder privileges: each flag below hands out a privilege over OTHER cubes'
+    // data with no permission gate between holders (managesCubes: cube registry;
+    // providesCustomFields: unrestricted row reader under the holder's own DB role;
+    // readsActivity (Echo A1): SELECT on the whole activity log -- every entity cube's
+    // history). Two holders would read each other's users' data with no gate between them.
+    yield* refusal(() => {
+      singleHolderOf(manifests, "managesCubes")
+      singleHolderOf(manifests, "providesCustomFields")
+      singleHolderOf(manifests, "readsActivity")
     })
-    const parts = capabilities.mediate(full, m, created)
-    validateCubeParts(full, parts)
-    validateAgentSurface(full, m, parts.group)
-    if (m.providesCredentials) {
-      if (!parts.credentials) {
-        throw new BrokenCubeError(full, "declares credentials but returned none")
-      }
-      capabilities.holders.verifier.current = parts.credentials
-    }
-    if (m.providesIdentityDirectory) {
-      if (!parts.identities) throw new BrokenCubeError(full, "declares identity directory but returned none")
-      capabilities.holders.identity.current = parts.identities
-    }
-    if (m.providesEntityPermissions) {
-      if (!parts.entityPermissions) {
-        throw new BrokenCubeError(full, "declares entity permissions but returned none")
-      }
-      capabilities.holders.permission.current = parts.entityPermissions
-    }
-    for (const s of parts.subscriptions ?? []) subscriptions.push({ cube: full, subscription: s })
+    // The provider is bound during its own `create`; the consumer receives a wrapper that reads
+    // it at call time. Late binding on purpose -- otherwise the two cubes would have to be
+    // created in a particular order, and mount order is just the order of directory names on disk.
+    const capabilities = yield* capabilityRuntime(manifests)
 
-    // Commands come from `create`, so they are validated here rather than in the manifest pass.
-    const own = parts.commands ?? []
-    validateCommands(m, own)
-    allCommands.push(...own)
-    // Route permissions, like commands: the declaration may not name a route that does not
-    // exist nor a permission the cube does not declare. Run here so the gate covers every
-    // mounted cube -- a pack's included, since this is the pass a pack is mounted through.
-    validateRoutes(m, parts.group)
+    // A child lives under its parent's switch: disabling `booktags` disables everything below
+    // it, and the state file cannot express "child on, parent off" -- the mask is applied at
+    // read time, so there is no such state to represent. A child may still be switched off
+    // alone; its own entry persists and takes effect the moment the parent comes back on.
+    const isEnabled = (cube: string): boolean => {
+      if (!switches.isEnabled(cube)) return false
+      const slash = cube.indexOf("/")
+      return slash === -1 || switches.isEnabled(cube.slice(0, slash))
+    }
 
-    return { manifest: m, name: full, parts, plugin, commands: own }
+    const permissions = new Map<string, ReadonlyArray<string>>()
+    for (const m of manifests) {
+      for (const p of m.permissions ?? []) permissions.set(p.name, p.roles)
+    }
+
+    const subscriptions: Array<{ cube: string; subscription: Subscription }> = []
+    const bus = busFrom(subscriptions, isEnabled)
+
+    const liveLinks = () =>
+      activeLinks(
+        spaces,
+        manifests.map((m) => ({ name: fullName(m), entity: m.entity })),
+        isEnabled,
+      )
+
+    // Functions, not values: switch state changes at runtime and the frontend draws its tabs
+    // from these, so they must see the state of NOW.
+    // The full specs, INCLUDING `run`, never leave this closure. Cubes see metadata; only the
+    // dispatcher below can execute, and only after checking the caller's permissions.
+    const allCommands: Array<CommandSpec> = []
+    const liveSpecs = () => allCommands.filter((c) => isEnabled(c.name.split(":")[0] as string))
+
+    const commands = (): ReadonlyArray<CommandInfo> =>
+      liveSpecs().map((c) => ({
+        name: c.name,
+        summary: c.summary,
+        permission: c.permission,
+        maxArgs: c.maxArgs ?? 0,
+      }))
+
+    const runner: CommandRunner = {
+      invoke: (name, args, callerPermissions) =>
+        Effect.gen(function* () {
+          // A Map, so a name from Object.prototype cannot resolve to something inherited.
+          const table = new Map(liveSpecs().map((c) => [c.name, c]))
+          const command = table.get(name)
+          if (!command) return yield* Effect.fail(new UnknownCommand())
+
+          // The check lives HERE, with the dispatcher -- not in whoever calls it. That is the whole
+          // point of moving it: before, the permission was checked in the CLI gate while `run` was
+          // handed to every cube, so any cube could skip the gate entirely.
+          if (!callerPermissions.includes(command.permission)) {
+            return yield* Effect.fail(new NotAllowed({ permission: command.permission }))
+          }
+
+          const allowed = command.maxArgs ?? 0
+          if (args.length > allowed) {
+            return yield* Effect.fail(new TooManyArgs({ allowed, got: args.length }))
+          }
+
+          // The caller's permissions are handed to the command; it is not left to ask the context
+          // for them. See `CommandSpec.run` in `manifest.ts` for why this is the boundary.
+          const result = yield* command.run(args, callerPermissions).pipe(
+            Effect.map((output) => ({ output, ok: true })),
+            Effect.catchAll((message) => Effect.succeed({ output: String(message), ok: false })),
+          )
+          return { command: name, output: result.output, ok: result.ok }
+        }),
+    }
+
+    // Filled below, one cube at a time; the closures read it at call time.
+    const cubes: Array<MountedCube> = []
+    const customFields = customFieldsRegistry()
+    const cache = metadataCache()
+
+    const catalogue = (): Catalogue =>
+      buildCatalogue(
+        definitions.map(({ name, plugin, definition }) => ({
+          name,
+          plugin,
+          manifest: definition.manifest,
+          cube: cubes.find((cube) => cube.name === name),
+        })),
+        isEnabled,
+        pathPrefix,
+        liveLinks(),
+        { cache, activeCustomFields: customFields.service.active },
+      )
+
+    for (const { plugin, definition } of definitions) {
+      const m = definition.manifest
+      const full = fullName(m)
+      const created = yield* refusal(() =>
+        definition.create({
+          // The batch capability is a declared privilege (`usesBatch`): a cube that did not ask
+          // gets the six-operation store only. See manifest.ts for why it is declared, not assumed.
+          // The activity capture entity reuses the mediation predicate, so what is recorded and
+          // what is mediated can never disagree (entity-enforcement.ts).
+          store: storeFor(full, m.tables, m.sortable ?? [], m.usesBatch === true, captureEntity(m)),
+          bus: bus.for(full, m.publishes),
+          catalogue,
+          permissions: () => permissions,
+          commands,
+          switches: m.managesCubes ? { list: switches.list, set: switches.set } : undefined,
+          // The same declared basis as the switches: writing to the cubes directory is a privilege,
+          // and it goes to the one cube that asked for `managesCubes` in the open.
+          installer: m.managesCubes ? installerFor(checkPackageSource, config) : undefined,
+          credentials: m.usesCredentials ? capabilities.credentials : undefined,
+          identities: m.usesIdentityDirectory ? capabilities.identities : undefined,
+          entityPermissions: m.usesEntityPermissions ? capabilities.permissions : undefined,
+          runCommands: m.runsCommands ? runner : undefined,
+          customFields: m.providesCustomFields
+            ? customFieldToolsFor((name) => cubes.find((c) => c.name === name), customFields)
+            : undefined,
+          activity: m.readsActivity ? activityToolsFor(full) : undefined,
+        }),
+      )
+      const parts = capabilities.mediate(full, m, created)
+      yield* refusal(() => {
+        validateCubeParts(full, parts)
+        validateAgentSurface(full, m, parts.group)
+      })
+      if (m.providesCredentials) {
+        if (!parts.credentials) return yield* new BrokenCubeError(full, "declares credentials but returned none")
+        yield* capabilities.bind.verifier(parts.credentials)
+      }
+      if (m.providesIdentityDirectory) {
+        if (!parts.identities) return yield* new BrokenCubeError(full, "declares identity directory but returned none")
+        yield* capabilities.bind.identity(parts.identities)
+      }
+      if (m.providesEntityPermissions) {
+        if (!parts.entityPermissions) {
+          return yield* new BrokenCubeError(full, "declares entity permissions but returned none")
+        }
+        yield* capabilities.bind.permission(parts.entityPermissions)
+      }
+      for (const s of parts.subscriptions ?? []) subscriptions.push({ cube: full, subscription: s })
+
+      // Commands come from `create`, so they are validated here rather than in the manifest pass.
+      const own = parts.commands ?? []
+      // Route permissions, like commands: the declaration may not name a route that does not
+      // exist nor a permission the cube does not declare. Run here so the gate covers every
+      // mounted cube -- a pack's included, since this is the pass a pack is mounted through.
+      yield* refusal(() => {
+        validateCommands(m, own)
+        validateRoutes(m, parts.group)
+      })
+      allCommands.push(...own)
+
+      cubes.push({ manifest: m, name: full, parts, plugin, commands: own })
+    }
+
+    // Every cube is created and every subscription registered -- publishing is now safe.
+    bus.seal()
+
+    // A re-enabled cube may have missed events published while it was off. The kernel announces
+    // the re-enablement on the bus; any cube whose events matter to a sibling subscribes and
+    // replays its CURRENT values. The kernel publishes the fact, never the payload -- it knows
+    // nothing about what a setting contains.
+    switches._wireOnEnable((cube) => bus.for("qwbe").publish("qwbe/cube.enabled", { cube }))
+
+    const system: MountedSystem = {
+      cubes,
+      switches,
+      bus,
+      permissions,
+      commands,
+      catalogue,
+      liveLinks,
+      isEnabled,
+      entityPermissions: capabilities.permissions,
+      customFields: customFields.service,
+      metadata: () => cache.metadata(cubes, liveLinks(), isEnabled),
+    }
+    return system
   })
-
-  // Every cube is created and every subscription registered -- publishing is now safe.
-  bus.seal()
-
-  // A re-enabled cube may have missed events published while it was off. The kernel announces
-  // the re-enablement on the bus; any cube whose events matter to a sibling subscribes and
-  // replays its CURRENT values. The kernel publishes the fact, never the payload -- it knows
-  // nothing about what a setting contains.
-  switches._wireOnEnable((cube) => bus.for("qwbe").publish("qwbe/cube.enabled", { cube }))
-
-  return {
-    cubes,
-    switches,
-    bus,
-    permissions,
-    commands,
-    catalogue,
-    liveLinks,
-    isEnabled,
-    entityPermissions: capabilities.permissions,
-  }
-}

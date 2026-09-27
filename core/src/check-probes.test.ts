@@ -6,7 +6,9 @@
 import assert from "node:assert/strict"
 import { createServer, type IncomingMessage, type Server } from "node:http"
 import type { AddressInfo } from "node:net"
-import { afterAll, describe, it } from "vitest"
+import { FetchHttpClient } from "@effect/platform"
+import { describe, it, layer } from "@effect/vitest"
+import { Effect } from "effect"
 
 import { createPayload, type DeclarationsDump, fillPath, runGenericProbes, valueFor } from "./check-probes.ts"
 
@@ -120,134 +122,144 @@ const dump = (over: Partial<DeclarationsDump> = {}): DeclarationsDump => ({
   ...over,
 })
 
-const clean = async (breaks?: Parameters<typeof mockKernel>[0], over?: Partial<DeclarationsDump>) => {
-  const kernel = await mockKernel(breaks)
-  try {
-    return {
-      report: await runGenericProbes({
-        url: kernel.url,
-        adminPassword: "admin",
-        cubes: ["gadgets"],
-        declarations: dump(over),
+/** The probes against a mock that breaks `breaks`; the mock closes with the test's scope. */
+const clean = (breaks?: Parameters<typeof mockKernel>[0], over?: Partial<DeclarationsDump>) =>
+  Effect.gen(function* () {
+    const kernel = yield* Effect.acquireRelease(
+      Effect.promise(() => mockKernel(breaks)),
+      (mock) => Effect.promise(mock.close),
+    )
+    const report = yield* runGenericProbes({
+      url: kernel.url,
+      adminPassword: "admin",
+      cubes: ["gadgets"],
+      declarations: dump(over),
+    })
+    return { report }
+  })
+
+// Real clock: the probes talk HTTP to a real (mock) server.
+layer(FetchHttpClient.layer, { excludeTestServices: true })(
+  "generic probes -- routing the five families against the metadata",
+  (it) => {
+    it.scoped("a well-built package raises no finding and runs every family", () =>
+      Effect.gen(function* () {
+        const { report } = yield* clean()
+        assert.deepEqual(report.findings, [])
+        // 401 list, 403 list, 401 create, 403 create, the required-missing check, the searchable
+        // filter, the relation target -- every family visibly ran.
+        assert.equal(report.checks, 7)
       }),
-      kernel,
-    }
-  } catch (e) {
-    await kernel.close()
-    throw e
-  }
-}
-
-describe("generic probes -- routing the five families against the metadata", () => {
-  const servers: Array<{ close: () => Promise<void> }> = []
-  afterAll(async () => {
-    for (const s of servers) await s.close()
-  })
-
-  it("a well-built package raises no finding and runs every family", async () => {
-    const { report, kernel } = await clean()
-    servers.push(kernel)
-    assert.deepEqual(report.findings, [])
-    // 401 list, 403 list, 401 create, 403 create, the required-missing check, the searchable
-    // filter, the relation target -- every family visibly ran.
-    assert.equal(report.checks, 7)
-  })
-
-  it("a route that answers without a token is caught by the 401 probe", async () => {
-    const { report, kernel } = await clean({ openRoute: true })
-    servers.push(kernel)
-    assert.equal(report.findings.length, 1)
-    assert.equal(report.findings[0]?.rule, "route-auth")
-    assert.match(report.findings[0]?.message ?? "", /list \(GET \/gadgets\) declares auth but answered 200/)
-  })
-
-  it("a permission declared but never enforced in the handler is caught by the 403 probe", async () => {
-    const { report, kernel } = await clean({ unenforcedPermission: true })
-    servers.push(kernel)
-    // Both published routes declare a permission in this mock, so both go unenforced -- the
-    // probe reports each, naming route and permission.
-    assert.equal(report.findings.length, 2)
-    assert.ok(report.findings.every((f) => f.rule === "route-permission"))
-    assert.match(
-      report.findings[0]?.message ?? "",
-      /declares permission gadgets:read but answered 200 for a token without it/,
     )
-  })
 
-  it("a relation to a cube outside the catalog fails, with the target named", async () => {
-    const { report, kernel } = await clean(undefined, {
-      cubes: { gadgets: { relations: { orgId: { target: "ghost-cube" } } } },
-    })
-    servers.push(kernel)
-    assert.equal(report.findings.length, 1)
-    assert.equal(report.findings[0]?.rule, "relation-target")
-    assert.match(report.findings[0]?.message ?? "", /points at cube "ghost-cube", which does not exist in the catalog/)
-  })
-
-  it("a declared searchable field that is not a field of the cube fails", async () => {
-    const { report, kernel } = await clean(undefined, {
-      cubes: { gadgets: { searchable: ["nothere"], relations: {} } },
-    })
-    servers.push(kernel)
-    assert.equal(report.findings.length, 1)
-    assert.equal(report.findings[0]?.rule, "searchable")
-    assert.match(
-      report.findings[0]?.message ?? "",
-      /declares searchable field "nothere" but the cube publishes no such field/,
+    it.scoped("a route that answers without a token is caught by the 401 probe", () =>
+      Effect.gen(function* () {
+        const { report } = yield* clean({ openRoute: true })
+        assert.equal(report.findings.length, 1)
+        assert.equal(report.findings[0]?.rule, "route-auth")
+        assert.match(report.findings[0]?.message ?? "", /list \(GET \/gadgets\) declares auth but answered 200/)
+      }),
     )
-  })
 
-  it("a filter that does not narrow two rows to one fails", async () => {
-    const { report, kernel } = await clean({ ignoreFilter: true })
-    servers.push(kernel)
-    assert.equal(report.findings.length, 1)
-    assert.equal(report.findings[0]?.rule, "searchable")
-    assert.match(
-      report.findings[0]?.message ?? "",
-      /two rows plus the filter name=.* must answer exactly one row, got status 200 total 2/,
+    it.scoped("a permission declared but never enforced in the handler is caught by the 403 probe", () =>
+      Effect.gen(function* () {
+        const { report } = yield* clean({ unenforcedPermission: true })
+        // Both published routes declare a permission in this mock, so both go unenforced -- the
+        // probe reports each, naming route and permission.
+        assert.equal(report.findings.length, 2)
+        assert.ok(report.findings.every((f) => f.rule === "route-permission"))
+        assert.match(
+          report.findings[0]?.message ?? "",
+          /declares permission gadgets:read but answered 200 for a token without it/,
+        )
+      }),
     )
-  })
 
-  it("a required field accepted while missing at create fails", async () => {
-    const { report, kernel } = await clean({ noRequiredValidation: true })
-    servers.push(kernel)
-    assert.equal(report.findings.length, 1)
-    assert.equal(report.findings[0]?.rule, "required-field")
-    assert.match(
-      report.findings[0]?.message ?? "",
-      /field name is required by the create contract but missing at create answered 20\d/,
+    it.scoped("a relation to a cube outside the catalog fails, with the target named", () =>
+      Effect.gen(function* () {
+        const { report } = yield* clean(undefined, {
+          cubes: { gadgets: { relations: { orgId: { target: "ghost-cube" } } } },
+        })
+        assert.equal(report.findings.length, 1)
+        assert.equal(report.findings[0]?.rule, "relation-target")
+        assert.match(
+          report.findings[0]?.message ?? "",
+          /points at cube "ghost-cube", which does not exist in the catalog/,
+        )
+      }),
     )
-  })
 
-  it("a create route the metadata cannot satisfy is reported, and the per-field checks wait", async () => {
-    const { report, kernel } = await clean({ brokenBaseline: true })
-    servers.push(kernel)
-    // The baseline create fails, so the required family reports it instead of trusting a 400;
-    // the searchable family's row creation fails through the same broken route and says so.
-    assert.equal(report.findings.length, 2)
-    assert.equal(report.findings[0]?.rule, "required-field")
-    assert.match(report.findings[0]?.message ?? "", /answered 500 -- the metadata cannot be turned into a row/)
-    assert.equal(report.findings[1]?.rule, "searchable")
-    assert.match(report.findings[1]?.message ?? "", /could not create the two rows the searchable probe needs/)
-  })
+    it.scoped("a declared searchable field that is not a field of the cube fails", () =>
+      Effect.gen(function* () {
+        const { report } = yield* clean(undefined, {
+          cubes: { gadgets: { searchable: ["nothere"], relations: {} } },
+        })
+        assert.equal(report.findings.length, 1)
+        assert.equal(report.findings[0]?.rule, "searchable")
+        assert.match(
+          report.findings[0]?.message ?? "",
+          /declares searchable field "nothere" but the cube publishes no such field/,
+        )
+      }),
+    )
 
-  it("a kernel the probes cannot log into yields one finding, not a crash", async () => {
-    const { report, kernel } = await clean({ refuseLogin: true })
-    servers.push(kernel)
-    assert.equal(report.checks, 0)
-    assert.equal(report.findings.length, 1)
-    assert.equal(report.findings[0]?.rule, "generic-probes")
-  })
+    it.scoped("a filter that does not narrow two rows to one fails", () =>
+      Effect.gen(function* () {
+        const { report } = yield* clean({ ignoreFilter: true })
+        assert.equal(report.findings.length, 1)
+        assert.equal(report.findings[0]?.rule, "searchable")
+        assert.match(
+          report.findings[0]?.message ?? "",
+          /two rows plus the filter name=.* must answer exactly one row, got status 200 total 2/,
+        )
+      }),
+    )
 
-  it("without a permissionless token the 403 probe says so instead of passing silently", async () => {
-    const { report, kernel } = await clean({ refuseAccount: true })
-    servers.push(kernel)
-    // One finding for the missing instrument, one per route whose permission went unprobed.
-    assert.ok(report.findings.length >= 2)
-    assert.equal(report.findings[0]?.rule, "generic-probes")
-    assert.ok(report.findings.slice(1).every((f) => f.rule === "route-permission"))
-  })
-})
+    it.scoped("a required field accepted while missing at create fails", () =>
+      Effect.gen(function* () {
+        const { report } = yield* clean({ noRequiredValidation: true })
+        assert.equal(report.findings.length, 1)
+        assert.equal(report.findings[0]?.rule, "required-field")
+        assert.match(
+          report.findings[0]?.message ?? "",
+          /field name is required by the create contract but missing at create answered 20\d/,
+        )
+      }),
+    )
+
+    it.scoped("a create route the metadata cannot satisfy is reported, and the per-field checks wait", () =>
+      Effect.gen(function* () {
+        const { report } = yield* clean({ brokenBaseline: true })
+        // The baseline create fails, so the required family reports it instead of trusting a 400;
+        // the searchable family's row creation fails through the same broken route and says so.
+        assert.equal(report.findings.length, 2)
+        assert.equal(report.findings[0]?.rule, "required-field")
+        assert.match(report.findings[0]?.message ?? "", /answered 500 -- the metadata cannot be turned into a row/)
+        assert.equal(report.findings[1]?.rule, "searchable")
+        assert.match(report.findings[1]?.message ?? "", /could not create the two rows the searchable probe needs/)
+      }),
+    )
+
+    it.scoped("a kernel the probes cannot log into yields one finding, not a crash", () =>
+      Effect.gen(function* () {
+        const { report } = yield* clean({ refuseLogin: true })
+        assert.equal(report.checks, 0)
+        assert.equal(report.findings.length, 1)
+        assert.equal(report.findings[0]?.rule, "generic-probes")
+      }),
+    )
+
+    it.scoped("without a permissionless token the 403 probe says so instead of passing silently", () =>
+      Effect.gen(function* () {
+        const { report } = yield* clean({ refuseAccount: true })
+        // One finding for the missing instrument, one per route whose permission went unprobed.
+        assert.ok(report.findings.length >= 2)
+        assert.equal(report.findings[0]?.rule, "generic-probes")
+        assert.ok(report.findings.slice(1).every((f) => f.rule === "route-permission"))
+      }),
+    )
+  },
+)
 
 describe("generic probes -- values built from published metadata", () => {
   it("fills every :param of a route template", () => {

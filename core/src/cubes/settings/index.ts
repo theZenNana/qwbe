@@ -17,7 +17,7 @@ import { Authorization, requirePermission } from "../../kernel/auth-contract.ts"
 import { BadRequest, Forbidden, NotFound } from "../../kernel/errors.ts"
 import { settingsCommands } from "./commands.ts"
 import { CubeState, InstallFromPayload, InstallFromResult, PackageState, ScanPayload, ScanResult } from "./contract.ts"
-import { packagesHandlers } from "./packages.ts"
+import { MissingCapabilities, packagesHandlers } from "./packages.ts"
 import { assignCurrentUserCubeAdmin } from "./permissions.ts"
 import { ROUTES } from "./routes.ts"
 import { cubeState } from "./state-view.ts"
@@ -121,7 +121,7 @@ export const cube = defineCube(group, {
       // Cannot happen -- the manifest asks for the privilege and the kernel grants it on that
       // basis. If it does, it is a kernel bug, and failing at startup beats a 500 on the first
       // click.
-      throw new Error("settings missing kernel capabilities")
+      throw new MissingCapabilities()
     }
 
     const state = (name: string) => cubeState(catalogue, installer, name)
@@ -137,13 +137,14 @@ export const cube = defineCube(group, {
             yield* requirePermission(ROUTES.cubes)
             // A function, not a value: the list reflects the state of NOW. The frontend draws
             // its tabs from this response.
-            return catalogue().map((c) => state(c.name)!)
+            const states = yield* Effect.forEach(catalogue(), (c) => state(c.name))
+            return states.filter((s) => s !== undefined)
           }),
 
         toggle: ({ path, payload }: { path: { name: string }; payload: { enabled: boolean } }) =>
           Effect.gen(function* () {
             yield* requirePermission(ROUTES.toggle)
-            if (!state(path.name)) {
+            if (!(yield* state(path.name))) {
               return yield* Effect.fail(new NotFound({ message: `cube ${path.name} is not mounted` }))
             }
             // Each refusal keeps its own meaning: a required cube is a bad request, a cube that
@@ -163,13 +164,13 @@ export const cube = defineCube(group, {
             if (payload.enabled) {
               yield* assignCurrentUserCubeAdmin(entityPermissions, [path.name]).pipe(Effect.orDie)
             }
-            return state(path.name)!
+            return (yield* state(path.name))!
           }),
 
         uninstall: ({ path }: { path: { name: string } }) =>
           Effect.gen(function* () {
             yield* requirePermission(ROUTES.uninstall)
-            const current = state(path.name)
+            const current = yield* state(path.name)
             if (!current) {
               return yield* Effect.fail(new NotFound({ message: `cube ${path.name} is not mounted` }))
             }
@@ -195,8 +196,10 @@ export const cube = defineCube(group, {
             yield* requirePermission(ROUTES.restart)
             // The spawning lives in the kernel, borrowed through `installer` -- a cube may not
             // touch `node:child_process`, and this was the repository's last such violation.
-            installer.restart()
-            return { restarting: true, message: "API repornește — revino în câteva secunde." }
+            // Forked as a daemon, so it outlives this request: the answer goes out first, and the
+            // kernel's restart waits a moment before the process goes away.
+            yield* Effect.forkDaemon(installer.restart())
+            return { restarting: true, message: "API is restarting -- check back in a few seconds." }
           }),
       },
     }

@@ -2,7 +2,7 @@
 // index.ts the registration. The store arrives narrowed to the batch capability -- see
 // batch.ts for why that capability exists and how it stays inside the cube's own schema.
 
-import { Effect } from "effect"
+import { DateTime, Effect } from "effect"
 import type { CubeTools } from "qwbe-core/cube"
 import { requirePermission } from "../../kernel/auth-contract.ts"
 import { BadRequest, NotFound } from "../../kernel/errors.ts"
@@ -84,14 +84,14 @@ export const stagingHandlers = (tools: CubeTools, batched: BatchStore) => {
             )
           }
           yield* store.count(TABLES.rows) // first touch creates the table
-          const applied = applyChunk(set, payload.text, payload.startLine)
+          const applied = applyChunk(set, payload.text, payload.startLine, DateTime.formatIso(yield* DateTime.now))
           // A batch that throws must not leave the set `importing` forever: the state flips to
           // `failed` in the SAME breath as the error propagates, so a half-imported set never
           // reports as importable-or-complete. The error itself
           // still surfaces as a defect -- the caller sees the 500, the set sees the state.
           yield* batched
             .batch(applied.statements)
-            .pipe(Effect.tapError(() => store.update(TABLES.sets, set.id, { state: "failed" })))
+            .pipe(Effect.tapErrorCause(() => store.update(TABLES.sets, set.id, { state: "failed" })))
           return { parsed: applied.parsed, malformed: applied.malformed }
         }),
 

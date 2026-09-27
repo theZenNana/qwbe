@@ -111,18 +111,17 @@ describe("validateManifest — all reasons at once", () => {
       entity: "Note",
       permissions: grants("account:write"),
     })
-    const error = (() => {
-      try {
-        validateManifest("notes", broken)
-        return null
-      } catch (e) {
-        return e as Error
-      }
-    })()
-    assert.ok(error, "a broken manifest must throw")
-    for (const fragment of ["directory is", "must match", "owns no tables", "account:write"]) {
-      assert.match(error.message, new RegExp(fragment))
-    }
+    assert.throws(
+      () => validateManifest("notes", broken),
+      (error: unknown) => {
+        assert.ok(error instanceof Error)
+        for (const fragment of ["directory is", "must match", "owns no tables", "account:write"]) {
+          assert.match(error.message, new RegExp(fragment))
+        }
+        return true
+      },
+      "a broken manifest must throw",
+    )
   })
 })
 

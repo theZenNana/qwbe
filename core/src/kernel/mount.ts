@@ -13,7 +13,7 @@
 // flag is a promise; the middleware is what will run. A cube cannot lie.
 
 import { HttpMiddleware, HttpServerRequest, HttpServerResponse } from "@effect/platform"
-import { Effect } from "effect"
+import { Data, Effect } from "effect"
 
 export { buildApi, buildHandlers } from "../runtime-composition.ts"
 
@@ -24,26 +24,26 @@ export { checkRouteOwnership, DuplicateGroupError, PrefixCollisionError, RouteOw
 
 import { danglingLinks, type SpaceDefinition } from "./space.ts"
 
-export class DeadCubeError extends Error {
+export class DeadCubeError extends Data.TaggedError("DeadCubeError")<{ readonly message: string }> {
   constructor(names: ReadonlyArray<string>) {
-    super(
-      `Dead cubes: ${names.join(", ")}. ` +
+    super({
+      message:
+        `Dead cubes: ${names.join(", ")}. ` +
         `Each requires authentication, but the "auth" cube is not mounted. ` +
         `A cube without auth is not "alive and returning 401" -- it does not exist at all. ` +
         `Mount "auth" or drop these from QWBE_MOUNTED.`,
-    )
-    this.name = "DeadCubeError"
+    })
   }
 }
 
-export class PublicEndpointError extends Error {
+export class PublicEndpointError extends Data.TaggedError("PublicEndpointError")<{ readonly message: string }> {
   constructor(cube: string, endpoints: ReadonlyArray<string>) {
-    super(
-      `Cube "${cube}" has endpoints without authentication: ${endpoints.join(", ")}. ` +
+    super({
+      message:
+        `Cube "${cube}" has endpoints without authentication: ${endpoints.join(", ")}. ` +
         `Only the "auth" cube may expose public endpoints (login). ` +
         `Put .middleware(Authorization) on the group or the endpoint.`,
-    )
-    this.name = "PublicEndpointError"
+    })
   }
 }
 

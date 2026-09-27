@@ -20,9 +20,11 @@
 // difference from a foreign key is the same one: the association is a third thing, not a
 // column one side owns.
 
-import { existsSync, readdirSync } from "node:fs"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
+import { FileSystem } from "@effect/platform"
+import { Data, Effect } from "effect"
+import { subdirectories } from "../files.ts"
 
 const here = dirname(fileURLToPath(import.meta.url))
 const spacesDir = join(here, "..", "spaces")
@@ -57,40 +59,31 @@ export const defineSpace = (s: SpaceDefinition): SpaceDefinition => s
 /** Convenience so a space file reads as a list of statements. */
 export const link = (l: Link): Link => l
 
-const spaceDirectories = (): ReadonlyArray<string> => {
-  if (!existsSync(spacesDir)) return []
-  return readdirSync(spacesDir, { withFileTypes: true })
-    .filter((d) => d.isDirectory() && !d.name.startsWith("_") && !d.name.startsWith("."))
-    .map((d) => d.name)
-    .sort()
-}
-
-class BrokenSpaceError extends Error {
+export class BrokenSpaceError extends Data.TaggedError("BrokenSpaceError")<{ readonly message: string }> {
   constructor(space: string, cause: string) {
-    super(`Space "${space}" failed to load: ${cause}\nFix it or remove spaces/${space}/.`)
-    this.name = "BrokenSpaceError"
+    super({ message: `Space "${space}" failed to load: ${cause}\nFix it or remove spaces/${space}/.` })
   }
 }
 
-export const loadSpaces = async (): Promise<ReadonlyArray<SpaceDefinition>> => {
+export const loadSpaces = Effect.gen(function* () {
+  const fs = yield* FileSystem.FileSystem
+  const dirs = (yield* subdirectories(spacesDir)).filter((d) => !d.startsWith("_") && !d.startsWith(".")).sort()
   const out: Array<SpaceDefinition> = []
-  for (const dir of spaceDirectories()) {
-    let mod: Record<string, unknown>
-    try {
-      // A checkout loads the space's TypeScript source; the compiled kernel (dist/) loads the
-      // index.js the build emitted. Same definition, whichever shape the package ships.
-      const entry = existsSync(join(spacesDir, dir, "index.ts")) ? "index.ts" : "index.js"
-      mod = (await import(`../spaces/${dir}/${entry}`)) as Record<string, unknown>
-    } catch (e) {
-      throw new BrokenSpaceError(dir, (e as Error).message)
-    }
+  for (const dir of dirs) {
+    // A checkout loads the space's TypeScript source; the compiled kernel (dist/) loads the
+    // index.js the build emitted. Same definition, whichever shape the package ships.
+    const entry = (yield* fs.exists(join(spacesDir, dir, "index.ts"))) ? "index.ts" : "index.js"
+    const mod = yield* Effect.tryPromise({
+      try: () => import(`../spaces/${dir}/${entry}`) as Promise<Record<string, unknown>>,
+      catch: (e) => new BrokenSpaceError(dir, (e as Error).message),
+    })
     const def = mod.space as SpaceDefinition | undefined
-    if (!def) throw new BrokenSpaceError(dir, "index.ts does not export `space`")
-    if (def.name !== dir) throw new BrokenSpaceError(dir, `name is "${def.name}" but the directory is "${dir}"`)
+    if (!def) return yield* new BrokenSpaceError(dir, "index.ts does not export `space`")
+    if (def.name !== dir) return yield* new BrokenSpaceError(dir, `name is "${def.name}" but the directory is "${dir}"`)
     out.push(def)
   }
   return out
-}
+})
 
 /**
  * Links whose two ends are not both present.

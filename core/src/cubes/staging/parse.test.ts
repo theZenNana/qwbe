@@ -14,6 +14,8 @@ import {
 } from "./import-chunks.ts"
 import { csvHeaderOf, parseCsv, parseJsonl } from "./parse.ts"
 
+const CREATED_AT = "2026-08-30T00:00:00.000Z"
+
 const set = (format: "jsonl" | "csv"): SetRow => ({
   id: "set-1",
   name: "test",
@@ -116,7 +118,7 @@ describe("parseCsv", () => {
 
 describe("import chunking", () => {
   it("one chunk of JSONL produces a lock, insert statements and a tally update", () => {
-    const applied = applyChunk(set("jsonl"), '{"a":1}\n{"a":2}\nBAD', 1)
+    const applied = applyChunk(set("jsonl"), '{"a":1}\n{"a":2}\nBAD', 1, CREATED_AT)
     assert.equal(applied.parsed, 2)
     assert.equal(applied.malformed.length, 1)
     // Advisory lock, one 500-row INSERT, then the tally statement.
@@ -127,7 +129,7 @@ describe("import chunking", () => {
   })
 
   it("row numbers are computed IN the batch from the live row count, not a stale read", () => {
-    const applied = applyChunk({ ...set("jsonl"), rowCount: 10 }, '{"a":1}', 1)
+    const applied = applyChunk({ ...set("jsonl"), rowCount: 10 }, '{"a":1}', 1, CREATED_AT)
     const stmt = applied.statements[1] as { text: string }
     // The base comes from count(*) over the set's rows inside the same transaction as the
     // insert -- the set's own rowCount is never trusted for numbering.
@@ -137,7 +139,7 @@ describe("import chunking", () => {
 
   it("a non-first CSV chunk is parsed against the header stored on the set", () => {
     const s = { ...set("csv"), rowCount: 3, csvHeader: ["name", "city"] }
-    const applied = applyChunk(s, "Dan,Iasi", 4)
+    const applied = applyChunk(s, "Dan,Iasi", 4, CREATED_AT)
     assert.equal(applied.parsed, 1)
     assert.equal(applied.malformed.length, 0)
     // No new header is stored on later chunks.
@@ -146,7 +148,7 @@ describe("import chunking", () => {
   })
 
   it("the first CSV chunk stores its header on the set", () => {
-    const applied = applyChunk(set("csv"), "name,city\nDan,Iasi", 1)
+    const applied = applyChunk(set("csv"), "name,city\nDan,Iasi", 1, CREATED_AT)
     const tally = applied.statements[applied.statements.length - 1] as { values?: ReadonlyArray<unknown> }
     assert.equal(csvHeaderOf("name,city\nDan,Iasi").join(","), "name,city")
     assert.equal(tally.values?.[4], '["name","city"]')
@@ -168,7 +170,7 @@ describe("import chunking", () => {
 
   it("insertRowsStatement batches 500 rows per INSERT", () => {
     const records = Array.from({ length: 501 }, (_, i) => ({ a: i }))
-    const statements = insertRowsStatement(records, "set-1")
+    const statements = insertRowsStatement(records, "set-1", CREATED_AT)
     assert.equal(statements.length, 2)
   })
 

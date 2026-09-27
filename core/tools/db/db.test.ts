@@ -1,5 +1,8 @@
 import { expect, it } from "@effect/vitest"
-import { adminUrl, COMPOSE_ARGV, cleanSummary, dropStatement, LEAK_PREFIXES, leakSearch } from "./db-pure.ts"
+import * as ConfigProvider from "effect/ConfigProvider"
+import * as Effect from "effect/Effect"
+import { adminUrl } from "../../src/pg/admin-url.ts"
+import { COMPOSE_ARGV, cleanSummary, dropStatement, LEAK_PREFIXES, leakSearch } from "./db-pure.ts"
 
 it("up starts only postgres, detached; down stops the stack", () => {
   expect(COMPOSE_ARGV.up).toEqual(["docker", "compose", "up", "-d", "postgres"])
@@ -25,29 +28,20 @@ it("quotes the database name it drops", () => {
   expect(dropStatement('qwbe_test_a"b')).toBe('DROP DATABASE "qwbe_test_a""b" WITH (FORCE)')
 })
 
-it("admin URL encodes the credentials", () => {
-  // Asserted through its parts: a literal credential URL here is what secretlint rightly flags.
-  const parts = (url: string) => {
-    const { protocol, username, password, hostname, port, pathname } = new URL(url)
-    return [protocol, username, password, hostname, port, pathname]
-  }
-  expect(parts(adminUrl("db", "5433", "postgres", "p@ss"))).toEqual([
-    "postgres:",
-    "postgres",
-    "p%40ss",
-    "db",
-    "5433",
-    "/postgres",
-  ])
-  expect(parts(adminUrl(undefined, undefined, undefined, undefined))).toEqual([
-    "postgres:",
-    "postgres",
-    "qwbe",
-    "localhost",
-    "5433",
-    "/postgres",
-  ])
-})
+it.effect("admin URL encodes the credentials; each unset part is the local stack", () =>
+  Effect.gen(function* () {
+    // Asserted through its parts: a literal credential URL here is what secretlint rightly flags.
+    const parts = (url: string) => {
+      const { protocol, username, password, hostname, port, pathname } = new URL(url)
+      return [protocol, username, password, hostname, port, pathname]
+    }
+    const from = (env: Record<string, string>) =>
+      Effect.withConfigProvider(adminUrl, ConfigProvider.fromMap(new Map(Object.entries(env))))
+    const set = { QWBE_PG_HOST: "db", QWBE_PG_PORT: "5433", QWBE_PG_USER: "postgres", QWBE_PG_PASSWORD: "p@ss" }
+    expect(parts(yield* from(set))).toEqual(["postgres:", "postgres", "p%40ss", "db", "5433", "/postgres"])
+    expect(parts(yield* from({}))).toEqual(["postgres:", "postgres", "qwbe", "localhost", "5433", "/postgres"])
+  }),
+)
 
 it("summarizes what clean did", () => {
   expect([cleanSummary(0), cleanSummary(2)]).toEqual(["db clean: nothing to drop", "db clean: 2 database(s) dropped"])

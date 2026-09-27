@@ -1,43 +1,79 @@
-// A fresh, throwaway database per test file.
+// A fresh, throwaway database per test file or `qwbe check` run.
 //
-// Each test file calls `createTestDatabase` ONCE, before anything touches the store: the
-// helper creates `qwbe_test_<random>` on the server named by QWBE_DATABASE_URL (or the local
-// docker-compose default) and hands back a connection string to THAT database. Files do not
-// share a database, so they run in parallel without seeing each other's rows, and `drop()`
-// at the end removes the database entirely -- no state survives a run, not even an empty
-// schema. The admin connection is closed before the store pool is created, so the drop is
-// never blocked by our own connections.
+// `testDatabase` creates `qwbe_test_<label>_<random>` on the server named by the QWBE_PG_*
+// variables (or the local docker-compose default) and returns a connection string to THAT
+// database. Files do not share a database, so they run in parallel without seeing each other's
+// rows. Creation and `DROP ... WITH (FORCE)` are one acquireRelease: whatever fails after the
+// CREATE -- a store that does not boot, a hook that throws -- the scope still drops the
+// database, so a failed run leaves no `qwbe_test_*` behind.
 
 import { randomBytes } from "node:crypto"
+import { SqlClient } from "@effect/sql"
+import { Data, Effect, Layer } from "effect"
 import pg from "pg"
+import { testConfigLayer } from "../test-config.ts"
+import { adminUrl } from "./admin-url.ts"
+import { closeAll, initStoreWith, type Pg, run } from "./db.ts"
 
-// The admin connection. Parts, not a URL literal: the test helper composes it from the same
-// local-dev defaults docker-compose.yml uses, and every piece can be overridden by the
-// environment without editing a file.
-const adminUrl = (): string => {
-  const u = new URL("postgres://localhost/postgres")
-  u.hostname = process.env.QWBE_PG_HOST ?? "localhost"
-  u.port = process.env.QWBE_PG_PORT ?? "5433"
-  u.username = process.env.QWBE_PG_USER ?? "postgres"
-  u.password = process.env.QWBE_PG_PASSWORD ?? "qwbe"
-  return u.toString()
-}
-
-export const createTestDatabase = async (label: string): Promise<{ url: string; drop: () => Promise<void> }> => {
-  const name = `qwbe_test_${label}_${randomBytes(4).toString("hex")}`
-  const admin = new pg.Pool({ connectionString: adminUrl(), max: 1 })
-  await admin.query(`CREATE DATABASE "${name}"`)
-  const base = new URL(adminUrl())
-  base.pathname = `/${name}`
-  const url = base.toString()
-  let dropped = false
-  return {
-    url,
-    drop: async () => {
-      if (dropped) return
-      dropped = true
-      await admin.query(`DROP DATABASE IF EXISTS "${name}" WITH (FORCE)`).catch(() => {})
-      await admin.end()
-    },
+export class TestDbUnavailable extends Data.TaggedError("TestDbUnavailable")<{ readonly cause: unknown }> {
+  override get message() {
+    return `could not create a test database (is Postgres up? npm run db:up): ${String(this.cause)}`
   }
 }
+
+const unavailable = (cause: unknown) => new TestDbUnavailable({ cause })
+
+const admin = (url: string) =>
+  Effect.acquireRelease(
+    Effect.tryPromise({
+      try: async () => {
+        const client = new pg.Client({ connectionString: url })
+        await client.connect()
+        return client
+      },
+      catch: unavailable,
+    }),
+    (client) => Effect.promise(() => client.end()),
+  )
+
+/**
+ * The URL of a new database, dropped when the scope closes. Bounded: a Postgres out of
+ * connections must fail here before vitest kills the worker, or the finalizers that stop servers
+ * and drop databases never run.
+ */
+export const testDatabase = (label: string) =>
+  Effect.gen(function* () {
+    const base = yield* Effect.mapError(adminUrl, unavailable)
+    const name = `qwbe_test_${label}_${randomBytes(4).toString("hex")}`
+    const client = yield* admin(base)
+    yield* Effect.acquireRelease(
+      Effect.tryPromise({ try: () => client.query(`CREATE DATABASE "${name}"`), catch: unavailable }),
+      () =>
+        Effect.tryPromise(() => client.query(`DROP DATABASE IF EXISTS "${name}" WITH (FORCE)`)).pipe(
+          Effect.timeout("20 seconds"),
+          Effect.ignore,
+        ),
+    )
+    const url = new URL(base)
+    url.pathname = `/${name}`
+    return url.toString()
+  }).pipe(Effect.timeoutFail({ duration: "20 seconds", onTimeout: () => unavailable("timed out") }))
+
+/**
+ * The kernel store on a new test database, as a layer for `@effect/vitest`'s `layer(...)`: the
+ * store is closed before the database is dropped.
+ */
+export const testStore = (label: string) =>
+  Layer.scopedDiscard(
+    Effect.gen(function* () {
+      const url = yield* testDatabase(label)
+      yield* Effect.acquireRelease(
+        Effect.promise(() => initStoreWith(testConfigLayer({ QWBE_DATABASE_URL: url }))),
+        () => Effect.promise(closeAll),
+      )
+    }),
+  )
+
+/** SQL on the store's pool, for assertions and fixtures. */
+export const withSql = <A, E>(f: (sql: SqlClient.SqlClient) => Effect.Effect<A, E, Pg>): Effect.Effect<A> =>
+  run(Effect.flatMap(SqlClient.SqlClient, f))

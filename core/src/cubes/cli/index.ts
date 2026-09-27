@@ -24,6 +24,7 @@ import { type CubeTools, defineCube } from "qwbe-core/cube"
 import { CommandInfo, CommandResult, Invocation } from "../../http-contracts.ts"
 import { Authorization, CurrentUser, requirePermission } from "../../kernel/auth-contract.ts"
 import { BadRequest, Forbidden } from "../../kernel/errors.ts"
+import { requireTool } from "../shared.ts"
 
 const group = HttpApiGroup.make("cli")
   .add(HttpApiEndpoint.get("commands")`/cli/commands`.addSuccess(Schema.Array(CommandInfo)).addError(Forbidden))
@@ -58,29 +59,28 @@ export const cube = defineCube(group, {
     routes: ROUTES,
   },
 
-  // TS2322 care stătea aici a fost REZOLVATĂ pe 9 aug 2026, nu stinsă. Ce era și cum s-a închis,
-  // fiindcă întrebarea se pune din nou de fiecare dată când cineva scrie o comandă nouă:
+  // The TS2322 that sat here was FIXED on 9 Aug 2026, not silenced. What it was and how it closed,
+  // because the question comes back every time someone writes a new command:
   //
-  // `CommandSpec.run` cere `Effect<string, string, never>` — o comandă nu are voie să ceară NIMIC
-  // din context. `cli:help` avea totuși nevoie să știe cine întreabă, ca să arate fiecăruia doar
-  // comenzile pe care le poate rula; fără filtrare, lista e un inventar de capabilități oferit
-  // tocmai cui nu le are. Amândouă corecte separat, imposibile împreună.
+  // `CommandSpec.run` requires `Effect<string, string, never>` -- a command may not ask for ANYTHING
+  // from the context. `cli:help` still needed to know who is asking, to show each caller only the
+  // commands they may run; unfiltered, the list is an inventory of capabilities handed to exactly
+  // those who lack them. Both right on their own, impossible together.
   //
-  // Ieșirea aleasă: utilizatorul vine ca ARGUMENT, nu din context. Dispecerul din kernel are deja
-  // permisiunile apelantului — le verifică înainte să cheme `run` — deci le și dă mai departe.
-  // `R` rămâne `never`, contractul rămâne strâns, iar comanda rămâne o funcție pură.
+  // The way out: the user arrives as an ARGUMENT, not from the context. The kernel dispatcher
+  // already has the caller's permissions -- it checks them before calling `run` -- so it passes
+  // them on. `R` stays `never`, the contract stays tight, and the command stays a pure function.
   //
-  // Ce s-a respins: lărgirea lui `R` la `CurrentUser`. Ar fi mers pentru `cli:help`, dar odată
-  // deschis contractul, ORICE comandă poate cere ORICE serviciu — iar comenzile sunt singura cale
-  // dintre cuburi care a scăpat deja o dată capabilitate executabilă (vezi `manifest.ts`).
+  // Rejected: widening `R` to `CurrentUser`. It would have worked for `cli:help`, but once the
+  // contract is open, ANY command may ask for ANY service -- and commands are the one path between
+  // cubes that has already leaked an executable capability once (see `manifest.ts`).
   //
-  // Motivarea completă stă lângă tip, în `kernel/manifest.ts`, nu aici.
-  create: ({ commands, runCommands }: CubeTools) => {
-    if (!runCommands) {
-      // Cannot happen: the manifest asks for it and the kernel grants it on that basis. If it
-      // does, failing at startup beats a 500 on the first command.
-      throw new Error("cli asked for `runsCommands: true` but received no dispatcher — kernel bug")
-    }
+  // The full reasoning lives next to the type, in `kernel/manifest.ts`, not here.
+  create: ({ commands, runCommands: given }: CubeTools) => {
+    const runCommands = requireTool(
+      given,
+      "cli asked for `runsCommands: true` but received no dispatcher -- kernel bug",
+    )
 
     return {
       commands: [
@@ -88,9 +88,9 @@ export const cube = defineCube(group, {
           name: "cli:help",
           summary: "list the commands you may run",
           permission: "cli:read",
-          // Filtrat după permisiunile APELANTULUI, care sosesc ca argument de la dispecer. Lista
-          // arăta cândva tot, indiferent de cine întreabă — un inventar gratuit de capabilități
-          // oferit exact celui care nu le poate folosi.
+          // Filtered by the CALLER's permissions, which arrive as an argument from the dispatcher.
+          // The list once showed everything regardless of who asked -- a free inventory of
+          // capabilities handed to exactly the caller who cannot use them.
           run: (_args, callerPermissions) =>
             Effect.succeed(
               commands()

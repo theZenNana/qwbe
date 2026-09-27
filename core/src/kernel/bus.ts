@@ -14,7 +14,7 @@
 // What this is not: not a queue, not durable, not ordered across processes. When it becomes
 // real, this file changes — not the contract cubes see.
 
-import { Effect } from "effect"
+import { Cause, DateTime, Effect } from "effect"
 import type { Subscription } from "../catalogue.ts"
 import type { CubeBus } from "./manifest.ts"
 
@@ -29,6 +29,8 @@ export const busFrom = (
   subscriptions: ReadonlyArray<{ readonly cube: string; readonly subscription: Subscription }>,
   isEnabled: (cube: string) => boolean,
 ) => {
+  // ponytail: plain mutable journal and `sealed` flag, not `Ref`, because `seal()` and `journal()`
+  // are synchronous in the bus's public shape; a `Ref` would turn both into Effects for every caller.
   const journal: Array<JournalEntry> = []
 
   // The subscription list is filled while cubes are being created, so a cube that publishes
@@ -58,7 +60,8 @@ export const busFrom = (
       }
       const targets = subscriptions.filter((s) => s.subscription.event === event && isEnabled(s.cube))
 
-      journal.push({ event, publishedBy, at: new Date().toISOString(), listeners: targets.length })
+      const at = DateTime.formatIso(yield* DateTime.now)
+      journal.push({ event, publishedBy, at, listeners: targets.length })
       if (journal.length > 200) journal.shift()
 
       // One bad listener must not kill delivery for the rest — and this used to be a comment
@@ -69,16 +72,16 @@ export const busFrom = (
       //
       // The isolation now lives here, where it can be relied upon, instead of in the type.
       for (const t of targets) {
-        yield* t.subscription.handle(payload).pipe(
-          Effect.catchAllCause((cause) =>
-            Effect.sync(() => {
-              console.warn(
-                `bus: listener in cube "${t.cube}" failed on "${event}" — delivery continues.\n` +
-                  `     ${String(cause).split("\n")[0]}`,
-              )
-            }),
-          ),
-        )
+        yield* t.subscription
+          .handle(payload)
+          .pipe(
+            Effect.catchAllCause((cause) =>
+              Effect.logWarning(
+                `bus: listener in cube "${t.cube}" failed on "${event}" -- delivery continues. ` +
+                  Cause.pretty(cause).split("\n")[0],
+              ),
+            ),
+          )
       }
     })
 

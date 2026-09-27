@@ -1,8 +1,8 @@
-import * as HttpClient from "@effect/platform/HttpClient"
-import * as HttpClientRequest from "@effect/platform/HttpClientRequest"
-import type * as HttpClientResponse from "@effect/platform/HttpClientResponse"
-import * as Effect from "effect/Effect"
-import * as Schema from "effect/Schema"
+// JSON over HTTP to a running kernel: `qwbe check` (readiness, generic probes) and the check
+// suites talk to the server they booted through these.
+
+import { HttpClient, HttpClientRequest, type HttpClientResponse } from "@effect/platform"
+import { Effect, Option, Schema } from "effect"
 
 export interface Reply {
   readonly status: number
@@ -19,13 +19,14 @@ export interface CallOptions {
 
 const Session = Schema.Struct({ token: Schema.NonEmptyString })
 
-const parse = (text: string): unknown => {
-  try {
-    return JSON.parse(text)
-  } catch {
-    return text
-  }
-}
+/** The session token in a login reply body, if it carries one. */
+export const sessionToken = (body: unknown) =>
+  Option.map(Schema.decodeUnknownOption(Session)(body), ({ token }) => token)
+
+const decodeJson = Schema.decodeUnknownOption(Schema.parseJson())
+
+/** A JSON body decoded; any other body stays its text. */
+const parse = (text: string): unknown => Option.getOrElse(decodeJson(text), () => text)
 
 const request = (url: string, { method = "GET", token, body, headers = {} }: CallOptions) =>
   HttpClientRequest.make(method)(url).pipe(
@@ -40,13 +41,12 @@ const reply = (response: HttpClientResponse.HttpClientResponse) =>
     (text): Reply => ({ status: response.status, headers: response.headers, body: parse(text) }),
   )
 
-/** One request to `base + path`; any status comes back, only a transport failure dies. */
-export const call = (base: string, path: string, options: CallOptions = {}) =>
-  HttpClient.execute(request(`${base}${path}`, options)).pipe(
-    Effect.flatMap(reply),
-    Effect.timeout("10 seconds"),
-    Effect.orDie,
-  )
+/** One request to `base + path`; any status comes back, a transport failure or a timeout fails. */
+export const send = (base: string, path: string, options: CallOptions = {}) =>
+  HttpClient.execute(request(`${base}${path}`, options)).pipe(Effect.flatMap(reply), Effect.timeout("10 seconds"))
+
+/** `send`, where a transport failure dies: the server was booted by the caller and must answer. */
+export const call = (base: string, path: string, options: CallOptions = {}) => Effect.orDie(send(base, path, options))
 
 const isOk = (status: number): boolean => status >= 200 && status < 300
 
@@ -54,7 +54,6 @@ const isOk = (status: number): boolean => status >= 200 && status < 300
 export const login = (base: string, username: string, password: string) =>
   call(base, "/auth/login", { method: "POST", body: { username, password } }).pipe(
     Effect.filterOrDieMessage(({ status }) => isOk(status), `login of ${username} refused`),
-    Effect.flatMap(({ body }) => Schema.decodeUnknown(Session)(body)),
-    Effect.map(({ token }) => token),
-    Effect.orDie,
+    Effect.flatMap(({ body }) => sessionToken(body)),
+    Effect.orDieWith(() => new Error(`login of ${username} returned no session token`)),
   )

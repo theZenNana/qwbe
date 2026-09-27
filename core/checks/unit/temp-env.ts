@@ -1,34 +1,23 @@
 import * as FileSystem from "@effect/platform/FileSystem"
 import * as Effect from "effect/Effect"
+import { QwbeConfig } from "../../src/config.ts"
 import type { CubeDefinition } from "../../src/cube-contract.ts"
+import { loadDefinitions, mount, switchesFor } from "../../src/kernel/discovery.ts"
+import { loadSpaces } from "../../src/kernel/space.ts"
+import { testConfig } from "../../src/test-config.ts"
 
 type Entry = { readonly name: string; readonly plugin: string | null; readonly definition: CubeDefinition }
 
 /**
- * Points each QWBE_* variable in `names` at its own scoped temp directory, then runs `load`.
- * Kernel modules read those directories at import, so every dynamic kernel `import()` of a check
- * goes inside `load`; the directories are removed when the scope closes.
- */
-export const importUnderTempDirs = <const Name extends string, A>(names: ReadonlyArray<Name>, load: () => Promise<A>) =>
-  Effect.gen(function* () {
-    const fs = yield* FileSystem.FileSystem
-    const dirs = {} as Record<Name, string>
-    for (const name of names) {
-      dirs[name] = yield* fs.makeTempDirectoryScoped()
-      process.env[name] = dirs[name]
-    }
-    return { dirs, kernel: yield* Effect.promise(load) }
-  })
-
-/**
  * The cubes on disk kept by `select`, mounted the way main.ts mounts them but without a database
- * or a port. mount may write switches.json, so QWBE_DATA_DIR is a scoped temp directory.
+ * or a port. mount may write switches.json, so the config's data directory is a scoped temp one.
  */
 export const mountCubes = (select: (definitions: ReadonlyArray<Entry>) => ReadonlyArray<Entry>) =>
-  Effect.flatMap(
-    importUnderTempDirs(["QWBE_DATA_DIR"], () =>
-      Promise.all([import("../../src/kernel/discovery.ts"), import("../../src/kernel/space.ts")]),
-    ),
-    ({ kernel: [{ loadDefinitions, mount }, { loadSpaces }] }) =>
-      Effect.promise(async () => mount(select(await loadDefinitions()), await loadSpaces())),
-  )
+  Effect.gen(function* () {
+    const dataDir = yield* (yield* FileSystem.FileSystem).makeTempDirectoryScoped()
+    return yield* Effect.gen(function* () {
+      const definitions = select(yield* Effect.orDie(loadDefinitions))
+      const switches = yield* Effect.orDie(switchesFor(definitions))
+      return yield* Effect.orDie(mount(definitions, yield* Effect.orDie(loadSpaces), switches))
+    }).pipe(Effect.provideService(QwbeConfig, testConfig({ QWBE_DATA_DIR: dataDir })))
+  })

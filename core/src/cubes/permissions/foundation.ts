@@ -1,4 +1,4 @@
-import { Effect } from "effect"
+import { DateTime, Effect } from "effect"
 import type {
   AccessDecision,
   EntityRef,
@@ -52,7 +52,7 @@ export const foundationFrom = (state: PermissionState): Foundation => {
           return yield* Effect.fail(
             new PermissionConflict({ message: ["entity", ref.entityId, "is already claimed"].join(" ") }),
           )
-        const createdAt = new Date().toISOString()
+        const createdAt = DateTime.formatIso(yield* DateTime.now)
         const value: Ownership = { ...ref, ownerId: actor.userId, createdBy: actor.userId, createdAt }
         yield* state.store.insert(tables.ownership, "Ownership", "own", value)
         yield* state.writeAudit(actor, ref, "ownership.claim", "success", null, value)

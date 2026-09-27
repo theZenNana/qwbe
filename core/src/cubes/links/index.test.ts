@@ -4,9 +4,9 @@
 // NotFound when no space declares the requested link.
 
 import assert from "node:assert/strict"
+import { describe, it } from "@effect/vitest"
 import type { Context } from "effect"
 import { Effect } from "effect"
-import { describe, it } from "vitest"
 import { CurrentUser } from "../../kernel/auth-contract.ts"
 import { NotFound } from "../../kernel/errors.ts"
 import type { LinkGroup } from "../../kernel/registry.ts"
@@ -34,7 +34,7 @@ const stubRegistry = {
 } as unknown as Context.Tag.Service<typeof Registry>
 
 const run = <A, E>(eff: Effect.Effect<A, E, CurrentUser | Registry>) =>
-  Effect.runPromise(Effect.provideService(Effect.provideService(eff, CurrentUser, user), Registry, stubRegistry))
+  Effect.provideService(Effect.provideService(eff, CurrentUser, user), Registry, stubRegistry)
 
 describe("links cube contract (QWB-69)", () => {
   it("owns no tables and publishes every route behind links:read", () => {
@@ -50,39 +50,45 @@ describe("links cube contract (QWB-69)", () => {
 })
 
 describe("links cube handlers over a stubbed registry (QWB-69)", () => {
-  it("lists the entities the registry exposes", async () => {
-    const p = cube.create(baseTools())
-    const handler = p.handlers.entities as unknown as () => Effect.Effect<
-      ReadonlyArray<{ cube: string; entity: string }>,
-      NotFound,
-      CurrentUser | Registry
-    >
-    const out = await run(handler())
-    assert.deepEqual(out, [{ cube: "notes", entity: "Note" }])
-  })
+  it.effect("lists the entities the registry exposes", () =>
+    Effect.gen(function* () {
+      const p = cube.create(baseTools())
+      const handler = p.handlers.entities as unknown as () => Effect.Effect<
+        ReadonlyArray<{ cube: string; entity: string }>,
+        NotFound,
+        CurrentUser | Registry
+      >
+      const out = yield* run(handler())
+      assert.deepEqual(out, [{ cube: "notes", entity: "Note" }])
+    }),
+  )
 
-  it("returns a typed NotFound for an entity no active cube holds", async () => {
-    const p = cube.create(baseTools())
-    const handler = p.handlers.for as unknown as (a: {
-      path: { entity: string; id: string }
-    }) => Effect.Effect<unknown, NotFound, CurrentUser | Registry>
-    const err = await run(Effect.flip(handler({ path: { entity: "Vault", id: "v-1" } })))
-    assert.ok(err instanceof NotFound)
-    assert.match(err.message, /no active cube holds entity Vault/)
-  })
+  it.effect("returns a typed NotFound for an entity no active cube holds", () =>
+    Effect.gen(function* () {
+      const p = cube.create(baseTools())
+      const handler = p.handlers.for as unknown as (a: {
+        path: { entity: string; id: string }
+      }) => Effect.Effect<unknown, NotFound, CurrentUser | Registry>
+      const err = yield* run(Effect.flip(handler({ path: { entity: "Vault", id: "v-1" } })))
+      assert.ok(err instanceof NotFound)
+      assert.match(err.message, /no active cube holds entity Vault/)
+    }),
+  )
 
-  it("returns a typed NotFound when no space declares a link for the group", async () => {
-    const p = cube.create(baseTools())
-    const handler = p.handlers.group as unknown as (a: {
-      path: { entity: string; id: string; cube: string }
-      urlParams: { offset: number; limit: number }
-    }) => Effect.Effect<unknown, NotFound, CurrentUser | Registry>
-    const err = await run(
-      Effect.flip(
-        handler({ path: { entity: "Note", id: "note-1", cube: "nope" }, urlParams: { offset: 0, limit: 10 } }),
-      ),
-    )
-    assert.ok(err instanceof NotFound)
-    assert.match(err.message, /no space declares a link from nope to Note/)
-  })
+  it.effect("returns a typed NotFound when no space declares a link for the group", () =>
+    Effect.gen(function* () {
+      const p = cube.create(baseTools())
+      const handler = p.handlers.group as unknown as (a: {
+        path: { entity: string; id: string; cube: string }
+        urlParams: { offset: number; limit: number }
+      }) => Effect.Effect<unknown, NotFound, CurrentUser | Registry>
+      const err = yield* run(
+        Effect.flip(
+          handler({ path: { entity: "Note", id: "note-1", cube: "nope" }, urlParams: { offset: 0, limit: 10 } }),
+        ),
+      )
+      assert.ok(err instanceof NotFound)
+      assert.match(err.message, /no space declares a link from nope to Note/)
+    }),
+  )
 })

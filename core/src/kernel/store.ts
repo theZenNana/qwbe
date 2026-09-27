@@ -14,11 +14,9 @@
 // `closeAll`, `ForeignTableError`, `checkUniqueTables`, `DuplicateTableError` -- so the mount
 // code and every cube stay untouched. The implementation lives in `pg/`.
 
-import { Effect } from "effect"
+import { Data, Effect } from "effect"
 import type { CustomFieldTools } from "../catalogue.ts"
-import { registerCustomFieldProvider } from "../catalogue.ts"
-import type { CustomRowView } from "../custom-defs-reader.ts"
-import { registerCustomFieldDefsReader } from "../custom-defs-reader.ts"
+import type { CustomFieldsRegistry, CustomRowView } from "../custom-defs-reader.ts"
 import { customRowById, customRows } from "../pg/custom-rows.ts"
 
 export { activityToolsFor } from "../pg/activity.ts"
@@ -37,13 +35,13 @@ export { type RowState, rowStateFor, storeFor } from "../pg/store.ts"
  * over the same table would both hold the data. A shared name is how the confusion starts, so
  * it is refused anyway.
  */
-export class DuplicateTableError extends Error {
+export class DuplicateTableError extends Data.TaggedError("DuplicateTableError")<{ readonly message: string }> {
   constructor(table: string, cubes: ReadonlyArray<string>) {
-    super(
-      `Table "${table}" is declared by more than one cube: ${cubes.join(", ")}. ` +
+    super({
+      message:
+        `Table "${table}" is declared by more than one cube: ${cubes.join(", ")}. ` +
         `A table has exactly one owner. Whoever needs the data asks through the registry.`,
-    )
-    this.name = "DuplicateTableError"
+    })
   }
 }
 
@@ -65,7 +63,7 @@ export const checkUniqueTables = (
 
 // --- the tool for the one cube declaring `providesCustomFields` ---
 //
-// `register` feeds the catalogue's provider registry (catalogue.ts); `rows` reads a target
+// `register` feeds the mount's custom-field registry (custom-defs-reader.ts); `rows` reads a target
 // cube's rows through the target's OWN store -- its schema, its role, the same trusted
 // construction the mount itself uses -- so orphan reporting never needs a sidecar copy of the
 // values. The finder is passed in lazily: at mount, the mounted-cubes list does not exist yet.
@@ -75,11 +73,12 @@ export const customFieldToolsFor = (
         readonly manifest: { readonly tables?: readonly string[]; readonly sortable?: readonly string[] }
       }
     | undefined,
+  registry: CustomFieldsRegistry,
 ): CustomFieldTools => ({
-  register: (provide) => registerCustomFieldProvider((cube) => (find(cube) ? provide(cube) : [])),
+  register: (provide) => registry.registerProvider((cube) => (find(cube) ? provide(cube) : [])),
   // The reader is guarded by the same mounted-cube check as the metadata provider: a
   // definition can only target a mounted cube, and anything else reads as no definitions.
-  registerDefsReader: (read) => registerCustomFieldDefsReader((cube) => (find(cube) ? read(cube) : Effect.succeed([]))),
+  registerDefsReader: (read) => registry.registerDefsReader((cube) => (find(cube) ? read(cube) : Effect.succeed([]))),
   rows: (cube) =>
     Effect.gen(function* () {
       const target = find(cube)
