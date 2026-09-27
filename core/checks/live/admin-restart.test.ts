@@ -77,7 +77,7 @@ const startDev = (env: Readonly<Record<string, string | undefined>>) =>
     const proc = yield* Command.start(
       Command.make(process.execPath, join(CORE, "tools", "dev", "dev.ts"), "start").pipe(
         Command.workingDirectory(ROOT),
-        Command.env(env),
+        Command.env(env, { extendEnv: false }),
       ),
     )
     yield* Effect.addFinalizer(() => stop(proc, "15 seconds"))

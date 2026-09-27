@@ -71,7 +71,12 @@ const ready = (base: string, proc: CommandExecutor.Process, output: Ref.Ref<stri
 /** Starts core/src/main.ts with `env`; the scope stops it on close. */
 const spawn = (env: ReturnType<typeof serverEnv>) =>
   Effect.tap(
-    Command.start(Command.make(process.execPath, "src/main.ts").pipe(Command.workingDirectory(CORE), Command.env(env))),
+    Command.start(
+      Command.make(process.execPath, "src/main.ts").pipe(
+        Command.workingDirectory(CORE),
+        Command.env(env, { extendEnv: false }),
+      ),
+    ),
     (proc) => Effect.addFinalizer(() => stop(proc)),
   )
 
