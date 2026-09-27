@@ -107,6 +107,46 @@ module.exports = {
       to: { path: "^(node:)?(sqlite|fs|fs/promises|child_process|worker_threads|module|vm)$" },
     },
     {
+      // Audit E13: new kernel code reaches the filesystem and processes through
+      // @effect/platform, not node:fs or node:child_process. The pathNot list only shrinks.
+      // Tests (*.test.ts) are outside this rule for now; audit E12 moves them later.
+      name: "core-src-no-node-fs-or-process",
+      comment:
+        "Non-test code in core/src uses @effect/platform FileSystem and Command instead of " +
+        "node:fs and node:child_process. Files listed in pathNot predate the rule.",
+      severity: "error",
+      from: {
+        path: "^src/",
+        pathNot: [
+          "\\.test\\.ts$",
+          // Permanent (audit section 4): none today; no permanent exception imports these modules.
+          // To migrate (audit E4/E8/E2), delete the entry when the file moves to @effect/platform.
+          // ledger.ts fsyncs its directory; audit section 4 has not confirmed FileSystem can.
+          "^src/check-manifests\\.mjs$",
+          "^src/check-package\\.ts$",
+          "^src/check-probes\\.ts$",
+          "^src/install-contract\\.ts$",
+          "^src/kernel/install-from\\.ts$",
+          "^src/kernel/install-parts\\.ts$",
+          "^src/kernel/install-scan\\.ts$",
+          "^src/kernel/install\\.ts$",
+          "^src/kernel/ledger\\.ts$",
+          "^src/kernel/scan\\.ts$",
+          "^src/kernel/space\\.ts$",
+          "^src/kernel/state\\.ts$",
+          "^src/metadata/schema-drift\\.ts$",
+          "^src/package-contract-scan\\.ts$",
+          "^src/package-contract\\.ts$",
+          "^src/package-size\\.ts$",
+          "^src/package-source\\.ts$",
+          "^src/pg/db\\.ts$",
+          "^src/store-drift\\.ts$",
+          "^src/test-fixture-pack\\.ts$",
+        ],
+      },
+      to: { path: "^(node:)?(fs|fs/promises|child_process)$" },
+    },
+    {
       // The package checker is the one kernel module that EXECUTES foreign code: with the
       // `hierarchy` option it imports a pack's cube modules to read their manifests, and
       // `import()` runs arbitrary top-level code from a caller-supplied directory. Execution is

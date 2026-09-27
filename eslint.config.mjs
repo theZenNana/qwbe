@@ -93,6 +93,24 @@ export default tseslint.config(
       "@typescript-eslint/no-unnecessary-type-assertion": "off",
     },
   },
+  // Audit E9: kernel logs go through Effect.log*, not console. Tests stay outside for now (audit
+  // E12). The ignores list only shrinks.
+  {
+    files: ["core/src/**/*.ts"],
+    ignores: [
+      "**/*.test.ts",
+      // To migrate (audit E9), delete the entry when the file logs through Effect.
+      "core/src/check-probes.ts",
+      "core/src/cubes/account/index.ts",
+      "core/src/kernel/bus.ts",
+      "core/src/kernel/install-parts.ts",
+      "core/src/kernel/migrate.ts",
+      "core/src/main.ts",
+      "core/src/origins.ts",
+      "core/src/pg/db.ts",
+    ],
+    rules: { "no-console": "error" },
+  },
   {
     files: ["core/src/runtime-composition.ts"],
     rules: {
