@@ -43,7 +43,14 @@ export const databaseUrl = (): string => {
 }
 
 export const getPool = (): Pool => {
-  if (!pool) pool = new pg.Pool({ connectionString: databaseUrl(), max: 10 })
+  if (!pool) {
+    pool = new pg.Pool({ connectionString: databaseUrl(), max: 10 })
+    pool.on("error", (e: NodeJS.ErrnoException) => {
+      // ponytail: one line, no reconnect logic -- the pool replaces a lost client on the next
+      // query; without this listener an idle-client error (57P01) is an uncaught exception.
+      console.error(`qwbe: idle Postgres connection lost (${e.code ?? "no code"}): ${e.message}`)
+    })
+  }
   return pool
 }
 
