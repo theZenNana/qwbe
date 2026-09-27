@@ -5,7 +5,7 @@
 // pagination.ts name them; these tests make the names executable.
 
 import assert from "node:assert/strict"
-import { describe, it } from "node:test"
+import { describe, it } from "vitest"
 
 import { DEFAULT_LIMIT, MAX_LIMIT, pageRequest } from "./pagination.ts"
 

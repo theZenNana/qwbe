@@ -4,7 +4,7 @@
 // `checks/bench/list-60k.bench.ts`.
 
 import assert from "node:assert/strict"
-import { describe, it } from "node:test"
+import { describe, it } from "vitest"
 
 import { whereClause } from "../pg/rows.ts"
 import { listPageRequest, listWhere } from "./list.ts"

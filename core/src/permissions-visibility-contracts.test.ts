@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
-import { describe, it } from "node:test"
 import { Schema } from "effect"
+import { describe, it } from "vitest"
 import { EntityVisibilitySchema, VisibilityListParams, VisibilityMutationSchema } from "./permissions-contracts.ts"
 
 describe("permissions visibility runtime contract", () => {

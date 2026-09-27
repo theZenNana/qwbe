@@ -54,3 +54,18 @@ Pattern seen on this branch: splitting code into many small exports raises `luci
 | `core/checks/unit/temp-env.ts` | lucian 68.5, codebase-design 69.2 |
 | `core/checks/_layers/pack-copy.ts` | lucian 68.6 |
 | `core/checks/integration/hierarchy.test.ts` | codebase-design 68.7 |
+
+## Stage 6 (core on EVE / Pi with GLM 5.3), 2026-09-27
+
+Scored with `agents jev--score-run <run_id>` (journal `~/.local/state/agent-run2/jev`, read by
+Glimpse II), on the changed lines only. Test migration (runs 9330ef92, 75784498, 486cffba, wiring
+863b547d, all `glm-pi` on `sub/glm-5.3-flash`): 201 scores on 67 files, median 85.9, 5 under 70.
+The changed lines are one import swap per file; the owner's rule for this stage is to record, not
+refactor, what stays under 70.
+
+| file | scores under 70 |
+|---|---|
+| `core/src/customfields-runtime.test.ts` | lucian 57.9, ponytail 65.4 |
+| `core/src/install-contract.test.ts` | lucian 64.4 |
+| `core/src/pg/echo-activity-pg.test.ts` | lucian 65.2 |
+| `core/src/kernel/state.test.ts` | lucian 69.9 |

@@ -4,9 +4,9 @@
 // wrong credentials are refused, and logout drops exactly the caller's own session.
 
 import assert from "node:assert/strict"
-import { describe, it } from "node:test"
 import { Effect } from "effect"
 import type { CubeTools } from "qwbe-core/cube"
+import { describe, it } from "vitest"
 import { CurrentUser } from "../../kernel/auth-contract.ts"
 import { Unauthorized } from "../../kernel/errors.ts"
 import { routeContracts } from "../../metadata/metadata.ts"

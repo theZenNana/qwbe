@@ -3,9 +3,9 @@
 // dispatcher: empty input, unknown commands and per-caller permission filtering.
 
 import assert from "node:assert/strict"
-import { describe, it } from "node:test"
 import { Effect } from "effect"
 import type { CubeTools } from "qwbe-core/cube"
+import { describe, it } from "vitest"
 import { CurrentUser } from "../../kernel/auth-contract.ts"
 import { BadRequest, Forbidden } from "../../kernel/errors.ts"
 import type { CommandRunner, CommandSpec } from "../../kernel/manifest.ts"

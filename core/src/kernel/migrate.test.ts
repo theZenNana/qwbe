@@ -7,7 +7,7 @@
 // world changed under it. A half-moved batch must be reported, and rolled back where possible.
 
 import assert from "node:assert/strict"
-import { describe, it } from "node:test"
+import { describe, it } from "vitest"
 
 import { MigrationFailedError, migrateDataSchemas } from "./migrate.ts"
 

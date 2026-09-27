@@ -1,7 +1,7 @@
 import assert from "node:assert/strict"
-import { describe, it } from "node:test"
 import { Effect } from "effect"
 import type { CubeTools } from "qwbe-core/cube"
+import { describe, it } from "vitest"
 import { cube } from "./index.ts"
 
 describe("account identity directory", () => {

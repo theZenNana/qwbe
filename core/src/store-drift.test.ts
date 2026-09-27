@@ -6,12 +6,12 @@ import assert from "node:assert/strict"
 import { cpSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { after, describe, it } from "node:test"
+import { afterAll, describe, it } from "vitest"
 import { PROVENANCE, packageSourceFingerprint } from "./package-source.ts"
 import { shelfDrift, storeDrift } from "./store-drift.ts"
 
 const bench = mkdtempSync(join(tmpdir(), "qwbe-store-drift-"))
-after(() => rmSync(bench, { recursive: true, force: true }))
+afterAll(() => rmSync(bench, { recursive: true, force: true }))
 
 const STAGED_AT = "2026-09-01T00:00:00.000Z"
 const source = join(bench, "source")

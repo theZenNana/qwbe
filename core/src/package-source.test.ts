@@ -1,7 +1,7 @@
 import assert from "node:assert/strict"
 import { readdirSync, readFileSync } from "node:fs"
 import { join, sep } from "node:path"
-import { test } from "node:test"
+import { test } from "vitest"
 import { includePackageSourcePath, isLocalSourceDirectory } from "./package-source.ts"
 
 // QWB-54 ticket 22: an `install-from` of a live checkout found `.pi/` and `.claude/` on disk and

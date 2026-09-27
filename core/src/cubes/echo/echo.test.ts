@@ -15,7 +15,7 @@
 //      single-holder.
 
 import assert from "node:assert/strict"
-import { describe, it } from "node:test"
+import { describe, it } from "vitest"
 import type { ActivityRow, Manifest } from "../../kernel/manifest.ts"
 import { InvalidManifestError, validateManifest } from "../../kernel/manifest-validation.ts"
 import { commentEditSql, commentRemoveSql } from "../../pg/activity.ts"

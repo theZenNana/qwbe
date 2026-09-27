@@ -7,8 +7,8 @@
 // the way a pack would, so the subpath's resolution is part of what these tests prove.
 
 import assert from "node:assert/strict"
-import { describe, it } from "node:test"
 import { checkCustomValue } from "qwbe-core/custom-values"
+import { describe, it } from "vitest"
 import { type DefRow, displayValue, NAME, orphanValues } from "./schema.ts"
 
 const def = (over: Partial<DefRow> = {}): DefRow =>

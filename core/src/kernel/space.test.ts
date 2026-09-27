@@ -5,7 +5,7 @@
 // is no import. So it is checked here, and here it is tested.
 
 import assert from "node:assert/strict"
-import { describe, it } from "node:test"
+import { describe, it } from "vitest"
 
 import { activeLinks, danglingLinks, defineSpace, type Link, link, type SpaceDefinition } from "./space.ts"
 

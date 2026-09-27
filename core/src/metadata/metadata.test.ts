@@ -3,9 +3,9 @@
 // shape a cube ships.
 
 import assert from "node:assert/strict"
-import { describe, it } from "node:test"
 import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema } from "@effect/platform"
 import { Schema } from "effect"
+import { describe, it } from "vitest"
 import { Authorization, declaredPermission } from "../kernel/auth-contract.ts"
 import { deriveCubeMetadata } from "./metadata.ts"
 

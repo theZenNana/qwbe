@@ -26,10 +26,10 @@
 // pg/store.ts captures in the same transaction; the in-memory store cannot fire that path.
 
 import assert from "node:assert/strict"
-import { after, describe, it } from "node:test"
 import { HttpApiBuilder, HttpServer } from "@effect/platform"
 import { Effect, FiberRef, Layer } from "effect"
 import type { CubeTools } from "qwbe-core/cube"
+import { afterAll, describe, it } from "vitest"
 import { buildCatalogue } from "../catalogue.ts"
 import { cube as authCube } from "../cubes/auth/index.ts"
 import { cube as echoCube } from "../cubes/echo/index.ts"
@@ -361,7 +361,7 @@ const needed = (response: { status: number; body: Record<string, unknown> | null
 }
 
 describe("echo feed over the real router (Echo A2 slice 1)", () => {
-  after(() => w.dispose())
+  afterAll(() => w.dispose())
 
   it("owner creates, other is forbidden until an explicit grant, grant, revoke, route independence, deleted history for moderators only", async () => {
     // 1. The owner (admin) creates a private note. The test pushes the activity row itself,

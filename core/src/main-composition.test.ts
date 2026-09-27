@@ -16,10 +16,10 @@
 // over a `Registry` fixture, composed the way main.ts composes it.
 
 import assert from "node:assert/strict"
-import { describe, it } from "node:test"
 import { HttpApiEndpoint, HttpApiGroup } from "@effect/platform"
 import { Context, Effect, Layer, Schema } from "effect"
 import { defineCube } from "qwbe-core/cube"
+import { describe, it } from "vitest"
 import type { MountedCube } from "./kernel/discovery.ts"
 import { Registry } from "./kernel/registry.ts"
 

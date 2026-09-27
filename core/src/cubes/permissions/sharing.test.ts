@@ -1,7 +1,7 @@
 import assert from "node:assert/strict"
-import { describe, it } from "node:test"
 import { Effect } from "effect"
 import { PermissionForbidden, PermissionInvalid, TotalActions } from "qwbe-core/permissions"
+import { describe, it } from "vitest"
 import { memoryStore } from "../../test-cube-tools.ts"
 import { cube } from "./index.ts"
 

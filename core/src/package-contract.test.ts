@@ -8,7 +8,7 @@ import assert from "node:assert/strict"
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { basename, join } from "node:path"
-import { after, describe, it } from "node:test"
+import { afterAll, describe, it } from "vitest"
 
 import { InstallError, stageAndInstall } from "./kernel/install-from.ts"
 import type { CubePackage } from "./kernel/manifest.ts"
@@ -37,7 +37,7 @@ const makePackage = (mutate?: (root: string) => void): string => {
 const pairs = (findings: readonly { rule: string; file: string }[]): [string, string][] =>
   findings.map((f): [string, string] => [f.rule, f.file]).sort()
 
-after(() => {
+afterAll(() => {
   for (const dir of tmpRoots) rmSync(dir, { recursive: true, force: true })
 })
 const tmpRoots: string[] = []

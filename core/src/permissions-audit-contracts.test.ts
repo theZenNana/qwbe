@@ -1,7 +1,7 @@
 import assert from "node:assert/strict"
-import { describe, it } from "node:test"
 import { Schema } from "effect"
 import { AuditEventSchema } from "qwbe-core/permissions"
+import { describe, it } from "vitest"
 
 const event = {
   id: "audit-1",

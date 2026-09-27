@@ -16,9 +16,9 @@ import { cpSync, existsSync, mkdtempSync, rmSync } from "node:fs"
 import { createServer } from "node:net"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
-import { after, before, describe, it } from "node:test"
 import { fileURLToPath } from "node:url"
 import pg from "pg"
+import { afterAll, beforeAll, describe, it } from "vitest"
 
 const here = dirname(fileURLToPath(import.meta.url))
 const root = join(here, "..", "..")
@@ -127,7 +127,7 @@ let serverB: Server
 let adminHeaders: Record<string, string>
 let readerHeaders: Record<string, string>
 
-before(async () => {
+beforeAll(async () => {
   if (existsSync(installed)) throw new Error(`refusing: ${installed} already exists -- remove it first`)
   cpSync(fixture, installed, { recursive: true })
   const [portA, portB] = [await freePort(), await freePort()]
@@ -146,9 +146,9 @@ before(async () => {
   ])
   adminHeaders = await login(portA, "admin", "admin")
   readerHeaders = await login(portB, "reader", "reader")
-})
+}, 60_000)
 
-after(async () => {
+afterAll(async () => {
   for (const s of [serverA, serverB]) s?.proc.kill("SIGTERM")
   await wait(400)
   await pool.query(`DROP DATABASE IF EXISTS "${new URL(dbUrl).pathname.slice(1)}" WITH (FORCE)`).catch(() => {})

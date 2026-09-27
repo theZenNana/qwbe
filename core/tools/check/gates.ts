@@ -22,7 +22,7 @@ export const GATES: ReadonlyArray<GateSpec> = [
   {
     name: "test",
     steps: [
-      ["node", "--test", "core/src/**/*.test.ts", "core/plugins/**/*.test.ts", "web/**/*.test.ts"],
+      ["node", "--test", "core/plugins/**/*.test.ts", "web/**/*.test.ts"],
       ["npm", "--prefix", "core", "test"],
     ],
   },

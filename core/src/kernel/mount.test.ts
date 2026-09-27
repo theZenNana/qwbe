@@ -7,7 +7,7 @@
 // without a token, which is legitimate for `auth:login` and a hole anywhere else.
 
 import assert from "node:assert/strict"
-import { describe, it } from "node:test"
+import { describe, it } from "vitest"
 
 import type { MountedCube } from "./discovery.ts"
 import type { Manifest } from "./manifest.ts"

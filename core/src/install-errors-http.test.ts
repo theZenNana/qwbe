@@ -16,9 +16,9 @@
 // token and satisfy the Authorization middleware; only the store is in memory.
 
 import assert from "node:assert/strict"
-import { describe, it } from "node:test"
 import { HttpApiBuilder, HttpServer } from "@effect/platform"
 import { type Context, Effect, Layer } from "effect"
+import { describe, it } from "vitest"
 import { cube as authCube } from "./cubes/auth/index.ts"
 import { cube as permissionsCube } from "./cubes/permissions/index.ts"
 import { cube as settingsCube } from "./cubes/settings/index.ts"

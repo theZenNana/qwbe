@@ -6,11 +6,11 @@
 // and the credential check are in memory.
 
 import assert from "node:assert/strict"
-import { describe, it } from "node:test"
 import { HttpApiBuilder, HttpApiEndpoint, HttpApiGroup, HttpApiSchema, HttpServer } from "@effect/platform"
 import { Cause, type Context, Effect, Exit, Layer, Logger, LogLevel, Redacted, Schema } from "effect"
 import type { CubeTools } from "qwbe-core/cube"
 import { PermissionForbidden, PermissionInvalid, PermissionNotFound } from "qwbe-core/permissions"
+import { describe, it } from "vitest"
 import { cube as authCube } from "./cubes/auth/index.ts"
 import { cube as permissionsCube } from "./cubes/permissions/index.ts"
 import { enforceEntityHandlers } from "./entity-enforcement.ts"

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict"
-import { describe, it } from "node:test"
 import { BadRequest, Forbidden, NotFound } from "qwbe-core/errors"
 import { PermissionConflict, PermissionForbidden, PermissionInvalid, PermissionNotFound } from "qwbe-core/permissions"
+import { describe, it } from "vitest"
 import { permissionHttpError } from "./handler-utils.ts"
 
 describe("permissions HTTP error mapping", () => {

@@ -4,9 +4,9 @@
 // NotFound when no space declares the requested link.
 
 import assert from "node:assert/strict"
-import { describe, it } from "node:test"
 import type { Context } from "effect"
 import { Effect } from "effect"
+import { describe, it } from "vitest"
 import { CurrentUser } from "../../kernel/auth-contract.ts"
 import { NotFound } from "../../kernel/errors.ts"
 import type { LinkGroup } from "../../kernel/registry.ts"

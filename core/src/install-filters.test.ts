@@ -9,7 +9,7 @@ import assert from "node:assert/strict"
 import { cpSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join, relative, sep } from "node:path"
-import { describe, it } from "node:test"
+import { describe, it } from "vitest"
 
 // The store and plugins roots are read from the environment at module load: set them
 // before any kernel module is imported, hence the dynamic imports below.

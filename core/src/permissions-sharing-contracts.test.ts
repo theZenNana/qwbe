@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
-import { describe, it } from "node:test"
 import { Schema } from "effect"
+import { describe, it } from "vitest"
 import { GroupGrantCreate, TotalActions, UserGrantCreate } from "./permissions-contracts.ts"
 
 describe("permissions sharing public contracts", () => {

@@ -5,8 +5,8 @@
 // in core/src/pg/custom-caps.test.ts; the two together are the evidence the ticket asks for.
 
 import assert from "node:assert/strict"
-import { describe, it } from "node:test"
 import { Effect } from "effect"
+import { describe, it } from "vitest"
 
 import type { PackTools } from "./context.ts"
 import type { DefRow } from "./schema.ts"

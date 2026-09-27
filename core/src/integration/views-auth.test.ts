@@ -13,11 +13,11 @@
 // the shortcut parameters, never a row of the target cube.
 
 import assert from "node:assert/strict"
-import { describe, it } from "node:test"
 import { HttpApiBuilder, HttpServer } from "@effect/platform"
 import type { Context } from "effect"
 import { Effect, Layer } from "effect"
 import type { CubeTools } from "qwbe-core/cube"
+import { describe, it } from "vitest"
 import { cube as authCube } from "../cubes/auth/index.ts"
 import { cube as permissionsCube } from "../cubes/permissions/index.ts"
 import { cube as viewsCube } from "../cubes/views/index.ts"
