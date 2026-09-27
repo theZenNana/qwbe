@@ -75,11 +75,15 @@ const afterRebuild = (id: string, definitionId: string) =>
 
 layer(testWorkspace("customfields"), { timeout: 120_000, excludeTestServices: true })("custom fields", (it) => {
   // One test: the second boot reads what the first wrote, so the two phases cannot be split.
-  it.effect("a value survives a runtime rebuild and stays as an orphan when its definition goes", () =>
-    Effect.gen(function* () {
-      yield* copyPack(GUESTBOOK)((yield* Workspace).pluginsDir)
-      const { id, definitionId } = yield* firstBoot
-      yield* afterRebuild(id, definitionId)
-    }),
+  it.effect(
+    "a value survives a runtime rebuild and stays as an orphan when its definition goes",
+    () =>
+      Effect.gen(function* () {
+        yield* copyPack(GUESTBOOK)((yield* Workspace).pluginsDir)
+        const { id, definitionId } = yield* firstBoot
+        yield* afterRebuild(id, definitionId)
+      }),
+    // Two full boots take about 4s alone; the 5s default fails under full-suite load.
+    30_000,
   )
 })
