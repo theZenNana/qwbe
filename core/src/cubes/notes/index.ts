@@ -93,15 +93,10 @@ export const cube = defineCube(group, {
     const stored = storeRelational<NoteRow>(store, TABLE, summary)
     const actor = (user: CurrentUser["Type"]) => ({ userId: user.id, roles: user.roles })
     const reference = (note: NoteRow) => ({ cube: "notes", entityType: ENTITY, entityId: note.id })
-    const ensureOwn = (note: NoteRow) =>
-      Effect.gen(function* () {
-        const ref = reference(note)
-        if (!(yield* entityPermissions.ownership(ref))) yield* migrateLegacyNotes<NoteRow>(store, entityPermissions)
-        return ref
-      })
 
     return {
       commands: notesCommands(store),
+      // Legacy notes get an owner here, once, at boot; `create` claims every new note.
       layers: Layer.effectDiscard(migrateLegacyNotes<NoteRow>(store, entityPermissions)),
 
       handlers: {
@@ -118,7 +113,7 @@ export const cube = defineCube(group, {
             const user = yield* CurrentUser
             const n = yield* store.byId<NoteRow>(TABLE, path.id)
             if (!n) return yield* Effect.fail(new NotFound({ message: `note ${path.id} does not exist` }))
-            const ref = yield* ensureOwn(n)
+            const ref = reference(n)
             if (!(yield* entityPermissions.authorize(actor(user), ref, "read").pipe(Effect.orDie)).allowed) {
               return yield* Effect.fail(
                 new Forbidden({ message: "this note is not shared with you", needed: "notes:read" }),

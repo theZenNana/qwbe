@@ -10,6 +10,8 @@ export const LEGACY_UNOWNED = "legacy-unowned"
 const actor = (user: typeof CurrentUser.Service) => ({ userId: user.id, roles: user.roles })
 const reference = (note: Note) => ({ cube: "notes", entityType: "Note", entityId: note.id })
 
+// Boot only: every live note gets an owner before any request lists notes.
+// ponytail: one ownership read per note, the permission service has no bulk ownership read; add one if boot gets slow.
 export const migrateLegacyNotes = <Row extends Note>(store: CubeTools["store"], permissions: OwnershipWriter) =>
   Effect.gen(function* () {
     const notes = (yield* store.all<Row>("notes")).filter((note) => !note.deleted)
@@ -26,18 +28,17 @@ export const migrateLegacyNotes = <Row extends Note>(store: CubeTools["store"], 
 
 export const visibleNotesPage = <Row extends Note>(
   store: CubeTools["store"],
-  permissions: PermissionService,
+  permissions: Pick<PermissionService, "authorize">,
   user: typeof CurrentUser.Service,
   request: PageRequest,
 ) =>
   Effect.gen(function* () {
     const notes = [...(yield* store.all<Row>("notes"))].filter((note) => !note.deleted)
     const visible = yield* Effect.filter(notes, (note) =>
-      Effect.gen(function* () {
-        const ref = reference(note)
-        if (!(yield* permissions.ownership(ref))) yield* migrateLegacyNotes<Row>(store, permissions)
-        return (yield* permissions.authorize(actor(user), ref, "read").pipe(Effect.orDie)).allowed
-      }),
+      permissions.authorize(actor(user), reference(note), "read").pipe(
+        Effect.orDie,
+        Effect.map((decision) => decision.allowed),
+      ),
     )
     const field = request.sortBy ?? "createdAt"
     visible.sort((left, right) =>
