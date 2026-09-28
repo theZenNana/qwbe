@@ -160,3 +160,21 @@ statements, which Postgres plans with the actual values, so the index is used.
   Security policy, not a performance detail.
 - **Audit listing**: page and filter `GET /permissions/audit` in SQL; changes its response shape
   if it gains paging.
+
+## CPU profile of the benchmark server (2026-09-28 ~21:25)
+
+`NODE_OPTIONS="--cpu-prof --cpu-prof-dir=..." npm run bench:api`, server profile read with a
+self-time and an inclusive-time summary. The server was busy 104 s of 398 s (74% idle: the
+benchmark waits on timeouts). Effect runs on fibers, so stacks break at every async step and
+inclusive times are lower bounds.
+
+- **Self time is spread thin**: the Effect fiber runtime (`fiberRuntime.js`, `fiberRefs`,
+  `context`) about a quarter of the busy time, then `pg` row parsing and `postgres-date`,
+  `DateTime.formatIso`, socket writes. No single hot function; the cost is the number of small
+  effects and rows per request, which the per-row permission checks multiply.
+- **`GET /settings/cubes` builds the catalogue about 21 times per request**
+  (`cubes/settings/index.ts:140` lists `catalogue()`, then `state-view.ts:7` calls `catalogue()`
+  again per cube), each build running `enrichWithCustomFields` and `metadataHash`. Fixed: one
+  build per request (a counting test goes from 3 calls to 1 with two cubes).
+- Row decoding (`pg/rows.ts:21` `decode`) 4.4 s inclusive, `newId` 1.2 s (the 200,000 audit
+  inserts), the audit listing's decode (`permissions/audit.ts:16`) 1.4 s.

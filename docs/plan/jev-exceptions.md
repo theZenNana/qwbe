@@ -126,3 +126,9 @@ these scores (brief 78), 2026-09-28 ~21:15:
 | `core/tools/dev/dev.ts` (diff) | lucian 51.5 |
 | `core/tools/dev/dev-supervise.ts` (diff) | lucian 60.8, ponytail 68.9 |
 | `core/tools/dev/dev-pure.ts` (diff) | lucian 65.8 |
+
+`GET /settings/cubes` builds the catalogue once (run af54f1d5), 2026-09-28 ~21:35:
+
+| file | scores under 70 |
+|---|---|
+| `core/src/cubes/settings/index.ts` (diff, 10 lines in the existing handlers object) | lucian 51.0 |
