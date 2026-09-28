@@ -40,7 +40,13 @@ apiBench:
       create: "POST /permissions/entities/{cube}/{entityType}/{entityId}/grants/user"
       prefix: grant
       rows: 1000
-    - { table: permissions.permission_capability_grants, create: "POST /permissions/capabilities/user", prefix: cap, rows: 1000 }
+    # A revoke retires every live row of the grant's (capability, subjectKey): clones varied by subjectKey
+    # each revoke alone, so every DELETE of cap-bench{n} finds its own row.
+    - table: permissions.permission_capability_grants
+      create: "POST /permissions/capabilities/user"
+      prefix: cap
+      vary: subjectKey
+      rows: 1000
     - { table: permissions.permission_audit, prefix: audit }
   # p99 budgets in ms, set 2026-09-28 before the store fixes: loose on purpose, to be tightened after them.
   budgets:
@@ -115,7 +121,9 @@ apiBench:
     "GET /staging/sets/{id}": { params: { id: set-bench5000 } }
     "DELETE /staging/sets/{id}": { params: { id: "set-bench{n}" } }
     "POST /staging/sets/{id}/chunks": { params: { id: set-bench5000 }, body: { text: "{\"n\":{n}}\n" } }
-    "POST /staging/sets/{id}/finish": { params: { id: "set-bench{n}" } }
+    # Not set-bench{n}: DELETE /staging/sets/{id} runs first and removes those. 5{n} stays clear of it
+    # while warmup + c1 + c20 < 51.
+    "POST /staging/sets/{id}/finish": { params: { id: "set-bench5{n}" } }
     "POST /staging/sets/{id}/sensitive": { params: { id: set-bench5000 }, body: { fields: [n] } }
     "GET /staging/sets/{id}/profile": { params: { id: set-bench5000 } }
     "GET /views": {}
