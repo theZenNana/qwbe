@@ -50,18 +50,12 @@ apiBench:
     - { table: permissions.permission_audit, prefix: audit }
   # p99 budgets in ms, set 2026-09-28 from the clean run of all 73 routes after the store fixes
   # (test-results/api-bench.json at 18:44Z): twice the measured p99, rounded up. They catch regressions,
-  # not noise. The default covers 55 routes; an override exists only where twice the p99 breaks it.
+  # not noise. The default covers 60 routes; an override exists only where twice the p99 breaks it.
+  # The six lists fixed by batch authorization and SQL paging (Qwbe#73) come from the 19:36Z run.
   budgets:
     default: { c1: 50, c20: 200 }
     routes:
-      # Still time out: waiting on the owner's decision about batch authorization (Qwbe#73).
-      "GET /notes": { c1: 10000, c20: 10000 }
-      "GET /views": { c1: 10000, c20: 10000 }
-      "GET /permissions/entities/{cube}": { c1: 10000, c20: 10000 }
-      "GET /contracts": { c1: 10000, c20: 10000 }
-      "GET /organizations": { c1: 10000, c20: 10000 }
-      # c20 p99 4117.9 ms: its cost grows with the audit table, every authorize writes a row.
-      "GET /permissions/audit": { c1: 500, c20: 10000 }
+      "GET /permissions/entities/{cube}": { c1: 100, c20: 1500 }
       "POST /customfields": { c1: 150, c20: 2500 }
       "GET /staging/sets": { c1: 100, c20: 1500 }
       "POST /account": { c1: 150, c20: 1500 }
