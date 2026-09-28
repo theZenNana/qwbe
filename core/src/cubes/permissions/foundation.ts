@@ -11,6 +11,8 @@ import { PermissionConflict, PermissionForbidden, PermissionNotFound } from "qwb
 import type { PermissionState, StoredGrant, StoredOwnership } from "./state.ts"
 import { tables } from "./state.ts"
 
+type Scope = Readonly<{ cube: string; entityType: string }>
+
 export type Foundation = Pick<
   PermissionService,
   "claim" | "ownership" | "authorize" | "authorizeList" | "auditList" | "transferOwnership"
@@ -20,19 +22,52 @@ export type Foundation = Pick<
   /** Every entity id of `scope` for which `decide` allows `action`, or "all" for admins; no audit. */
   readonly visibleIds: (
     actor: PermissionActor,
-    scope: { readonly cube: string; readonly entityType: string },
+    scope: Scope,
     action: GrantAction,
   ) => Effect.Effect<"all" | ReadonlySet<string>>
 }
 
 /** Whether `grant` gives `action` to the actor, directly or through one of `groups`. */
-const grants = (actor: PermissionActor, groups: ReadonlySet<string>, grant: StoredGrant, action: GrantAction) =>
+const grants = (
+  actor: Pick<PermissionActor, "userId">,
+  groups: ReadonlySet<string>,
+  grant: StoredGrant,
+  action: GrantAction,
+) =>
   grant.actions.includes(action) &&
   ((grant.subject.kind === "user" && grant.subject.userId === actor.userId) ||
     (grant.subject.kind === "group" && groups.has(grant.subject.groupId)))
 
-export const foundationFrom = (state: PermissionState): Foundation => {
-  const decide = (actor: PermissionActor, ref: EntityRef, action: GrantAction) =>
+const scopeWhere = (scope: Scope) => [
+  { field: "cube", value: scope.cube },
+  { field: "entityType", value: scope.entityType },
+]
+
+/**
+ * `decide` trusts only the oldest ownership row of an entity, so a later duplicate claim must not
+ * make the actor an owner: keep an id only if its oldest row is the actor's. `rows` come oldest
+ * first, so the first row seen per entity is the one `decide` trusts.
+ */
+const oldestOwnedBy = (rows: ReadonlyArray<StoredOwnership>, userId: string) => {
+  const oldest = new Map<string, StoredOwnership>()
+  for (const row of rows) if (!oldest.has(row.entityId)) oldest.set(row.entityId, row)
+  return [...oldest].filter(([, row]) => row.ownerId === userId).map(([entityId]) => entityId)
+}
+
+/** Every ownership row of the entities in `scope` the user has at least one row for. */
+const ownershipRowsOf = (store: PermissionState["store"], scope: Scope, userId: string) =>
+  Effect.gen(function* () {
+    const where = scopeWhere(scope)
+    const mine = yield* store.where<StoredOwnership>(tables.ownership, [...where, { field: "ownerId", value: userId }])
+    return yield* store.where<StoredOwnership>(tables.ownership, {
+      equals: where,
+      in: [{ field: "entityId", values: [...new Set(mine.map((row) => row.entityId))] }],
+    })
+  })
+
+const decider =
+  (state: Pick<PermissionState, "cubeAdmin" | "ownership" | "groupIdsFor" | "grantsFor">): Foundation["decide"] =>
+  (actor, ref, action) =>
     Effect.gen(function* () {
       if (actor.roles.includes("admin")) return { allowed: true, source: "superadmin" } as const
       if (yield* state.cubeAdmin(actor, ref.cube)) return { allowed: true, source: "cube-admin" } as const
@@ -42,46 +77,24 @@ export const foundationFrom = (state: PermissionState): Foundation => {
       const grant = (yield* state.grantsFor(ref)).find((candidate) => grants(actor, groups, candidate, action))
       return grant ? ({ allowed: true, source: "grant" } as const) : ({ allowed: false, source: "none" } as const)
     })
-  const authorize = (actor: PermissionActor, ref: EntityRef, action: GrantAction) =>
-    Effect.gen(function* () {
-      const result: AccessDecision = yield* decide(actor, ref, action)
-      yield* state.writeAudit(
-        actor,
-        ref,
-        ["entity", action].join("."),
-        result.allowed ? "allowed" : "denied",
-        null,
-        result,
-      )
-      return result
-    })
-  const visibleIds: Foundation["visibleIds"] = (actor, scope, action) =>
+
+const visibleIdsFrom =
+  (state: Pick<PermissionState, "store" | "cubeAdmin" | "groupIdsFor">): Foundation["visibleIds"] =>
+  (actor, scope, action) =>
     Effect.gen(function* () {
       if (actor.roles.includes("admin") || (yield* state.cubeAdmin(actor, scope.cube))) return "all" as const
-      const where = [
-        { field: "cube", value: scope.cube },
-        { field: "entityType", value: scope.entityType },
-      ]
-      const mine = yield* state.store.where<StoredOwnership>(tables.ownership, [
-        ...where,
-        { field: "ownerId", value: actor.userId },
-      ])
-      // `decide` trusts only the oldest ownership row of an entity, so a later duplicate claim must
-      // not make the actor an owner: keep an id only if its oldest row is the actor's.
-      // `where` returns oldest first, so the first row seen per entity is the one `decide` trusts.
-      const oldest = new Map<string, StoredOwnership>()
-      const all = yield* state.store.where<StoredOwnership>(tables.ownership, {
-        equals: where,
-        in: [{ field: "entityId", values: [...new Set(mine.map((row) => row.entityId))] }],
-      })
-      for (const row of all) if (!oldest.has(row.entityId)) oldest.set(row.entityId, row)
-      const ids = new Set<string>()
-      for (const [entityId, row] of oldest) if (row.ownerId === actor.userId) ids.add(entityId)
+      const owned = oldestOwnedBy(yield* ownershipRowsOf(state.store, scope, actor.userId), actor.userId)
       const groups = yield* state.groupIdsFor(actor.userId)
-      for (const grant of yield* state.store.where<StoredGrant>(tables.grants, where))
-        if (grants(actor, groups, grant, action)) ids.add(grant.entityId)
-      return ids
+      const shared = yield* state.store.where<StoredGrant>(tables.grants, scopeWhere(scope))
+      const granted = shared.filter((grant) => grants(actor, groups, grant, action)).map((grant) => grant.entityId)
+      return new Set([...owned, ...granted])
     })
+
+export const foundationFrom = (state: PermissionState): Foundation => {
+  const decide = decider(state)
+  const visibleIds = visibleIdsFrom(state)
+  const auditDecision = (actor: PermissionActor, ref: EntityRef, action: GrantAction, result: AccessDecision) =>
+    state.writeAudit(actor, ref, ["entity", action].join("."), result.allowed ? "allowed" : "denied", null, result)
   return {
     claim: (actor, ref) =>
       Effect.gen(function* () {
@@ -96,7 +109,8 @@ export const foundationFrom = (state: PermissionState): Foundation => {
         return value
       }),
     ownership: state.ownership,
-    authorize,
+    authorize: (actor, ref, action) =>
+      Effect.tap(decide(actor, ref, action), (result) => auditDecision(actor, ref, action, result)),
     transferOwnership: (actor, ref, userId) =>
       Effect.gen(function* () {
         const current = yield* state.ownership(ref)

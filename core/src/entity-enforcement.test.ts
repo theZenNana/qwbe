@@ -35,6 +35,14 @@ const group = HttpApiGroup.make("hostile")
 
 const actor = { id: "bob", username: "bob", roles: ["reader"], permissions: [], sessionId: "ses-test" }
 const run = <A, E>(effect: Effect.Effect<A, E, CurrentUser>) => effect.pipe(Effect.provideService(CurrentUser, actor))
+// A gate whose every member dies unless a test overrides the one it expects to run.
+const gate = {
+  authorize: () => Effect.die("unused"),
+  authorizeList: () => Effect.die("unused"),
+  auditList: () => Effect.die("unused"),
+  claim: () => Effect.die("unused"),
+  ownership: () => Effect.succeed(undefined),
+}
 // The wrapped handlers keep the plugin's declared error type (often never); the gate's refusal is
 // widened to unknown and read by instance.
 const refusal = <A, E>(effect: Effect.Effect<A, E, CurrentUser>) =>
@@ -54,13 +62,7 @@ describe("kernel entity permission mediation", () => {
           "Secret",
           unsafe,
           { get: () => Effect.succeed({ id: "s1", secret: "leak" }) },
-          {
-            authorize: () => Effect.succeed({ allowed: true, source: "owner" }),
-            authorizeList: () => Effect.die("unused"),
-            auditList: () => Effect.die("unused"),
-            claim: () => Effect.die("unused"),
-            ownership: () => Effect.succeed(undefined),
-          },
+          { ...gate, authorize: () => Effect.succeed({ allowed: true, source: "owner" }) },
         ),
       EntityPermissionContractError,
     )
@@ -70,11 +72,9 @@ describe("kernel entity permission mediation", () => {
     Effect.gen(function* () {
       let calls = 0
       const service = {
+        ...gate,
         authorize: () => Effect.succeed({ allowed: false, source: "none" as const }),
-        authorizeList: () => Effect.die("unused"),
-        auditList: () => Effect.die("unused"),
         claim: () => Effect.die("claim must not run"),
-        ownership: () => Effect.succeed(undefined),
       }
       const handlers = enforceEntityHandlers(
         "hostile",
@@ -107,14 +107,12 @@ describe("kernel entity permission mediation", () => {
     Effect.gen(function* () {
       const claimed: Array<string> = []
       const service = {
+        ...gate,
         authorize: () => Effect.die("authorize must not run"),
-        authorizeList: () => Effect.die("unused"),
-        auditList: () => Effect.die("unused"),
         claim: (_actor: unknown, ref: { entityId: string }) =>
           Effect.sync(() => {
             claimed.push(ref.entityId)
           }),
-        ownership: () => Effect.succeed(undefined),
       }
       const handlers = enforceEntityHandlers(
         "hostile",
@@ -153,13 +151,7 @@ describe("kernel entity permission mediation", () => {
               return { id: "s1", secret: "leak" }
             }),
         },
-        {
-          authorize: () => Effect.succeed({ allowed: false, source: "none" }),
-          authorizeList: () => Effect.die("unused"),
-          auditList: () => Effect.die("unused"),
-          claim: () => Effect.die("unused"),
-          ownership: () => Effect.succeed(undefined),
-        },
+        { ...gate, authorize: () => Effect.succeed({ allowed: false, source: "none" }) },
       )
       assert.match(yield* refusal(handlers.get({ path: { secretId: "s1" } })), /not shared/)
       assert.equal(calls, 0)
@@ -194,14 +186,13 @@ describe("kernel entity list mediation (Qwbe#73)", () => {
         remove: () => Effect.die("unused"),
       },
       {
+        ...gate,
         authorize: () => Effect.die("a list must not authorize per row"),
         authorizeList: () => Effect.succeed(visible),
         auditList: (_actor, _scope, _action, source, ids) =>
           Effect.sync(() => {
             audits.push({ source, ids })
           }),
-        claim: () => Effect.die("unused"),
-        ownership: () => Effect.succeed(undefined),
       },
     )
     return { list: handlers.list, calls, audits }

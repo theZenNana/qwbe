@@ -1,6 +1,6 @@
 import { Effect, Schema } from "effect"
 import type { PageResponse } from "qwbe-core/http"
-import { pageRequest } from "qwbe-core/pagination"
+import { type PageRequest, pageRequest } from "qwbe-core/pagination"
 import {
   type AuditEvent,
   AuditEventSchema,
@@ -13,6 +13,8 @@ import {
 import { page } from "./handler-utils.ts"
 import type { PermissionState } from "./state.ts"
 import { tables } from "./state.ts"
+
+type Store = PermissionState["store"]
 
 const EQUAL_FIELDS = ["actorUserId", "cube", "entityType", "entityId", "action", "result"] as const
 
@@ -29,37 +31,39 @@ const decodeEvents = (stored: ReadonlyArray<unknown>) =>
     ),
   )
 
+const matching = (stored: ReadonlyArray<unknown>, query: AuditQuery) =>
+  Effect.map(decodeEvents(stored), (events) => events.filter((event) => matchesAuditQuery(event, query)))
+
+// ponytail: `groupId` searches the before/after JSON at any depth, so it stays in memory over
+// the rows the other filters leave, then pages in memory. Ceiling: a groupId query reads every
+// such row; move it to SQL (jsonb_path_exists) when that shows up in a profile.
+const pageInMemory = (store: Store, query: AuditQuery, { offset, limit }: Pick<PageRequest, "offset" | "limit">) =>
+  Effect.gen(function* () {
+    const events = yield* matching(yield* store.where<unknown>(tables.audit, whereOf(query)), query)
+    const newest = [...events].sort((left, right) => right.timestamp.localeCompare(left.timestamp))
+    return page(newest, offset, limit, "timestamp")
+  })
+
+const pageInSql = (store: Store, query: AuditQuery, { offset, limit }: Pick<PageRequest, "offset" | "limit">) =>
+  Effect.gen(function* () {
+    const found = yield* store.page<unknown>(
+      tables.audit,
+      { offset, limit, sortBy: "timestamp", descending: true },
+      whereOf(query),
+    )
+    return { ...found, rows: yield* decodeEvents(found.rows) }
+  })
+
 export const auditFrom = (
-  state: PermissionState,
+  state: Pick<PermissionState, "store">,
 ): Pick<PermissionService, "audit"> & {
   /** Newest first, filtered and paged in SQL; only the returned page is decoded. */
   readonly auditPage: (query: AuditQuery) => Effect.Effect<PageResponse<AuditEvent>, PermissionServiceError>
-} => {
-  const matching = (stored: ReadonlyArray<unknown>, query: AuditQuery) =>
-    Effect.map(decodeEvents(stored), (events) => events.filter((event) => matchesAuditQuery(event, query)))
-  return {
-    audit: (query: AuditQuery = {}) =>
-      Effect.flatMap(state.store.all<unknown>(tables.audit), (stored) => matching(stored, query)),
-    auditPage: (query) => {
-      const { offset, limit } = pageRequest(query)
-      // ponytail: `groupId` searches the before/after JSON at any depth, so it stays in memory over
-      // the rows the other filters leave, then pages in memory. Ceiling: a groupId query reads every
-      // such row; move it to SQL (jsonb_path_exists) when that shows up in a profile.
-      if (query.groupId) {
-        return Effect.gen(function* () {
-          const events = yield* matching(yield* state.store.where<unknown>(tables.audit, whereOf(query)), query)
-          const newest = [...events].sort((left, right) => right.timestamp.localeCompare(left.timestamp))
-          return page(newest, offset, limit, "timestamp")
-        })
-      }
-      return Effect.gen(function* () {
-        const found = yield* state.store.page<unknown>(
-          tables.audit,
-          { offset, limit, sortBy: "timestamp", descending: true },
-          whereOf(query),
-        )
-        return { ...found, rows: yield* decodeEvents(found.rows) }
-      })
-    },
-  }
-}
+} => ({
+  audit: (query: AuditQuery = {}) =>
+    Effect.flatMap(state.store.all<unknown>(tables.audit), (stored) => matching(stored, query)),
+  auditPage: (query) =>
+    query.groupId
+      ? pageInMemory(state.store, query, pageRequest(query))
+      : pageInSql(state.store, query, pageRequest(query)),
+})
