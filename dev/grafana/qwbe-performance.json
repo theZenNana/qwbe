@@ -1,9 +1,7 @@
 {
   "uid": "qwbe-perf",
   "title": "qwbe performance",
-  "tags": [
-    "qwbe"
-  ],
+  "tags": ["qwbe"],
   "timezone": "browser",
   "schemaVersion": 39,
   "version": 1,
