@@ -14,6 +14,7 @@
 import { SqlClient, type SqlError, type Statement } from "@effect/sql"
 import { Cache, Context, Data, Duration, Effect, Exit, Layer } from "effect"
 import { MAX_CUSTOM_BYTES, MAX_CUSTOM_KEYS } from "../custom-values.ts"
+import { SORT_KEYS, sortKeysFor } from "../kernel/sort-key.ts"
 
 /** The same identifier `storeFileName` produced for the file, without the extension. */
 export const schemaName = (cube: string): string => cube.replace(/\//g, "--")
@@ -44,6 +45,12 @@ export class Setup extends Context.Tag("qwbe/pg/Setup")<
     readonly schema: (schema: string) => Effect.Effect<string, SqlError.SqlError>
     readonly table: (schema: string, table: string) => Effect.Effect<void, SqlError.SqlError>
     readonly index: (schema: string, table: string, field: string) => Effect.Effect<void, SqlError.SqlError>
+    /** The boot backfill of sort keys, once per process per table and field list. */
+    readonly sortKeys: (
+      schema: string,
+      table: string,
+      fields: ReadonlyArray<string>,
+    ) => Effect.Effect<void, SqlError.SqlError>
     readonly activityReader: (schema: string) => Effect.Effect<void, SqlError.SqlError>
   }
 >() {}
@@ -153,6 +160,10 @@ export const SetupLive = Layer.effect(
     const index = yield* memo(([s, t, f]: readonly [string, string, string]) =>
       Effect.suspend(() => sql.unsafe(lookupIndexSql(s, t, f))),
     )
+    // Runs as the login, outside any cube transaction: each chunk commits on its own.
+    const sortKeys = yield* memo(([s, t, fields]: readonly [string, string, string]) =>
+      rekey(sql, ident(sql, s, t), JSON.parse(fields) as ReadonlyArray<string>),
+    )
     // Grant SELECT on `qwbe.activity` to exactly one cube role: the one whose manifest declares
     // `readsActivity` (at-most-one checked at mount). Lazy because `mount` is synchronous and
     // cube roles come into being lazily; idempotent like every GRANT.
@@ -173,6 +184,7 @@ export const SetupLive = Layer.effect(
       schema,
       table: (s, t) => table(Data.tuple(s, t)),
       index: (s, t, f) => index(Data.tuple(s, t, f)),
+      sortKeys: (s, t, fields) => sortKeys(Data.tuple(s, t, JSON.stringify(fields))),
       activityReader,
     }
   }),
@@ -180,14 +192,67 @@ export const SetupLive = Layer.effect(
 
 export const ensureCubeSchema = (cube: string) => Effect.flatMap(Setup, (s) => s.schema(schemaName(cube)))
 
-/** The table, then one expression index per declared lookup field (each memoized on its own). */
-export const ensureTable = (schema: string, table: string, indexed: ReadonlyArray<string> = []) =>
+/**
+ * The table, then one expression index per declared lookup field (each memoized on its own),
+ * then the sort-key backfill for the cube's sortable fields.
+ */
+export const ensureTable = (
+  schema: string,
+  table: string,
+  indexed: ReadonlyArray<string> = [],
+  sortable: ReadonlyArray<string> = [],
+) =>
   Effect.flatMap(Setup, (s) =>
-    Effect.zipRight(
-      s.table(schema, table),
-      Effect.forEach(indexed, (f) => s.index(schema, table, f), { discard: true }),
+    Effect.all(
+      [
+        s.table(schema, table),
+        Effect.forEach(indexed, (f) => s.index(schema, table, f), { discard: true }),
+        sortable.length === 0 ? Effect.void : s.sortKeys(schema, table, sortable),
+      ],
+      { discard: true },
     ),
   )
+
+const REKEY_CHUNK = 500
+
+/** Key order does not matter: jsonb hands objects back with its own key order. */
+const canonical = (value: unknown): string =>
+  JSON.stringify(value ?? null, (_k, v: unknown) =>
+    typeof v === "object" && v !== null && !Array.isArray(v) ? Object.fromEntries(Object.entries(v).sort()) : v,
+  )
+
+/**
+ * Rewrite `_sort` on every row of `t` whose stored keys differ from what `fields` give today:
+ * missing, an older SORT_KEY_VERSION, or stale after a raw batch changed a field. Idempotent:
+ * a second run finds nothing to write. Rows are walked by id in chunks, and only rows carrying
+ * a sortable field or a `_sort` are read (the GIN index answers `?|`). A row changed between
+ * the read and the write keeps its body: the UPDATE matches the hash of the body it keyed.
+ * Keys are derived data: no version bump, no outbox, no activity.
+ */
+export const rekey = (sql: SqlClient.SqlClient, t: Statement.Fragment, fields: ReadonlyArray<string>) =>
+  Effect.gen(function* () {
+    if (fields.length === 0) return
+    const probe = [...fields, SORT_KEYS]
+    let after = ""
+    for (;;) {
+      const rows = yield* sql<{ id: string; body: Record<string, unknown>; h: string }>`
+        SELECT id, body, md5((body - '_sort')::text) AS h FROM ${t}
+        WHERE body ?| ${probe}::text[] AND id COLLATE "C" > ${after} ORDER BY id COLLATE "C" LIMIT ${REKEY_CHUNK}`
+      const stale = rows.flatMap((r) => {
+        const k = sortKeysFor(r.body, fields) ?? null
+        return canonical(k) === canonical(r.body[SORT_KEYS]) ? [] : [{ id: r.id, h: r.h, k }]
+      })
+      if (stale.length > 0) {
+        yield* sql`UPDATE ${t} AS r
+                   SET body = CASE WHEN u.k IS NULL THEN r.body - '_sort' ELSE jsonb_set(r.body, '{_sort}', u.k) END
+                   FROM jsonb_to_recordset(${JSON.stringify(stale)}::jsonb) AS u(id text, h text, k jsonb)
+                   WHERE r.id = u.id AND md5((r.body - '_sort')::text) = u.h`
+      }
+      const last = rows.at(-1)
+      if (rows.length < REKEY_CHUNK || !last) return
+      after = last.id
+    }
+  })
 
 export const ensureActivityReader = (cube: string) => Effect.flatMap(Setup, (s) => s.activityReader(schemaName(cube)))
 

@@ -89,7 +89,9 @@ export const listWhere = (
   const fields = searchFields(manifest)
   const q = text !== "" && fields.length > 0 ? { text, fields } : undefined
   if (equals.length === 0 && ids.length === 0 && q === undefined) return undefined
-  return { equals, ids, ...(q ? { q } : {}) }
+  // `ids` only when asked: an empty `?ids=` means no filter here, and an empty set to the store
+  // is meant to match nothing (Qwbe#73).
+  return { equals, ...(ids.length > 0 ? { ids } : {}), ...(q ? { q } : {}) }
 }
 
 export type GenericList<A, B> = {

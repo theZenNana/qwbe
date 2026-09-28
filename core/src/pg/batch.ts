@@ -18,7 +18,7 @@ import { SqlClient } from "@effect/sql"
 import { Effect } from "effect"
 import type { CubeStore } from "../kernel/store-contract.ts"
 import { run } from "./db.ts"
-import { q, schemaName, withRole } from "./setup.ts"
+import { ensureTable, ident, q, rekey, schemaName, withRole } from "./setup.ts"
 
 /** One SQL statement inside a batch: text plus bound values. Identifiers are never parameters
  *  and never arrive here -- the caller quotes them itself (see `q`), values are always bound. */
@@ -34,13 +34,21 @@ export type BatchStore = CubeStore & {
   ) => Effect.Effect<ReadonlyArray<ReadonlyArray<Record<string, unknown>>>, never, never>
 }
 
-/** The batch method itself, bound to one cube. Returns ONE ROW ARRAY PER STATEMENT, in order. */
+/**
+ * The batch method itself, bound to one cube. Returns ONE ROW ARRAY PER STATEMENT, in order.
+ *
+ * Raw statements write bodies the store never sees, so their sort keys (kernel/sort-key.ts)
+ * are brought up to date afterwards, in the same transaction: a page sorted by a field the
+ * batch changed never reads a stale key.
+ */
 export const batchFor =
-  (cube: string): BatchStore["batch"] =>
+  (cube: string, tables: ReadonlyArray<string> = [], sortable: ReadonlyArray<string> = []): BatchStore["batch"] =>
   (statements) =>
     run(
       Effect.gen(function* () {
         const sql = yield* SqlClient.SqlClient
+        const schema = schemaName(cube)
+        if (sortable.length > 0) for (const t of tables) yield* ensureTable(schema, t, [], sortable)
         return yield* withRole(
           cube,
           Effect.gen(function* () {
@@ -49,10 +57,14 @@ export const batchFor =
             // an unqualified name can only ever resolve inside the cube's own schema. The schema
             // name is QUOTED: child cube names contain `--`, and the GUC value is a raw string,
             // not an identifier.
-            yield* sql`SELECT set_config('search_path', ${q(schemaName(cube))}, true)`
-            return yield* Effect.forEach(statements, (s) =>
+            yield* sql`SELECT set_config('search_path', ${q(schema)}, true)`
+            const results = yield* Effect.forEach(statements, (s) =>
               sql.unsafe<Record<string, unknown>>(s.text, [...(s.values ?? [])]),
             )
+            // ponytail: re-reads every row carrying a sortable field after each batch; fine for
+            // staging's small sets table, track the touched ids if a batch-heavy table grows.
+            for (const t of tables) yield* rekey(sql, ident(sql, schema, t), sortable)
+            return results
           }),
         )
       }),

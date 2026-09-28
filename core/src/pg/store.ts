@@ -22,6 +22,7 @@
 import { SqlClient, type SqlError, type Statement } from "@effect/sql"
 import { Array as Arr, DateTime, Effect, FiberRef } from "effect"
 import { CurrentActor } from "../kernel/actor.ts"
+import { SORT_KEYS, withSortKeys } from "../kernel/sort-key.ts"
 // RowState is declared in the leaf store contract; re-exported here so kernel/store.ts keeps
 // its public surface (QWB-70).
 import type { CubeStore, RowState, Where } from "../kernel/store-contract.ts"
@@ -58,6 +59,12 @@ const asStored = <A extends Record<string, unknown>>(row: A): A =>
   Object.fromEntries(Object.entries(row).filter(([, v]) => v !== undefined)) as A
 
 type Row = Record<string, unknown>
+
+/** The reserved sort keys are the store's to write: whatever a caller put there is dropped. */
+const unkeyed = (values: Row): Row => {
+  const { [SORT_KEYS]: _forged, ...rest } = values
+  return rest
+}
 
 /** The lookup statement behind `first`/`where`: live rows, filtered in SQL, oldest first. */
 const matchingSql = (sql: SqlClient.SqlClient, t: Statement.Fragment, where: Where, limit: number | undefined) =>
@@ -101,7 +108,7 @@ export const storeFor = (
         if (!allowed.has(table)) throw new ForeignTableError(cube, table, tables)
         const sql = yield* SqlClient.SqlClient
         yield* ensureCubeSchema(cube)
-        yield* ensureTable(schema, table, indexed[table] ?? [])
+        yield* ensureTable(schema, table, indexed[table] ?? [], sortable)
         return yield* withRole(cube, f(sql, ident(sql, schema, table)))
       }),
     )
@@ -164,11 +171,12 @@ export const storeFor = (
             type: entityType,
             createdAt: DateTime.formatIso(yield* DateTime.now),
             deleted: false,
-            ...values,
+            ...unkeyed(values),
           })
           const { id, type, createdAt, deleted, ...body } = row
           yield* sql`INSERT INTO ${t} (id, type, created_at, deleted, version, body)
-                     VALUES (${id}, ${type}, ${createdAt}::timestamptz, ${deleted}, 1, ${JSON.stringify(body)})`
+                     VALUES (${id}, ${type}, ${createdAt}::timestamptz, ${deleted}, 1,
+                             ${JSON.stringify(withSortKeys(body, sortable))})`
           yield* outboxInsert(sql, cube, table, id, "insert", 1)
           if (capturesType(captureEntity, entityType)) {
             yield* activityInsert(sql, cube, entityType, id, "create", 1, actor, diffBody(null, body))
@@ -185,12 +193,12 @@ export const storeFor = (
           if (!current) return undefined
           const previous = decode(current)
           // `custom` merges (rows.ts), so a partial PATCH cannot wipe sibling values.
-          const withCustom = mergeCustom(current, { ...previous, ...patch })
+          const withCustom = mergeCustom(current, { ...previous, ...unkeyed(patch) })
           const { id: _i, type, createdAt, deleted, ...body } = withCustom
           const version = ((current as { version?: number }).version ?? 1) + 1
           yield* sql`UPDATE ${t}
                      SET type = ${String(type)}, created_at = ${String(createdAt)}::timestamptz, deleted = ${deleted},
-                         version = ${version}, body = ${JSON.stringify(body)}
+                         version = ${version}, body = ${JSON.stringify(withSortKeys(body, sortable))}
                      WHERE id = ${id}`
           // ADR-0001 section 5 lists delete as its own op: a soft delete is not an update.
           const op = deleted === true ? "delete" : "update"
@@ -206,7 +214,7 @@ export const storeFor = (
         }),
       ),
 
-    ...(withBatch ? { batch: batchFor(cube) } : {}),
+    ...(withBatch ? { batch: batchFor(cube, tables, sortable) } : {}),
 
     count: (table: string) =>
       onTable(table, (sql, t) =>

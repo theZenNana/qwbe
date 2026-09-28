@@ -13,12 +13,21 @@ type Row = Record<string, unknown>
 
 /**
  * A store `Where` read in memory with the SQL meaning of rows.ts `whereClause`: every pair ANDed
- * and compared as text (`body ->> field`, a missing field never matches), `ids` as a set, `q` as a
- * case-insensitive prefix on any of its fields.
+ * and compared as text (`body ->> field`, a missing field never matches), `ids` as a set (empty:
+ * none), `q` as a
+ * case-insensitive prefix on any of its fields, `anyOf` as some group matching (none for no
+ * groups), `not` as the group failing -- a missing field fails it, as `IS NOT TRUE` does in SQL.
  */
 export const matchesWhere = (row: Row, where: Where): boolean => {
   const w = asListWhere(where)
-  return equalsAll(row, w.equals) && inIds(row, w.ids) && inSets(row, w.in) && matchesQ(row, w.q)
+  return (
+    equalsAll(row, w.equals) &&
+    inIds(row, w.ids) &&
+    inSets(row, w.in) &&
+    matchesQ(row, w.q) &&
+    (w.anyOf === undefined || w.anyOf.some((g) => matchesWhere(row, g))) &&
+    (w.not === undefined || !matchesWhere(row, w.not))
+  )
 }
 
 const asListWhere = (where: Where): ListWhere => {
@@ -37,7 +46,7 @@ const fieldText = (row: Row, field: string): string | undefined => {
 const equalsAll = (row: Row, equals: ListWhere["equals"] = []): boolean =>
   equals.every((e) => fieldText(row, e.field) === e.value)
 
-const inIds = (row: Row, ids: ListWhere["ids"] = []): boolean => ids.length === 0 || ids.includes(String(row.id))
+const inIds = (row: Row, ids: ListWhere["ids"]): boolean => ids === undefined || ids.includes(String(row.id))
 
 // An empty set matches nothing, and a missing field no set, as in rows.ts.
 const inSets = (row: Row, sets: ListWhere["in"] = []): boolean =>
@@ -73,11 +82,13 @@ export const memoryStore = (): CubeTools["store"] => {
     tables.set(table, created)
     return created
   }
+  // `page` and `count` skip deleted rows like Postgres; `all`/`byId` keep them for tests that inspect soft deletes.
+  const live = (table: string) => rows(table).filter((row) => row.deleted !== true)
   return {
     all: <A>(table: string) => Effect.succeed(rows(table) as ReadonlyArray<A>),
     page: <A>(table: string, page: { offset: number; limit: number }, where?: unknown) => {
       const pair = where as { field: string; value: unknown } | undefined
-      const hit = pair && "field" in pair ? rows(table).filter((row) => row[pair.field] === pair.value) : rows(table)
+      const hit = pair && "field" in pair ? live(table).filter((row) => row[pair.field] === pair.value) : live(table)
       return Effect.succeed({
         rows: hit.slice(page.offset, page.offset + page.limit) as ReadonlyArray<A>,
         total: hit.length,
@@ -101,7 +112,7 @@ export const memoryStore = (): CubeTools["store"] => {
         Object.assign(row, patch)
         return row
       }),
-    count: (table: string) => Effect.succeed(rows(table).length),
+    count: (table: string) => Effect.succeed(live(table).length),
   }
 }
 
