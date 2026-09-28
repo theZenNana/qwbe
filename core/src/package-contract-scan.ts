@@ -27,10 +27,13 @@ const isBuiltin = (specifier: string): boolean =>
 
 // Directories that are never package source, honoured at the TOP level of the package only:
 // `frontend` is the pack's UI, judged by the browser build, not by the cube contract; `probes`
-// runs in the authoring checkout by design; `store`, `dist` and `build` are generated. Nested
-// directories of these names are ordinary source -- a top-level-only exemption must not become
-// a one-directory bypass (the size gate made exactly that mistake once).
-const SKIP_DIRECTORIES = new Set(["frontend", "probes", "store", "dist", "build"])
+// runs in the authoring checkout by design, and so do the developer `tools` and `checks`; `store`,
+// `dist` and `build` are generated. Nested directories of these names are ordinary source -- a
+// top-level-only exemption must not become a one-directory bypass (the size gate made exactly
+// that mistake once).
+// ponytail: a name denylist; the next developer directory needs another edit here and in
+// LOCAL_SOURCE_DIRECTORIES. Upgrade path: scan only what qwbe-package.json declares (an allowlist).
+const SKIP_DIRECTORIES = new Set(["frontend", "probes", "tools", "checks", "store", "dist", "build"])
 const SOURCE_FILE = /\.(ts|tsx|mjs|js|jsx)$/
 // Tests exercise the rules, so they may name the forbidden thing: a test file's job is to
 // import node:fs or call writeFile to build a fixture. The rules below therefore judge

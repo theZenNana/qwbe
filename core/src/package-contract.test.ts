@@ -120,6 +120,23 @@ env("package contract checker", (it) => {
     }),
   )
 
+  it.scoped("top-level tools/ and checks/ are developer tooling; a nested cubes/<name>/tools/ is source", () =>
+    Effect.gen(function* () {
+      const forbidden = `import { loadDefinitions } from "../../../qwbe/core/src/kernel/discovery.ts"\nimport { writeFile } from "node:fs/promises"\nexport const w = [writeFile, loadDefinitions]\n`
+      const root = yield* build((r) => {
+        for (const dir of ["tools", join("checks", "_layers"), join("cubes", "demo", "tools")]) {
+          mkdirSync(join(r, dir), { recursive: true })
+          writeFileSync(join(r, dir, "kernel.ts"), forbidden)
+        }
+      })
+      assert.deepEqual(pairs(yield* check(root, { readOnly: true })), [
+        ["cube-builtins", "cubes/demo/tools/kernel.ts"],
+        ["imports-internal", "cubes/demo/tools/kernel.ts"],
+        ["readonly-write", "cubes/demo/tools/kernel.ts"],
+      ])
+    }),
+  )
+
   it.scoped("a manifest naming a cube that is not on disk fails", () =>
     Effect.gen(function* () {
       const root = yield* build()
