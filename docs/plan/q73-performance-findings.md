@@ -178,3 +178,19 @@ inclusive times are lower bounds.
   build per request (a counting test goes from 3 calls to 1 with two cubes).
 - Row decoding (`pg/rows.ts:21` `decode`) 4.4 s inclusive, `newId` 1.2 s (the 200,000 audit
   inserts), the audit listing's decode (`permissions/audit.ts:16`) 1.4 s.
+
+## The 500s: row id collisions, proven (2026-09-28 ~21:45)
+
+The guess in point 4 of the traced run above (a cancel landing on a pooled connection) was wrong.
+The Postgres log of the runs shows the error behind every 500:
+
+```
+ERROR:  duplicate key value violates unique constraint "permission_audit_pkey"
+DETAIL:  Key (id)=(audit-6c947ceb) already exists.
+```
+
+`newId` (`core/src/pg/rows.ts:19`) made ids from 4 random bytes: 32 bits, a 50% chance of a
+collision at about 77,000 rows in one table, routine beyond. The audit table passes 200,000 rows
+in one benchmark run (every `authorize` writes one), so inserts started failing at random and the
+request answered 500. Any table that grows to tens of thousands of rows would do the same in
+production. Fixed by widening the ids (below).
