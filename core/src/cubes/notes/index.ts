@@ -19,7 +19,7 @@ import { PageOf } from "qwbe-core/http"
 import { PageParams, pageRequest } from "qwbe-core/pagination"
 import { requireTool, storeRelational } from "../shared.ts"
 import { notesCommands } from "./commands.ts"
-import { migrateLegacyNotes, visibleNotesPage } from "./permissions.ts"
+import { migrateLegacyNotes } from "./permissions.ts"
 
 const TABLE = "notes"
 const ENTITY = "Note"
@@ -46,8 +46,14 @@ const NoteCreate = Schema.Struct({
 
 type NoteRow = typeof Note.Type
 
+const NoteListParams = Schema.Struct({
+  ...PageParams.fields,
+  /** `ids=a,b,c` -- only these notes. The entity wrapper injects the actor's visible ids here. */
+  ids: Schema.optional(Schema.String),
+})
+
 const group = HttpApiGroup.make("notes")
-  .add(HttpApiEndpoint.get("list")`/notes`.setUrlParams(PageParams).addSuccess(PageOf(Note)).addError(Forbidden))
+  .add(HttpApiEndpoint.get("list")`/notes`.setUrlParams(NoteListParams).addSuccess(PageOf(Note)).addError(Forbidden))
   .add(
     HttpApiEndpoint.get("get")`/notes/${HttpApiSchema.param("id", Schema.String)}`
       .addSuccess(Note)
@@ -100,11 +106,15 @@ export const cube = defineCube(group, {
       layers: Layer.effectDiscard(migrateLegacyNotes<NoteRow>(store, entityPermissions)),
 
       handlers: {
-        list: ({ urlParams }: { urlParams: typeof PageParams.Type }) =>
+        // The entity wrapper authorizes, injects the visible `ids` and writes the audit row (Qwbe#73).
+        list: ({ urlParams }: { urlParams: typeof NoteListParams.Type }) =>
           Effect.gen(function* () {
             yield* requirePermission(ROUTES.list)
-            const user = yield* CurrentUser
-            return yield* visibleNotesPage<NoteRow>(store, entityPermissions, user, pageRequest(urlParams))
+            // Filter, sort (the manifest's `sortable`), count and page all in SQL.
+            const { rows, total, offset, limit, sortedBy } = yield* store.page<NoteRow>(TABLE, pageRequest(urlParams), {
+              ids: (urlParams.ids ?? "").split(",").filter(Boolean),
+            })
+            return { rows, total, offset, limit, sortedBy }
           }),
 
         get: ({ path }: { path: { id: string } }) =>
