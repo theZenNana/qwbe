@@ -32,7 +32,7 @@ describe("rowFields reads one row, not the table", () => {
       let rowCalls = 0
       let rowsCalls = 0
       const tools = {
-        store: { all: () => Effect.succeed([defRow]) },
+        store: { where: () => Effect.succeed([defRow]) },
         bus: {},
         catalogue: () => [],
         customFields: {
@@ -62,7 +62,7 @@ describe("rowFields reads one row, not the table", () => {
   it.effect("a row the reader cannot find answers an empty field list, as before", () =>
     Effect.gen(function* () {
       const tools = {
-        store: { all: () => Effect.succeed([defRow]) },
+        store: { where: () => Effect.succeed([defRow]) },
         bus: {},
         catalogue: () => [],
         customFields: { rows: () => Effect.succeed([]), row: () => Effect.succeed(undefined) },

@@ -26,8 +26,8 @@ export type Snapshot = { current: ReadonlyArray<DefRow> }
 
 export const definitionsFor = (store: Store, cube: string) =>
   Effect.gen(function* () {
-    const rows = yield* store.all<DefRow>(DEFS)
-    return rows.filter((d) => d.deleted === false && d.targetCube === cube).sort(byPosition)
+    const rows = yield* store.where<DefRow>(DEFS, { field: "targetCube", value: cube })
+    return [...rows].sort(byPosition)
   })
 
 /** Reload the snapshot from the store. Run at create (fire-and-forget) and after every write. */

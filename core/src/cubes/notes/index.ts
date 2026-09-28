@@ -72,6 +72,7 @@ export const cube = defineCube(group, {
     // Declares a version, which opts the cube into the drift gate (schema-drift.ts).
     version: "1.0.0",
     tables: [TABLE],
+    indexed: { [TABLE]: ["authorId"] },
     entity: ENTITY,
     // Sorting reads the stored row, so only these are offered. `body` is content, not an
     // index, but it is already public -- the point of the list is to keep hidden columns out.
@@ -143,9 +144,9 @@ export const cube = defineCube(group, {
         search: (field, value, page) =>
           Effect.gen(function* () {
             const user = yield* CurrentUser
-            const matching = (yield* store.all<NoteRow>(TABLE)).filter(
-              (note) => !note.deleted && String((note as Record<string, unknown>)[field] ?? "") === value,
-            )
+            // `field` is a declared link (workspace: `authorId`) and `value` an id, both strings,
+            // so the SQL text compare matches the old in-memory `String(...) === value`.
+            const matching = yield* store.where<NoteRow>(TABLE, { field, value })
             const rows = yield* Effect.filter(matching, (note) =>
               Effect.gen(function* () {
                 const ref = reference(note)

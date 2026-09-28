@@ -122,6 +122,7 @@ export const cube = defineCube(group, {
     name: "views",
     version: "1.0.0",
     tables: [TABLE],
+    indexed: { [TABLE]: ["targetCube"] },
     entity: ENTITY,
     sortable: SORTABLE,
     requiresAuth: true,
@@ -142,9 +143,11 @@ export const cube = defineCube(group, {
           Effect.gen(function* () {
             yield* requirePermission(ROUTES.list)
             const page = pageRequest(urlParams)
-            const rows = (yield* store.all<SavedViewRow>(TABLE)).filter(
-              (v) => !v.deleted && (urlParams.targetCube === undefined || v.targetCube === urlParams.targetCube),
-            )
+            const rows = (
+              urlParams.targetCube === undefined
+                ? yield* store.all<SavedViewRow>(TABLE)
+                : yield* store.where<SavedViewRow>(TABLE, { field: "targetCube", value: urlParams.targetCube })
+            ).filter((v) => !v.deleted)
             const field = SORTABLE.includes(page.sortBy as (typeof SORTABLE)[number])
               ? (page.sortBy as string)
               : "createdAt"

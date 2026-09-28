@@ -2,7 +2,7 @@
 
 import { createHash, randomBytes } from "node:crypto"
 import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema } from "@effect/platform"
-import { Effect, Redacted, Schema } from "effect"
+import { Effect, Option, Redacted, Schema } from "effect"
 import { type CubeTools, defineCube } from "qwbe-core/cube"
 import { QwbeConfig, QwbeConfigLive } from "../../config.ts"
 import { Authorization, requirePermission } from "../../kernel/auth-contract.ts"
@@ -54,6 +54,7 @@ const manifest = {
   // the bump the gate asked for when `searchable` below made three fields filterable.
   version: "1.1.0",
   tables: [TABLE],
+  indexed: { [TABLE]: ["username"] },
   entity: ENTITY,
   // Deliberately NOT `passwordHash`. Ordering by it returned 200 to an ordinary reader and
   // leaked information about a value that never appears in any response.
@@ -115,8 +116,9 @@ export const cube = defineCube(group, {
         verify: (username: string, password: string) =>
           Effect.gen(function* () {
             yield* seed
-            const rows = yield* store.all<AccountRow>(TABLE)
-            const found = rows.find((a) => a.username === username)
+            const found = Option.getOrUndefined(
+              yield* store.first<AccountRow>(TABLE, { field: "username", value: username }),
+            )
             const expected = found?.passwordHash ?? (yield* hashPassword(randomBytes(24).toString("base64url")))
             const legacy = /^[a-f0-9]{64}$/.test(expected)
             const matches = legacy

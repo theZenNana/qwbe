@@ -122,6 +122,7 @@ export const cube = defineCube(group, {
     name: "customfields",
     screen: true,
     tables: [DEFS],
+    indexed: { [DEFS]: ["targetCube"] },
     sortable: ["targetCube", "name", "label", "fieldType", "position", "createdAt"],
     requiresAuth: true,
     providesCustomFields: true,
@@ -179,11 +180,13 @@ export const cube = defineCube(group, {
           maxArgs: 1,
           run: (args) =>
             Effect.gen(function* () {
-              const rows = yield* store.all<DefRow>(DEFS)
               const wanted = args[0]
+              const rows = wanted
+                ? yield* store.where<DefRow>(DEFS, { field: "targetCube", value: wanted })
+                : yield* store.all<DefRow>(DEFS)
               return (
                 rows
-                  .filter((d) => d.deleted === false && (!wanted || d.targetCube === wanted))
+                  .filter((d) => d.deleted === false)
                   .sort((a, b) => a.targetCube.localeCompare(b.targetCube) || byPosition(a, b))
                   .map(
                     (d) =>

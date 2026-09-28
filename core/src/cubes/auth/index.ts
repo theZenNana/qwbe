@@ -72,6 +72,7 @@ export const cube = defineCube(group, {
   manifest: {
     name: "auth",
     tables: [SESSIONS],
+    indexed: { [SESSIONS]: ["tokenHash"] },
     requiresAuth: false,
     required: true,
     // Declared need. The kernel wires it to whichever cube declares `providesCredentials`.
@@ -132,11 +133,9 @@ export const cube = defineCube(group, {
         Effect.gen(function* () {
           if (token === "") return Either.left("no token")
           const th = sha256(token)
-          // Filtered in SQL with a bound parameter and LIMIT 1, rather than reading every row
-          // and searching in JavaScript. The old version parsed the entire session history on
-          // every single request.
-          const page = yield* store.page<Session>(SESSIONS, { offset: 0, limit: 1 }, { field: "tokenHash", value: th })
-          const s = page.rows[0]
+          // Filtered in SQL on an indexed field with LIMIT 1 and no COUNT: this runs on every
+          // authenticated request, so it must not read or count the session history.
+          const s = Option.getOrUndefined(yield* store.first<Session>(SESSIONS, { field: "tokenHash", value: th }))
           // No row at all means this server never issued the token, or logout dropped it --
           // exactly the case a shared cookie produces, and the one worth naming separately.
           if (!s) return Either.left("unknown token")
