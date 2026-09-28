@@ -23,6 +23,10 @@ export type IdentityDirectory = Readonly<{
   resolveUsername: (username: string) => Effect.Effect<{ readonly id: string; readonly username: string } | undefined>
 }>
 
+export type ListScope = Readonly<{ cube: string; entityType: string }>
+/** Why a list was allowed: admin bypass, or filtered to the ids `authorizeList` returned. */
+export type ListSource = "superadmin" | "cube-admin" | "scoped"
+
 export type PermissionService = Readonly<{
   claim: (actor: PermissionActor, ref: EntityRef) => Effect.Effect<Ownership, PermissionServiceError>
   ownership: (ref: EntityRef) => Effect.Effect<Ownership | undefined>
@@ -31,6 +35,20 @@ export type PermissionService = Readonly<{
     ref: EntityRef,
     action: EntityAction,
   ) => Effect.Effect<AccessDecision, PermissionServiceError>
+  /** Every entity id of `scope` the actor may `action`, or "all" for admins. No audit: see `auditList`. */
+  authorizeList: (
+    actor: PermissionActor,
+    scope: ListScope,
+    action: GrantAction,
+  ) => Effect.Effect<"all" | ReadonlySet<string>, PermissionServiceError>
+  /** One `entity.list` audit row per list request, carrying the ids of the page actually returned. */
+  auditList: (
+    actor: PermissionActor,
+    scope: ListScope,
+    action: GrantAction,
+    source: ListSource,
+    returnedIds: ReadonlyArray<string>,
+  ) => Effect.Effect<void, PermissionServiceError>
   assignCubeAdmin: (actor: PermissionActor, cube: string, userId: string) => Effect.Effect<void, PermissionServiceError>
   revokeCubeAdmin: (actor: PermissionActor, cube: string, userId: string) => Effect.Effect<void, PermissionServiceError>
   cubeAdmins: (actor: PermissionActor, cube: string) => Effect.Effect<ReadonlyArray<CubeAdmin>, PermissionServiceError>

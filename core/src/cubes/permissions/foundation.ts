@@ -11,7 +11,10 @@ import { PermissionConflict, PermissionForbidden, PermissionNotFound } from "qwb
 import type { PermissionState, StoredGrant, StoredOwnership } from "./state.ts"
 import { tables } from "./state.ts"
 
-export type Foundation = Pick<PermissionService, "claim" | "ownership" | "authorize" | "transferOwnership"> & {
+export type Foundation = Pick<
+  PermissionService,
+  "claim" | "ownership" | "authorize" | "authorizeList" | "auditList" | "transferOwnership"
+> & {
   readonly decide: (actor: PermissionActor, ref: EntityRef, action: GrantAction) => Effect.Effect<AccessDecision>
   readonly requireShare: (actor: PermissionActor, ref: EntityRef) => Effect.Effect<void, PermissionForbidden>
   /** Every entity id of `scope` for which `decide` allows `action`, or "all" for admins; no audit. */
@@ -52,6 +55,28 @@ export const foundationFrom = (state: PermissionState): Foundation => {
       )
       return result
     })
+  const visibleIds: Foundation["visibleIds"] = (actor, scope, action) =>
+    Effect.gen(function* () {
+      if (actor.roles.includes("admin") || (yield* state.cubeAdmin(actor, scope.cube))) return "all" as const
+      const where = [
+        { field: "cube", value: scope.cube },
+        { field: "entityType", value: scope.entityType },
+      ]
+      const mine = yield* state.store.where<StoredOwnership>(tables.ownership, [
+        ...where,
+        { field: "ownerId", value: actor.userId },
+      ])
+      // `decide` trusts only the oldest ownership row of an entity, so a later duplicate claim must
+      // not make the actor an owner: keep an id only if its oldest row is the actor's.
+      // ponytail: one oldest-row read per owned entity; an `entityId = ANY` store filter makes it one.
+      const ids = new Set<string>()
+      for (const entityId of new Set(mine.map((row) => row.entityId)))
+        if ((yield* state.ownership({ ...scope, entityId }))?.ownerId === actor.userId) ids.add(entityId)
+      const groups = yield* state.groupIdsFor(actor.userId)
+      for (const grant of yield* state.store.where<StoredGrant>(tables.grants, where))
+        if (grants(actor, groups, grant, action)) ids.add(grant.entityId)
+      return ids
+    })
   return {
     claim: (actor, ref) =>
       Effect.gen(function* () {
@@ -84,24 +109,15 @@ export const foundationFrom = (state: PermissionState): Foundation => {
         return changed
       }),
     decide,
-    visibleIds: (actor, scope, action) =>
-      Effect.gen(function* () {
-        if (actor.roles.includes("admin") || (yield* state.cubeAdmin(actor, scope.cube))) return "all" as const
-        const where = [
-          { field: "cube", value: scope.cube },
-          { field: "entityType", value: scope.entityType },
-        ]
-        // Rows come oldest first and `decide` trusts only the oldest ownership row of an entity, so a
-        // later duplicate claim must not make the actor an owner.
-        // ponytail: reads every ownership row of the type; read by ownerId if that grows too big.
-        const owners = new Map<string, string>()
-        for (const row of yield* state.store.where<StoredOwnership>(tables.ownership, where))
-          if (!owners.has(row.entityId)) owners.set(row.entityId, row.ownerId)
-        const ids = new Set([...owners].filter(([, ownerId]) => ownerId === actor.userId).map(([id]) => id))
-        const groups = yield* state.groupIdsFor(actor.userId)
-        for (const grant of yield* state.store.where<StoredGrant>(tables.grants, where))
-          if (grants(actor, groups, grant, action)) ids.add(grant.entityId)
-        return ids
+    visibleIds,
+    authorizeList: visibleIds,
+    // The audit row needs one entityId; a list covers many, so "*" names the scope and the page's
+    // ids travel in `after`.
+    auditList: (actor, scope, action, source, returnedIds) =>
+      state.writeAudit(actor, { ...scope, entityId: "*" }, "entity.list", "allowed", null, {
+        action,
+        source,
+        ids: [...returnedIds],
       }),
     requireShare: (actor, ref) =>
       Effect.gen(function* () {

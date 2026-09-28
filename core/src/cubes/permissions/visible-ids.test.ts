@@ -61,4 +61,28 @@ describe("permissions visibleIds", () => {
       assert.equal(yield* foundation.visibleIds(cubeAdmin, scope, "read"), "all")
     }),
   )
+
+  it.effect("authorizeList equals visibleIds and auditList writes one row with the returned ids", () =>
+    Effect.gen(function* () {
+      const store = memoryStore()
+      const service = serviceFrom(store, () => new Map())
+      const foundation = foundationFrom(stateFrom(store))
+      yield* service.claim(ana, ref("a1"))
+      yield* service.claim(ana, ref("a2"))
+      yield* service.claim(bob, ref("b1"))
+      for (const actor of [ana, bob, stranger, root])
+        assert.deepEqual(
+          yield* service.authorizeList(actor, scope, "read"),
+          yield* foundation.visibleIds(actor, scope, "read"),
+        )
+      assert.equal("visibleIds" in service, false)
+      const before = (yield* service.audit()).length
+      yield* service.auditList(ana, scope, "read", "scoped", ["a1", "a2"])
+      const rows = (yield* service.audit()).slice(before)
+      assert.equal(rows.length, 1)
+      assert.equal(rows[0]?.action, "entity.list")
+      assert.equal(rows[0]?.entityId, "*")
+      assert.deepEqual(rows[0]?.after, { action: "read", source: "scoped", ids: ["a1", "a2"] })
+    }),
+  )
 })
