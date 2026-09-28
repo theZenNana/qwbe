@@ -136,7 +136,7 @@ from Tempo, statement counts from `pg_stat_statements`.
 3. **`GET /notes` now**: in 10 s one request checks 801 of 10,000 notes. Per note: one
    transaction for the ownership lookup (1.7 ms in SQL) and one for the audit insert plus outbox;
    1,608 transactions add up to 9.9 s. Per-row work, not slow SQL.
-4. **Five `500`s on `GET /contracts` / `GET /organizations`**: in each, an audit `INSERT` ends
+4. **Four `500`s on `GET /contracts` / `GET /organizations`** (two each): in each, an audit `INSERT` ends
    with `SqlError: Failed to execute statement`, span marked interrupted, 0.3-3.7 s into a request
    that was not timed out. Guess, not proven: a timed-out request is interrupted, the driver
    cancels its statement by backend pid, and the cancel lands on a pooled connection another
