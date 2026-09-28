@@ -20,11 +20,11 @@
 // operations on a pooled connection.
 
 import { SqlClient, type SqlError, type Statement } from "@effect/sql"
-import { DateTime, Effect, FiberRef } from "effect"
+import { Array as Arr, DateTime, Effect, FiberRef } from "effect"
 import { CurrentActor } from "../kernel/actor.ts"
 // RowState is declared in the leaf store contract; re-exported here so kernel/store.ts keeps
 // its public surface (QWB-70).
-import type { CubeStore, RowState } from "../kernel/store-contract.ts"
+import type { CubeStore, RowState, Where } from "../kernel/store-contract.ts"
 
 export type { RowState }
 
@@ -59,6 +59,13 @@ const asStored = <A extends Record<string, unknown>>(row: A): A =>
 
 type Row = Record<string, unknown>
 
+/** The lookup statement behind `first`/`where`: live rows, filtered in SQL, oldest first. */
+const matchingSql = (sql: SqlClient.SqlClient, t: Statement.Fragment, where: Where, limit: number | undefined) =>
+  sql<Row>`SELECT * FROM ${t} WHERE deleted = false ${whereClause(sql, where)} ORDER BY created_at ASC
+           ${limit === undefined ? sql.literal("") : sql`LIMIT ${limit}`}`
+
+const decodeRows = <A>(rows: ReadonlyArray<Row>): ReadonlyArray<A> => rows.map(decode) as ReadonlyArray<A>
+
 export const storeFor = (
   cube: string,
   tables: ReadonlyArray<string>,
@@ -73,6 +80,8 @@ export const storeFor = (
    * recorded set cannot drift; auxiliary tables (any other `type`) are never captured.
    */
   captureEntity?: string | undefined,
+  /** JSON fields per table that lookups filter on; each gets a `(body ->> field)` index. */
+  indexed: Readonly<Record<string, ReadonlyArray<string>>> = {},
 ): CubeStore & { readonly batch?: BatchStore["batch"] } => {
   const allowed = new Set(tables)
   const sortableFields = new Set(sortable)
@@ -92,12 +101,21 @@ export const storeFor = (
         if (!allowed.has(table)) throw new ForeignTableError(cube, table, tables)
         const sql = yield* SqlClient.SqlClient
         yield* ensureCubeSchema(cube)
-        yield* ensureTable(schema, table)
+        yield* ensureTable(schema, table, indexed[table] ?? [])
         return yield* withRole(cube, f(sql, ident(sql, schema, table)))
       }),
     )
 
+  /** Live rows of `table` matching `where`, oldest first, decoded; at most `limit`. */
+  const matching = <A>(table: string, where: Where, limit: number | undefined) =>
+    onTable(table, (sql, t) => Effect.map(matchingSql(sql, t, where, limit), decodeRows<A>))
+
   return {
+    first: <A>(table: string, where: Where) => Effect.map(matching<A>(table, where, 1), Arr.head),
+
+    where: <A>(table: string, where: Where, opts?: Parameters<CubeStore["where"]>[2]) =>
+      matching<A>(table, where, opts?.limit),
+
     all: <A>(table: string) =>
       onTable(table, (sql, t) =>
         Effect.map(

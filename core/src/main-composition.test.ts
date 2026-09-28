@@ -18,7 +18,7 @@
 import assert from "node:assert/strict"
 import { HttpApiEndpoint, HttpApiGroup } from "@effect/platform"
 import { describe, it } from "@effect/vitest"
-import { Context, Effect, Layer, Schema } from "effect"
+import { Context, Effect, Layer, Option, Schema } from "effect"
 import { defineCube } from "qwbe-core/cube"
 import type { MountedCube } from "./kernel/discovery.ts"
 import { Registry } from "./kernel/registry.ts"
@@ -43,6 +43,8 @@ const parts = fixture.create({
     all: () => Effect.succeed([]),
     page: () => Effect.succeed({ rows: [], total: 0, offset: 0, limit: 0, sortedBy: "createdAt" }),
     byId: () => Effect.succeed(undefined),
+    first: () => Effect.succeed(Option.none()),
+    where: () => Effect.succeed([]),
     insert: () => Effect.die("not exercised"),
     update: () => Effect.die("not exercised"),
     count: () => Effect.succeed(0),

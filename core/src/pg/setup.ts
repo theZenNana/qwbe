@@ -43,6 +43,7 @@ export class Setup extends Context.Tag("qwbe/pg/Setup")<
   {
     readonly schema: (schema: string) => Effect.Effect<string, SqlError.SqlError>
     readonly table: (schema: string, table: string) => Effect.Effect<void, SqlError.SqlError>
+    readonly index: (schema: string, table: string, field: string) => Effect.Effect<void, SqlError.SqlError>
     readonly activityReader: (schema: string) => Effect.Effect<void, SqlError.SqlError>
   }
 >() {}
@@ -126,12 +127,32 @@ const createTable = (sql: SqlClient.SqlClient, schema: string, table: string) =>
     }),
   )
 
+/**
+ * DDL takes no bound parameters, so a lookup field becomes SQL text only as a plain identifier
+ * that fits Postgres's 63-byte name limit. Manifest validation refuses anything else at mount.
+ */
+export const isLookupField = (field: string): boolean => /^[A-Za-z_][A-Za-z0-9_]{0,62}$/.test(field)
+
+/**
+ * The expression index behind a declared lookup field (`body ->> field`). A field outside
+ * `isLookupField` throws, and the store turns that into a defect before any DDL runs.
+ */
+export const lookupIndexSql = (schema: string, table: string, field: string): string => {
+  if (!isLookupField(field)) throw new Error(`lookup index field refused: ${JSON.stringify(field)}`)
+  return `CREATE INDEX IF NOT EXISTS ${q(`${table}_${field}_idx`)} ON ${q(schema)}.${q(table)}
+          ((body ->> '${field}')) WHERE deleted = false`
+}
+
 export const SetupLive = Layer.effect(
   Setup,
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient
     const schema = yield* memo((s: string) => createSchema(sql, s))
     const table = yield* memo(([s, t]: readonly [string, string]) => createTable(sql, s, t))
+    // suspend: a refused field throws inside the effect, so it is a defect, not a throw at build.
+    const index = yield* memo(([s, t, f]: readonly [string, string, string]) =>
+      Effect.suspend(() => sql.unsafe(lookupIndexSql(s, t, f))),
+    )
     // Grant SELECT on `qwbe.activity` to exactly one cube role: the one whose manifest declares
     // `readsActivity` (at-most-one checked at mount). Lazy because `mount` is synchronous and
     // cube roles come into being lazily; idempotent like every GRANT.
@@ -148,13 +169,25 @@ export const SetupLive = Layer.effect(
         yield* sql`GRANT SELECT, INSERT, UPDATE ON qwbe.comment TO ${r}`
       }),
     )
-    return { schema, table: (s, t) => table(Data.tuple(s, t)), activityReader }
+    return {
+      schema,
+      table: (s, t) => table(Data.tuple(s, t)),
+      index: (s, t, f) => index(Data.tuple(s, t, f)),
+      activityReader,
+    }
   }),
 )
 
 export const ensureCubeSchema = (cube: string) => Effect.flatMap(Setup, (s) => s.schema(schemaName(cube)))
 
-export const ensureTable = (schema: string, table: string) => Effect.flatMap(Setup, (s) => s.table(schema, table))
+/** The table, then one expression index per declared lookup field (each memoized on its own). */
+export const ensureTable = (schema: string, table: string, indexed: ReadonlyArray<string> = []) =>
+  Effect.flatMap(Setup, (s) =>
+    Effect.zipRight(
+      s.table(schema, table),
+      Effect.forEach(indexed, (f) => s.index(schema, table, f), { discard: true }),
+    ),
+  )
 
 export const ensureActivityReader = (cube: string) => Effect.flatMap(Setup, (s) => s.activityReader(schemaName(cube)))
 

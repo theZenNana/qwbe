@@ -4,8 +4,57 @@
 // In-memory store only: Postgres stays out of unit tests by design, exactly as the existing
 // cube tests state.
 
-import { Effect } from "effect"
+import { Array as Arr, Effect } from "effect"
 import type { CubeTools } from "qwbe-core/cube"
+import type { ListWhere } from "./kernel/pagination.ts"
+import type { Where } from "./kernel/store-contract.ts"
+
+type Row = Record<string, unknown>
+
+/**
+ * A store `Where` read in memory with the SQL meaning of rows.ts `whereClause`: every pair ANDed
+ * and compared as text (`body ->> field`, a missing field never matches), `ids` as a set, `q` as a
+ * case-insensitive prefix on any of its fields.
+ */
+export const matchesWhere = (row: Row, where: Where): boolean => {
+  const w = asListWhere(where)
+  return equalsAll(row, w.equals) && inIds(row, w.ids) && matchesQ(row, w.q)
+}
+
+const asListWhere = (where: Where): ListWhere => {
+  if (Array.isArray(where)) return { equals: where }
+  if ("field" in where) return { equals: [where] }
+  return where as ListWhere
+}
+
+/** `body ->> field`: objects as JSON text, a missing or null field as no text at all. */
+const fieldText = (row: Row, field: string): string | undefined => {
+  const value = row[field]
+  if (value === undefined || value === null) return undefined
+  return typeof value === "object" ? JSON.stringify(value) : String(value)
+}
+
+const equalsAll = (row: Row, equals: ListWhere["equals"] = []): boolean =>
+  equals.every((e) => fieldText(row, e.field) === e.value)
+
+const inIds = (row: Row, ids: ListWhere["ids"] = []): boolean => ids.length === 0 || ids.includes(String(row.id))
+
+const matchesQ = (row: Row, q: ListWhere["q"]): boolean => {
+  if (!q?.text || q.fields.length === 0) return true
+  const prefix = q.text.toLowerCase()
+  return q.fields.some((field) => fieldText(row, field)?.toLowerCase().startsWith(prefix))
+}
+
+/** The store's `first`/`where` over in-memory rows: deleted rows out, insertion (oldest) order, limit. */
+export const lookups = (rows: (table: string) => ReadonlyArray<Row>): Pick<CubeTools["store"], "first" | "where"> => {
+  const matching = <A>(table: string, where: Where) =>
+    rows(table).filter((row) => row.deleted !== true && matchesWhere(row, where)) as ReadonlyArray<A>
+  return {
+    first: <A>(table: string, where: Where) => Effect.succeed(Arr.head(matching<A>(table, where))),
+    where: <A>(table: string, where: Where, opts?: Parameters<CubeTools["store"]["where"]>[2]) =>
+      Effect.succeed(matching<A>(table, where).slice(0, opts?.limit)),
+  }
+}
 
 export const memoryStore = (): CubeTools["store"] => {
   const tables = new Map<string, Array<Record<string, unknown>>>()
@@ -31,6 +80,7 @@ export const memoryStore = (): CubeTools["store"] => {
       })
     },
     byId: <A>(table: string, id: string) => Effect.succeed(rows(table).find((row) => row.id === id) as A | undefined),
+    ...lookups(rows),
     insert: (table: string, type: string, prefix: string, values: Record<string, unknown>) =>
       Effect.sync(() => {
         const row = { id: `${prefix}-${++next}`, type, createdAt: new Date().toISOString(), deleted: false, ...values }

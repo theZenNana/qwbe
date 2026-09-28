@@ -103,6 +103,26 @@ describe("validateManifest — an entity needs a table to live in", () => {
   })
 })
 
+describe("validateManifest — lookup indexes are checked before any DDL", () => {
+  it("accepts a plain field on an owned table", () => {
+    assert.doesNotThrow(() => validateManifest("notes", manifest({ indexed: { notes: ["title"] } })))
+  })
+
+  it("refuses an indexed table the cube does not own", () => {
+    assert.throws(
+      () => validateManifest("notes", manifest({ indexed: { accounts: ["username"] } })),
+      /indexed table "accounts" is not in tables/,
+    )
+  })
+
+  it("refuses a field name that would become SQL", () => {
+    assert.throws(
+      () => validateManifest("notes", manifest({ indexed: { notes: ["x'); DROP TABLE t; --"] } })),
+      /is not a plain identifier/,
+    )
+  })
+})
+
 describe("validateManifest — all reasons at once", () => {
   it("reports every problem in one throw instead of one per run", () => {
     const broken = manifest({

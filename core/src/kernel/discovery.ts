@@ -317,7 +317,7 @@ export const mount = (
           // gets the six-operation store only. See manifest.ts for why it is declared, not assumed.
           // The activity capture entity reuses the mediation predicate, so what is recorded and
           // what is mediated can never disagree (entity-enforcement.ts).
-          store: storeFor(full, m.tables, m.sortable ?? [], m.usesBatch === true, captureEntity(m)),
+          store: storeFor(full, m.tables, m.sortable ?? [], m.usesBatch === true, captureEntity(m), m.indexed ?? {}),
           bus: bus.for(full, m.publishes),
           catalogue,
           permissions: () => permissions,

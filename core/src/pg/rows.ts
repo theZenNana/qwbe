@@ -8,6 +8,7 @@ import { PgClient } from "@effect/sql-pg"
 import { DateTime, Effect } from "effect"
 import { checkCustomObject } from "../custom-values.ts"
 import type { ListWhere } from "../kernel/pagination.ts"
+import type { Where } from "../kernel/store-contract.ts"
 import { CustomCapError } from "./errors.ts"
 import { ident } from "./setup.ts"
 
@@ -155,12 +156,13 @@ const searchSql = (sql: Statement.Constructor, text: string, fields: ReadonlyArr
   return sql`AND (${sql.join(" OR ", false)(branches)})`
 }
 
-export const whereClause = (
-  sql: Statement.Constructor,
-  where?: { field: string; value: string } | ListWhere,
-): Statement.Fragment => {
+export const whereClause = (sql: Statement.Constructor, where?: Where): Statement.Fragment => {
   if (!where) return sql.literal("")
-  const criteria: ListWhere = "field" in where ? { equals: [where] } : where
+  const criteria: ListWhere = Array.isArray(where)
+    ? { equals: where }
+    : "field" in where
+      ? { equals: [where] }
+      : (where as ListWhere)
   const parts: Array<Statement.Fragment> = []
   for (const e of criteria.equals ?? []) parts.push(equalsSql(sql, e.field, e.value))
   // `= ANY(array::text[])` is one bound array, so a batch of ids costs one parameter whatever

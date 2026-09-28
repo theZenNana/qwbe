@@ -2,6 +2,7 @@ import assert from "node:assert/strict"
 import { describe, it } from "@effect/vitest"
 import { Effect } from "effect"
 import type { CubeTools } from "qwbe-core/cube"
+import { lookups } from "../../test-cube-tools.ts"
 import { cube } from "./index.ts"
 
 describe("account identity directory", () => {
@@ -29,6 +30,7 @@ describe("account identity directory", () => {
             sortedBy: "createdAt",
           }),
         byId: <A>() => Effect.succeed(account as A),
+        ...lookups(() => [account]),
         insert: () => Effect.succeed(account),
         update: () => Effect.succeed(account),
         count: () => Effect.succeed(1),
