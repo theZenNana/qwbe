@@ -42,7 +42,7 @@ it.layer(NodeContext.layer)("runGates", (it) => {
     }),
   )
 
-  it.effect("--live and --bench each append one gate; plain check keeps the list unchanged", () =>
+  it.effect("--live appends live, --bench appends bench and api-bench; plain check keeps the list unchanged", () =>
     Effect.gen(function* () {
       const flags = yield* flagsFrom(["--bench", "--live"])
       expect(gateList(false, false)).toEqual(GATES)
@@ -50,6 +50,7 @@ it.layer(NodeContext.layer)("runGates", (it) => {
         ...GATES.map(({ name }) => name),
         "live",
         "bench",
+        "api-bench",
       ])
     }),
   )

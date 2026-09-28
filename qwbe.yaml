@@ -13,3 +13,125 @@ untested:
 bench:
   list60k: { deepPageFloorMs: 250, deepPageFactor: 4, anyAnswerMs: 1000 }
   stagingImport: { minRowsPerSecond: 2090 }
+# The route benchmark of `npm run bench:api` (core/tools/api-bench/api-bench.ts): every route of the booted
+# OpenAPI spec (core + crm-pack) needs a fixture below or an entry in `exclude` with its reason.
+# In any string of a fixture, {n} is the request number (1, 2, ...) and {root} the repo root.
+apiBench:
+  report: test-results/api-bench.json
+  rows: 10000
+  requests: { warmup: 2, c1: 5, c20: 20 }
+  # In order. Each `create` fixture makes one row through the API (request number 0), then one
+  # INSERT ... generate_series clones it `rows` times as <prefix>-bench1..N, with `vary` unique per row,
+  # its owner copied, and ANALYZE. SQL, not the API: 10k creates per cube would take minutes per run.
+  seeds:
+    - { table: notes.notes, create: "POST /notes", prefix: note, vary: title }
+    - { table: qwbe.comment, create: "POST /echo/comments", prefix: cmt, vary: body }
+    - { table: qwbe.activity }
+    - { table: views.views, create: "POST /views", prefix: view, vary: name }
+    - { table: customfields.customfield_defs, create: "POST /customfields", prefix: cf, vary: name }
+    - { table: account.accounts, create: "POST /account", prefix: acc, vary: username }
+    - { table: crm--contacts.contacts, create: "POST /contacts", prefix: cont, vary: name }
+    - { table: crm--contracts.contracts, create: "POST /contracts", prefix: ctr, vary: title }
+    - { table: crm--organizations.organizations, create: "POST /organizations", prefix: org, vary: name }
+    - { table: staging.sets, create: "POST /staging/sets", prefix: set, vary: name }
+    # Groups are listed unpaged per cube; 100 is already more than a cube holds.
+    - { table: permissions.permission_groups, create: "POST /permissions/groups", prefix: grp, vary: name, rows: 100 }
+    - table: permissions.permission_grants
+      create: "POST /permissions/entities/{cube}/{entityType}/{entityId}/grants/user"
+      prefix: grant
+      rows: 1000
+    - { table: permissions.permission_capability_grants, create: "POST /permissions/capabilities/user", prefix: cap, rows: 1000 }
+    - { table: permissions.permission_audit, prefix: audit }
+  # p99 budgets in ms, set 2026-09-28 before the store fixes: loose on purpose, to be tightened after them.
+  budgets:
+    default: { c1: 10000, c20: 10000 }
+    routes: {}
+  exclude:
+    "POST /auth/logout": ends the caller's session; every later request of that user answers 401
+    "DELETE /permissions/cube-admins/{cube}/{username}": revokes by username; the bench has one reader, a repeat answers 404
+    "POST /permissions/groups/{groupId}/members/remove": removes by username; the bench has one reader, a repeat answers 404
+    "DELETE /settings/cubes/{name}": removes a cube from the running kernel
+    "POST /settings/packages/{name}/install": installs a package into the running kernel
+    "POST /settings/packages/install-from": installs a package into the running kernel
+    "DELETE /settings/packages/{name}": uninstalls a package from the running kernel
+    "DELETE /settings/packages/{name}/shelf": drops a package from the store
+    "POST /settings/restart": restarts the server under the bench
+  routes:
+    "GET /account": {}
+    "POST /account": { body: { username: "bench-{n}", password: "bench-password-{n}", roles: [reader] } }
+    "GET /account/{id}": { params: { id: acc-bench5000 } }
+    "POST /auth/login": { body: { username: reader, password: reader } }
+    "GET /auth/me": {}
+    "GET /catalog/{cube}/metadata": { params: { cube: notes } }
+    "GET /cli/commands": {}
+    "POST /cli/exec": { body: { line: "account:count" } }
+    "GET /customfields": {}
+    "POST /customfields": { body: { targetCube: account, name: "f{n}", fieldType: text } }
+    "PATCH /customfields/{id}": { params: { id: cf-bench5000 }, body: { label: "label {n}" } }
+    "DELETE /customfields/{id}": { params: { id: "cf-bench{n}" } }
+    "GET /customfields/values": { query: { cube: notes, rowId: note-bench5000 } }
+    "PUT /customfields/values": { body: { cube: notes, rowId: note-bench5000, values: {} } }
+    "GET /customfields/orphans": { query: { cube: notes } }
+    "GET /echo/feed": {}
+    "POST /echo/comments": { query: { cube: notes, entityId: note-bench5000 }, body: { body: "comment {n}" } }
+    "PATCH /echo/comments/{id}": { params: { id: cmt-bench5000 }, body: { body: "edited {n}" } }
+    "DELETE /echo/comments/{id}": { params: { id: "cmt-bench{n}" } }
+    "GET /links/{entity}/{id}": { params: { entity: Note, id: note-bench5000 } }
+    "GET /links/{entity}/{id}/{cube}": { params: { entity: Account, id: acc-bench5000, cube: notes } }
+    "GET /links": {}
+    "GET /notes": {}
+    "POST /notes": { body: { title: "note {n}", body: "b" } }
+    "GET /notes/{id}": { params: { id: note-bench5000 } }
+    "GET /permissions/entities/{cube}/{entityType}/{entityId}/grants":
+      { params: { cube: notes, entityType: Note, entityId: note-bench5000 } }
+    "POST /permissions/groups": { body: { cube: notes, name: "group {n}" } }
+    "GET /permissions/groups": { query: { cube: notes } }
+    "GET /permissions/cube-admins": { query: { cube: notes } }
+    "POST /permissions/cube-admins": { body: { cube: notes, username: reader } }
+    "POST /permissions/entities/{cube}/{entityType}/{entityId}/owner":
+      { params: { cube: notes, entityType: Note, entityId: note-bench5000 }, body: { username: admin } }
+    "PATCH /permissions/groups/{groupId}": { params: { groupId: grp-bench50 }, body: { name: "renamed {n}" } }
+    "POST /permissions/groups/{groupId}/members": { params: { groupId: grp-bench50 }, body: { username: reader } }
+    "GET /permissions/groups/{groupId}/members": { params: { groupId: grp-bench50 } }
+    "POST /permissions/entities/{cube}/{entityType}/{entityId}/grants/user":
+      { params: { cube: notes, entityType: Note, entityId: note-bench5000 }, body: { username: reader, actions: [read] } }
+    "POST /permissions/entities/{cube}/{entityType}/{entityId}/grants/group":
+      { params: { cube: notes, entityType: Note, entityId: note-bench5000 }, body: { groupId: grp-bench50, actions: [read] } }
+    "DELETE /permissions/grants/{grantId}": { params: { grantId: "grant-bench{n}" } }
+    "GET /permissions/audit": {}
+    "GET /permissions/entities/{cube}": { params: { cube: notes } }
+    "POST /permissions/entities/{cube}/{entityType}/{entityId}/visibility":
+      { params: { cube: notes, entityType: Note, entityId: note-bench5000 }, body: { hidden: false } }
+    "GET /permissions/capabilities": { query: { cube: notes } }
+    "POST /permissions/capabilities/user": { body: { capability: "notes:read", username: reader } }
+    "POST /permissions/capabilities/group": { body: { capability: "notes:read", groupId: grp-bench50 } }
+    "DELETE /permissions/capabilities/{grantId}": { params: { grantId: "cap-bench{n}" } }
+    "GET /settings/cubes": {}
+    "POST /settings/cubes/{name}": { params: { name: notes }, body: { enabled: true } }
+    "GET /settings/packages": {}
+    "POST /settings/packages/scan": { body: { path: "{root}/core/checks/_fixtures" } }
+    "POST /staging/sets": { body: { name: "set {n}", format: jsonl } }
+    "GET /staging/sets": {}
+    "GET /staging/sets/{id}": { params: { id: set-bench5000 } }
+    "DELETE /staging/sets/{id}": { params: { id: "set-bench{n}" } }
+    "POST /staging/sets/{id}/chunks": { params: { id: set-bench5000 }, body: { text: "{\"n\":{n}}\n" } }
+    "POST /staging/sets/{id}/finish": { params: { id: "set-bench{n}" } }
+    "POST /staging/sets/{id}/sensitive": { params: { id: set-bench5000 }, body: { fields: [n] } }
+    "GET /staging/sets/{id}/profile": { params: { id: set-bench5000 } }
+    "GET /views": {}
+    "POST /views": { body: { targetCube: notes, name: "view {n}", config: {} } }
+    "GET /views/{id}": { params: { id: view-bench5000 } }
+    "PATCH /views/{id}": { params: { id: view-bench5000 }, body: { name: "renamed {n}" } }
+    "DELETE /views/{id}": { params: { id: "view-bench{n}" } }
+    "GET /crm": {}
+    "GET /contacts": { query: { name: "Ada" }, user: reader }
+    "POST /contacts": { body: { name: "Ada {n}", email: "ada{n}@example.test", company: "Ada SRL" } }
+    "GET /contacts/{id}": { params: { id: cont-bench5000 } }
+    "PATCH /contacts/{id}": { params: { id: cont-bench5000 }, body: { phone: "0700{n}" } }
+    "GET /contracts": {}
+    "POST /contracts": { body: { title: "contract {n}", amount: 100 } }
+    "GET /contracts/{id}": { params: { id: ctr-bench5000 } }
+    "GET /organizations": {}
+    "POST /organizations": { body: { name: "Org {n}" } }
+    "GET /organizations/{id}": { params: { id: org-bench5000 } }
+    "PATCH /organizations/{id}": { params: { id: org-bench5000 }, body: { phone: "0700{n}" } }

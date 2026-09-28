@@ -21,12 +21,50 @@ export const BenchBudgets = Schema.Struct({
   stagingImport: Schema.Struct({ minRowsPerSecond: Positive }),
 })
 
+const Count = Schema.Int.pipe(Schema.positive())
+
+/** p99 in ms at concurrency 1 and 20. */
+export const P99Budget = Schema.Struct({ c1: Positive, c20: Positive })
+
+/** How one route is called: path params, query, JSON body (`{n}` in a string becomes the request number), user. */
+export const Fixture = Schema.Struct({
+  params: Schema.optional(Schema.Record({ key: Schema.String, value: Schema.String })),
+  query: Schema.optional(Schema.Record({ key: Schema.String, value: Schema.Union(Schema.String, Schema.Number) })),
+  body: Schema.optional(Schema.Unknown),
+  user: Schema.optional(Schema.Literal("admin", "reader")),
+})
+
+/**
+ * A table cloned `rows` times from a row the `create` route's fixture makes: ids `<prefix>-bench1`...,
+ * `vary` (a column or a body key) made unique per row.
+ */
+export const Seed = Schema.Struct({
+  table: Schema.String,
+  create: Schema.optional(Schema.String),
+  prefix: Schema.optional(Schema.String),
+  vary: Schema.optional(Schema.String),
+  rows: Schema.optional(Count),
+})
+
+// The route benchmark of core/tools/api-bench/api-bench.ts, keyed "METHOD /path" as in the OpenAPI spec.
+export const ApiBench = Schema.Struct({
+  report: Schema.String,
+  rows: Count,
+  requests: Schema.Struct({ warmup: Count, c1: Count, c20: Count }),
+  seeds: Schema.Array(Seed),
+  budgets: Schema.Struct({ default: P99Budget, routes: Schema.Record({ key: Schema.String, value: P99Budget }) }),
+  exclude: Schema.Record({ key: Schema.String, value: Schema.String }),
+  routes: Schema.Record({ key: Schema.String, value: Fixture }),
+})
+
 export const QwbeConfig = Schema.Struct({
   version: Schema.Literal(1),
   dev: Schema.Struct({ api: Port, web: Port }),
   // Units allowed to lack tests today; a work queue, ignored by `check --strict`.
   untested: Schema.Array(Schema.String),
   bench: BenchBudgets,
+  // Optional: only `npm run bench:api` reads it, and refuses to run without it.
+  apiBench: Schema.optional(ApiBench),
 })
 
 export type QwbeConfig = typeof QwbeConfig.Type
