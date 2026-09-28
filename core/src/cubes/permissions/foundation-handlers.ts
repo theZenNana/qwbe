@@ -8,13 +8,18 @@ import type {
   OwnershipTransfer,
   PermissionService,
 } from "qwbe-core/permissions"
-import { actorFrom, mapPermissionError, page, resolveIdentity } from "./handler-utils.ts"
+import type { auditFrom } from "./audit.ts"
+import { actorFrom, mapPermissionError, resolveIdentity } from "./handler-utils.ts"
 
 const readError = mapPermissionError("permissions:read")
 const transferError = mapPermissionError("permissions:transfer")
 const writeError = mapPermissionError("permissions:write")
 
-export const foundationHandlers = (service: PermissionService, identities: IdentityDirectory | undefined) => ({
+export const foundationHandlers = (
+  service: PermissionService,
+  identities: IdentityDirectory | undefined,
+  auditPage: ReturnType<typeof auditFrom>["auditPage"],
+) => ({
   assignPermissionCubeAdmin: ({ payload }: { payload: typeof CubeAdminAssign.Type }) =>
     Effect.gen(function* () {
       const user = yield* CurrentUser
@@ -43,13 +48,6 @@ export const foundationHandlers = (service: PermissionService, identities: Ident
   permissionAudit: ({ urlParams }: { urlParams: typeof AuditQuerySchema.Type }) =>
     Effect.gen(function* () {
       yield* requirePermission("permissions:read")
-      return page(
-        [...(yield* service.audit(urlParams).pipe(readError))].sort((left, right) =>
-          right.timestamp.localeCompare(left.timestamp),
-        ),
-        urlParams.offset,
-        urlParams.limit,
-        "timestamp",
-      )
+      return yield* auditPage(urlParams).pipe(readError)
     }),
 })
