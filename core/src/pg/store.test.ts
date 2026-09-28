@@ -173,6 +173,23 @@ layer(testStore("store"), { timeout: 60_000, excludeTestServices: true })("CubeS
     }),
   )
 
+  it.effect("where keeps a body field in a set, and an empty set matches nothing", () =>
+    Effect.gen(function* () {
+      const dee = yield* lookups.insert("people", "person", "per", { username: "dee", team: "green" })
+      const eve = yield* lookups.insert("people", "person", "per", { username: "eve", team: "green" })
+      yield* lookups.insert("people", "person", "per", { username: "fay", team: "green" })
+      const picked = yield* lookups.where<{ id: string }>("people", {
+        equals: [{ field: "team", value: "green" }],
+        in: [{ field: "username", values: ["dee", "eve", "nobody"] }],
+      })
+      assert.deepEqual(
+        picked.map((r) => r.id),
+        [dee.id, eve.id],
+      )
+      assert.equal((yield* lookups.where("people", { in: [{ field: "username", values: [] }] })).length, 0)
+    }),
+  )
+
   it.effect("leaves soft-deleted rows out of first and where", () =>
     Effect.gen(function* () {
       const gone = yield* lookups.insert("people", "person", "per", { username: "cy" })

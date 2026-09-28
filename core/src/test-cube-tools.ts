@@ -18,7 +18,7 @@ type Row = Record<string, unknown>
  */
 export const matchesWhere = (row: Row, where: Where): boolean => {
   const w = asListWhere(where)
-  return equalsAll(row, w.equals) && inIds(row, w.ids) && matchesQ(row, w.q)
+  return equalsAll(row, w.equals) && inIds(row, w.ids) && inSets(row, w.in) && matchesQ(row, w.q)
 }
 
 const asListWhere = (where: Where): ListWhere => {
@@ -38,6 +38,13 @@ const equalsAll = (row: Row, equals: ListWhere["equals"] = []): boolean =>
   equals.every((e) => fieldText(row, e.field) === e.value)
 
 const inIds = (row: Row, ids: ListWhere["ids"] = []): boolean => ids.length === 0 || ids.includes(String(row.id))
+
+// An empty set matches nothing, and a missing field no set, as in rows.ts.
+const inSets = (row: Row, sets: ListWhere["in"] = []): boolean =>
+  sets.every((s) => {
+    const text = fieldText(row, s.field)
+    return text !== undefined && s.values.includes(text)
+  })
 
 const matchesQ = (row: Row, q: ListWhere["q"]): boolean => {
   if (!q?.text || q.fields.length === 0) return true

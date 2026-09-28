@@ -68,10 +68,15 @@ export const foundationFrom = (state: PermissionState): Foundation => {
       ])
       // `decide` trusts only the oldest ownership row of an entity, so a later duplicate claim must
       // not make the actor an owner: keep an id only if its oldest row is the actor's.
-      // ponytail: one oldest-row read per owned entity; an `entityId = ANY` store filter makes it one.
+      // `where` returns oldest first, so the first row seen per entity is the one `decide` trusts.
+      const oldest = new Map<string, StoredOwnership>()
+      const all = yield* state.store.where<StoredOwnership>(tables.ownership, {
+        equals: where,
+        in: [{ field: "entityId", values: [...new Set(mine.map((row) => row.entityId))] }],
+      })
+      for (const row of all) if (!oldest.has(row.entityId)) oldest.set(row.entityId, row)
       const ids = new Set<string>()
-      for (const entityId of new Set(mine.map((row) => row.entityId)))
-        if ((yield* state.ownership({ ...scope, entityId }))?.ownerId === actor.userId) ids.add(entityId)
+      for (const [entityId, row] of oldest) if (row.ownerId === actor.userId) ids.add(entityId)
       const groups = yield* state.groupIdsFor(actor.userId)
       for (const grant of yield* state.store.where<StoredGrant>(tables.grants, where))
         if (grants(actor, groups, grant, action)) ids.add(grant.entityId)

@@ -4,7 +4,7 @@
 import assert from "node:assert/strict"
 import { describe, it } from "vitest"
 import type { Where } from "../kernel/store-contract.ts"
-import { compileOnly, newId, whereClause } from "./rows.ts"
+import { compileOnly, newId, orderClause, whereClause } from "./rows.ts"
 import { lookupIndexSql } from "./setup.ts"
 
 const compiled = (where: Where) => {
@@ -45,6 +45,46 @@ describe("whereClause for lookups", () => {
       sql: "AND body ->> $1::text = $2::text AND id = ANY($3::text[])",
       params: ["username", "ana", ["a", "b"]],
     })
+  })
+
+  it("binds a body field in a set as one array", () => {
+    assert.deepEqual(compiled({ in: [{ field: "entityId", values: ["e1", "e2"] }] }), {
+      sql: "AND body ->> $1::text = ANY($2::text[])",
+      params: ["entityId", ["e1", "e2"]],
+    })
+  })
+
+  it("puts a meta column in a set on the column", () => {
+    assert.deepEqual(compiled({ in: [{ field: "id", values: ["a"] }] }), {
+      sql: 'AND "id"::text = ANY($1::text[])',
+      params: [["a"]],
+    })
+  })
+
+  it("matches nothing for an empty set", () => {
+    assert.deepEqual(compiled({ in: [{ field: "entityId", values: [] }] }), { sql: "AND FALSE", params: [] })
+  })
+
+  it("bounds a body field by byte order, both ends inclusive", () => {
+    assert.deepEqual(compiled({ range: { field: "timestamp", from: "2026-01-01", to: "2026-02-01" } }), {
+      sql: 'AND (body ->> $1::text) COLLATE "C" >= $2::text AND (body ->> $3::text) COLLATE "C" <= $4::text',
+      params: ["timestamp", "2026-01-01", "timestamp", "2026-02-01"],
+    })
+  })
+
+  it("bounds one end only", () => {
+    assert.deepEqual(compiled({ range: { field: "timestamp", to: "2026-02-01" } }), {
+      sql: 'AND (body ->> $1::text) COLLATE "C" <= $2::text',
+      params: ["timestamp", "2026-02-01"],
+    })
+  })
+})
+
+describe("orderClause", () => {
+  it("sorts a body field by its jsonb value, ties oldest first", () => {
+    const [sql, params] =
+      compileOnly`${orderClause(compileOnly, "timestamp", true, new Set(["timestamp"])).sql}`.compile()
+    assert.deepEqual({ sql, params }, { sql: "ORDER BY body -> $1 DESC, created_at ASC", params: ["timestamp"] })
   })
 })
 
