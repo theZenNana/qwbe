@@ -110,6 +110,31 @@ describe("settings handlers over stubbed capabilities (QWB-69)", () => {
     }),
   )
 
+  // Qwbe#73: the catalogue is rebuilt on every call, so the list builds it once, not per cube.
+  it.effect("builds the catalogue once per cubes request", () =>
+    Effect.gen(function* () {
+      let calls = 0
+      const rows = [catalogueEntry(), catalogueEntry({ name: "tasks" })]
+      const p = cube.create({
+        ...settingsTools(),
+        catalogue: () => {
+          calls++
+          return rows
+        },
+      } as unknown as CubeTools)
+      const out = (yield* Effect.provideService(
+        (p.handlers.cubes as () => Effect.Effect<unknown, Forbidden, CurrentUser>)(),
+        CurrentUser,
+        user(["settings:read"]),
+      )) as Array<Record<string, unknown>>
+      assert.deepEqual(
+        out.map((c) => c.name),
+        ["notes", "tasks"],
+      )
+      assert.equal(calls, 1)
+    }),
+  )
+
   it.effect("refuses a reader on a write route (settings:write is admin-only)", () =>
     Effect.gen(function* () {
       const p = cube.create(settingsTools([catalogueEntry()]))

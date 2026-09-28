@@ -124,7 +124,11 @@ export const cube = defineCube(group, {
       throw new MissingCapabilities()
     }
 
-    const state = (name: string) => cubeState(catalogue, installer, name)
+    const state = (name: string) =>
+      cubeState(
+        installer,
+        catalogue().find((c) => c.name === name),
+      )
 
     return {
       commands: settingsCommands(catalogue, installer),
@@ -136,8 +140,8 @@ export const cube = defineCube(group, {
           Effect.gen(function* () {
             yield* requirePermission(ROUTES.cubes)
             // A function, not a value: the list reflects the state of NOW. The frontend draws
-            // its tabs from this response.
-            const states = yield* Effect.forEach(catalogue(), (c) => state(c.name))
+            // its tabs from this response. Built once per request, not once per cube (Qwbe#73).
+            const states = yield* Effect.forEach(catalogue(), (c) => cubeState(installer, c))
             return states.filter((s) => s !== undefined)
           }),
 

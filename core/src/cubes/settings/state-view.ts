@@ -2,9 +2,9 @@ import { Effect } from "effect"
 import type { CubeTools } from "qwbe-core/cube"
 
 type Installer = NonNullable<CubeTools["installer"]>
+type CatalogueEntry = ReturnType<CubeTools["catalogue"]>[number]
 
-export const cubeState = (catalogue: CubeTools["catalogue"], installer: Installer, name: string) => {
-  const cube = catalogue().find((candidate) => candidate.name === name)
+export const cubeState = (installer: Installer, cube: CatalogueEntry | undefined) => {
   if (!cube) return Effect.succeed(undefined)
   return Effect.map(installer.cubeOnDisk(cube.name, cube.plugin), (onDisk) => ({
     name: cube.name,
