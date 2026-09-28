@@ -44,7 +44,7 @@ layer(testStore("store"), { timeout: 60_000, excludeTestServices: true })("CubeS
         deleted: boolean
       }
       const b = yield* store.insert("items", "item", "itm", { name: "b" })
-      assert.match(a.id, /^itm-[0-9a-f]{8}$/)
+      assert.match(a.id, /^itm-[0-9a-f]{32}$/)
       assert.equal(a.type, "item")
       assert.equal(a.deleted, false)
       assert.equal((yield* store.byId<{ name: string }>("items", a.id))?.name, "a")

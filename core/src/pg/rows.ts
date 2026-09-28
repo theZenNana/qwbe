@@ -15,8 +15,11 @@ import { ident } from "./setup.ts"
 /** Builds and compiles statements with the Postgres dialect and runs nothing: for no-DB tests. */
 export const compileOnly = Statement.make(Effect.dieMessage("compile only"), PgClient.makeCompiler(), [], undefined)
 
-/** Ids are random, not sequential -- see the comment this replaces from the SQLite store. */
-export const newId = (prefix: string) => `${prefix}-${randomBytes(4).toString("hex")}`
+/**
+ * Ids are random, not sequential -- see the comment this replaces from the SQLite store.
+ * 128 bits: 32 bits collided past ~77,000 rows (Qwbe#73). Older rows keep 8-hex ids.
+ */
+export const newId = (prefix: string) => `${prefix}-${randomBytes(16).toString("hex")}`
 
 export const decode = (row: Record<string, unknown>): Record<string, unknown> => ({
   id: row.id,

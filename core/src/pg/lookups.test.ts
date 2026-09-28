@@ -4,7 +4,7 @@
 import assert from "node:assert/strict"
 import { describe, it } from "vitest"
 import type { Where } from "../kernel/store-contract.ts"
-import { compileOnly, whereClause } from "./rows.ts"
+import { compileOnly, newId, whereClause } from "./rows.ts"
 import { lookupIndexSql } from "./setup.ts"
 
 const compiled = (where: Where) => {
@@ -61,5 +61,17 @@ describe("lookupIndexSql", () => {
 
   it("refuses an empty field", () => {
     assert.throws(() => lookupIndexSql("s", "t", ""), /lookup index field refused/)
+  })
+})
+
+// 32-bit ids collided past ~77,000 rows (permission_audit_pkey); 128 bits do not.
+describe("newId", () => {
+  it("is the prefix and 32 lower-case hex characters", () => {
+    assert.match(newId("audit"), /^audit-[0-9a-f]{32}$/)
+  })
+
+  it("does not repeat in 100,000 ids", () => {
+    const ids = new Set(Array.from({ length: 100_000 }, () => newId("x")))
+    assert.equal(ids.size, 100_000)
   })
 })
