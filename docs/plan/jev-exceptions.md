@@ -132,3 +132,17 @@ these scores (brief 78), 2026-09-28 ~21:15:
 | file | scores under 70 |
 |---|---|
 | `core/src/cubes/settings/index.ts` (diff, 10 lines in the existing handlers object) | lucian 51.0 |
+
+List permissions (tickets 11-17), after one refactor run aimed at these scores (brief 93, run
+d3588f77), 2026-09-28 ~23:30. Diffs in existing files; `lucian` rates the whole file's
+responsibilities.
+
+| file | scores under 70 |
+|---|---|
+| `core/src/cubes/permissions/foundation.ts` (diff) | lucian 55.8 |
+| `core/src/cubes/permissions/visibility.ts` (diff) | lucian 56.9 |
+| `core/src/entity-enforcement.ts` (diff) | lucian 57.2 |
+| `core/src/cubes/permissions/audit.ts` (diff) | lucian 66.1 |
+| `core/src/cubes/permissions/index.ts` (diff: manifest `indexed` and `sortable` entries) | lucian 54.1 |
+| `core/src/cubes/notes/index.ts` (diff) | lucian 48.1 |
+| `core/src/pg/rows.ts` (diff) | lucian 67.8 |

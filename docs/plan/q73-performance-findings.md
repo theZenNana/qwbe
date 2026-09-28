@@ -194,3 +194,37 @@ collision at about 77,000 rows in one table, routine beyond. The audit table pas
 in one benchmark run (every `authorize` writes one), so inserts started failing at random and the
 request answered 500. Any table that grows to tens of thousands of rows would do the same in
 production. Fixed by widening the ids (below).
+
+## Lists fixed: one permission question per request (2026-09-28 ~23:15)
+
+Design agreed with the owner after two model reviews (Fable read the code; Astra's `EXISTS` variant
+cannot run because cube roles have no access to the permissions schema): the permission service
+answers once per list request which ids the actor may see (`authorizeList`: `"all"` for admins and
+cube admins, else owned plus granted ids, equal to `decide` by test), the cube's list filters, sorts,
+pages and counts those ids in SQL, and one `entity.list` audit row records the ids actually
+returned. Single-entity reads, writes and denials are audited as before.
+
+Commits: `d19a0f0` (visible ids), `1bfb86b` (entities visibility in bulk), `6b16232` (legacy note
+owners at boot only), `baadb72` (contract), `18b63a5` (store `in` and range conditions), `d65b808`
+(mediated list and views in SQL), `5c01e92` (notes relies on mediation), `f0175b2` (audit paged in
+SQL).
+
+p99 in ms, first baseline -> now, at concurrency 1 / 20:
+
+| route | before | now |
+|---|---|---|
+| `GET /notes` | > 10000 / > 10000 | 6.8 / 26.5 |
+| `GET /views` | > 10000 / > 10000 | 8.5 / 31.3 |
+| `GET /contracts` (crm-pack) | > 10000 / > 10000 | 8.5 / 27.2 |
+| `GET /organizations` (crm-pack) | > 10000 / > 10000 | 8.0 / 29.3 |
+| `GET /permissions/entities/{cube}` | > 10000 / > 10000 | 43.4 / 639.7 |
+| `GET /permissions/audit` | 64 / 1126 | 12.9 / 37.6 |
+| `POST /notes` | 309 / 5051 | 12.4 / 50.9 |
+| `GET /settings/cubes` | 58 / 1107 | 16.9 / 228.2 |
+
+The whole run: no failures, no route over budget, no 500s.
+
+Still open: `GET /permissions/entities/{cube}` at 640 ms under load (it decides visibility in
+memory over every ownership row of the cube; the page is sliced after); the notes item routes and
+`relational.search` in notes still call `authorize` themselves on top of the wrapper;
+`POST /customfields` re-reads every definition for its snapshot after a create.
