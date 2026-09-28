@@ -92,3 +92,71 @@ instead of full scans. The lists still make one check per row: 10,000 rows means
 thousands of queries per request. The fix that removes that is one check for a whole page of
 rows (`authorize` over many refs, a few `= ANY(ids)` queries per page). It adds an operation to
 the permission service contract, so it waits for the owner.
+
+## After the lookup fixes (2026-09-28 ~20:55)
+
+Same benchmark, commits `58628ed` (store `first`/`where`, indexes), `466542a` (permissions),
+`a43b1fe` (auth, account, customfields, views, notes). p99 in ms, before -> after:
+
+| route | c1 | c20 |
+|---|---|---|
+| `POST /contracts` | 315 -> 14 | 5264 -> 47 |
+| `POST /views` | 290 -> 14 | 4973 -> 45 |
+| `POST /notes` | 309 -> 16 | 5051 -> 48 |
+| `POST /contacts` | 343 -> 15 | 4951 -> 53 |
+| `POST /organizations` | 306 -> 16 | 4962 -> 63 |
+| `GET /notes/{id}` | 126 -> 11 | 2148 -> 36 |
+| `PUT /customfields/values` | 91 -> 5 | 1461 -> 34 |
+| `POST /permissions/entities/.../owner` | 311 -> 13 | 3101 -> 76 |
+| `GET /customfields/values` | 35 -> 4 | 509 -> 23 |
+| `POST /auth/login` (scrypt) | 94 -> 38 | 997 -> 169 |
+
+Most writes went from 30-100 ms / 0.5-1.6 s to 5-15 ms / 30-70 ms: they were paying for the
+permission checks' full scans.
+
+Unchanged: the five lists still time out (one `authorize` per row, see above).
+`POST /customfields` (78 / 1115) and `PATCH /customfields/{id}` (73 / 516) are still slow: not
+analysed yet. Worse: `GET /permissions/audit` 64 -> 258 / 1126 -> 4315; under investigation with
+a traced run.
+
+## Traced run after the lookup fixes (2026-09-28 ~21:05)
+
+Same benchmark with `QWBE_TRACE_URL` and `QWBE_PROFILE=requests,resources,process`, traces read
+from Tempo, statement counts from `pg_stat_statements`.
+
+1. **Every `authorize` writes an audit row** (`core/src/cubes/permissions/foundation.ts:35`),
+   reads included, each in its own transaction with an outbox row. A list that checks 10,000 rows
+   writes up to 10,000 audit rows per request; one benchmark run wrote over 200,000 (one
+   `INSERT INTO permission_audit` statement counted 212,365 calls). Faster checks made this
+   worse: before the fixes a request finished fewer checks before its timeout.
+2. **`GET /permissions/audit` reads the whole audit table** (`audit.ts:15`, `store.all` then
+   decode and filter in JavaScript): 1.1 s for the `SELECT` alone, 374 MB of heap, 2.3 s of
+   process CPU in one request. This is the `64 -> 258 ms` regression: the table grew (point 1),
+   the code did not change. It will keep growing with use.
+3. **`GET /notes` now**: in 10 s one request checks 801 of 10,000 notes. Per note: one
+   transaction for the ownership lookup (1.7 ms in SQL) and one for the audit insert plus outbox;
+   1,608 transactions add up to 9.9 s. Per-row work, not slow SQL.
+4. **Five `500`s on `GET /contracts` / `GET /organizations`**: in each, an audit `INSERT` ends
+   with `SqlError: Failed to execute statement`, span marked interrupted, 0.3-3.7 s into a request
+   that was not timed out. Guess, not proven: a timed-out request is interrupted, the driver
+   cancels its statement by backend pid, and the cancel lands on a pooled connection another
+   request already uses. Needs a reproduction.
+5. **`POST /customfields`** (1.07 s at c20): after each create the snapshot re-reads all 10,000
+   definitions (`customfields/context.ts:36`, kept on `all`), plus two `targetCube` lookups that
+   match every clone; the rest of the second is JavaScript.
+6. **`GET /settings/cubes`** (1.07 s at c20): 383 ms of SQL, the rest in code with no spans; needs
+   a CPU profile (ticket 06).
+
+Checked, not a problem: the lookup `body ->> $1 = $2` binds the JSON key as a parameter, which a
+generic plan cannot match to the `(body ->> 'field')` index; node-postgres sends unnamed
+statements, which Postgres plans with the actual values, so the index is used.
+
+### Decisions for the owner
+
+- **Batch authorization**: one permission check per page of rows instead of one per row. Adds an
+  operation to the permission service contract.
+- **What the audit records**: an audit row per read decision (today) makes every list write as
+  many rows as it reads. Options: audit writes and denials only, or one row per list request.
+  Security policy, not a performance detail.
+- **Audit listing**: page and filter `GET /permissions/audit` in SQL; changes its response shape
+  if it gains paging.
