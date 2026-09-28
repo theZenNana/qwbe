@@ -5,6 +5,8 @@ import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema } from "@effect/platform"
 import { Schema } from "effect"
 import { Authorization } from "../../kernel/auth-contract.ts"
 import { BadRequest, Forbidden, NotFound } from "../../kernel/errors.ts"
+import { ListParams } from "../../kernel/list.ts"
+import { PageOf } from "../../kernel/pagination.ts"
 import {
   ChunkPayload,
   ChunkResult,
@@ -21,7 +23,12 @@ export const stagingGroup = HttpApiGroup.make("staging")
   .add(
     HttpApiEndpoint.post("createSet")`/staging/sets`.setPayload(SetCreate).addSuccess(StagingSet).addError(Forbidden),
   )
-  .add(HttpApiEndpoint.get("listSets")`/staging/sets`.addSuccess(Schema.Array(StagingSet)).addError(Forbidden))
+  .add(
+    HttpApiEndpoint.get("listSets")`/staging/sets`
+      .setUrlParams(ListParams)
+      .addSuccess(PageOf(StagingSet))
+      .addError(Forbidden),
+  )
   .add(
     HttpApiEndpoint.get("getSet")`/staging/sets/${HttpApiSchema.param("id", Schema.String)}`
       .addSuccess(StagingSet)
