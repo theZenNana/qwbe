@@ -12,6 +12,7 @@ import { createServer } from "node:http"
 import {
   HttpApiBuilder,
   HttpApiSecurity,
+  type HttpApp,
   HttpMiddleware,
   HttpServer,
   HttpServerResponse,
@@ -20,11 +21,11 @@ import {
 import { NodeContext, NodeHttpServer, NodeRuntime } from "@effect/platform-node"
 import { Cause, Console, Effect, Exit, Layer, Option, Predicate } from "effect"
 import { BootRefused, bootStorage, LifeRuleBroken, StorageLive } from "./boot-storage.ts"
-import { QwbeConfig, QwbeConfigLive } from "./config.ts"
+import { type ProfileCategory, QwbeConfig, QwbeConfigLive } from "./config.ts"
 import { CustomFields } from "./custom-defs-reader.ts"
 import { captureEntity } from "./entity-enforcement.ts"
 import { Authorization } from "./kernel/auth-contract.ts"
-import { loadDefinitions, mount, refusal, switchesFor } from "./kernel/discovery.ts"
+import { loadDefinitions, type MountedCube, mount, refusal, switchesFor } from "./kernel/discovery.ts"
 import { readLedger, verifyLedgerUnchanged, writeLedger } from "./kernel/ledger.ts"
 import { buildApi, buildHandlers, checkCubes, rejectDisabled } from "./kernel/mount.ts"
 import { logRefusals } from "./kernel/refusal-log.ts"
@@ -33,11 +34,30 @@ import { loadSpaces } from "./kernel/space.ts"
 import { rowStateFor } from "./kernel/store.ts"
 import { checkSchemaDrift } from "./metadata/schema-drift.ts"
 import { corsOriginMatcher, originsForStartup } from "./origins.ts"
+import { resourcesMiddleware } from "./profiling.ts"
 import { registryFrom } from "./registry-runtime.ts"
-import { TracingLive, traceIdHeader } from "./tracing.ts"
+import { exportsSpans, TracingLive, traceIdHeader } from "./tracing.ts"
+
+/** The middleware every request passes through, innermost step first. */
+const servePipeline =
+  (
+    system: { readonly cubes: ReadonlyArray<MountedCube>; readonly isEnabled: (name: string) => boolean },
+    profile: ReadonlySet<ProfileCategory>,
+  ) =>
+  (app: HttpApp.Default) =>
+    app.pipe(
+      // Dev-only, opt-in via QWBE_TRACE_URL: echo the request span's trace id, so a slow
+      // request in the browser maps to its trace in Grafana (Explore -> Tempo). Off means no header.
+      (a) => (exportsSpans(profile) ? traceIdHeader(a) : a),
+      (a) => (profile.has("resources") ? resourcesMiddleware(a) : a),
+      rejectDisabled(system.cubes, system.isEnabled),
+      // logRefusals sits outside the disabled-cube filter so it sees every final status.
+      logRefusals,
+      HttpMiddleware.logger,
+    )
 
 const boot = Effect.gen(function* () {
-  const { port, traceUrl } = yield* QwbeConfig
+  const { port, profile } = yield* QwbeConfig
 
   // Browser origins for CORS: parse, warn on the unset default, refuse malformed values --
   // all in origins.ts.
@@ -203,21 +223,7 @@ const boot = Effect.gen(function* () {
     }),
   )
 
-  return HttpApiBuilder.serve((app) =>
-    // logRefusals sits outside the disabled-cube filter so it sees every final status.
-    HttpMiddleware.logger(
-      logRefusals(
-        rejectDisabled(
-          system.cubes,
-          system.isEnabled,
-        )(
-          // Dev-only, opt-in via QWBE_TRACE_URL: echo the request span's trace id, so a slow
-          // request in the browser maps to its waterfall in Jaeger. Off means no header.
-          traceUrl === undefined ? app : traceIdHeader(app),
-        ),
-      ),
-    ),
-  ).pipe(
+  return HttpApiBuilder.serve(servePipeline(system, profile)).pipe(
     // Browser origins come from QWBE_ALLOWED_ORIGINS. Unset means ["*"], no restriction, so
     // local development needs no configuration. With the variable
     // set, unlisted origins get no access-control-allow-origin header and the browser blocks
@@ -248,8 +254,8 @@ const boot = Effect.gen(function* () {
     Layer.provide(ApiLive),
     HttpServer.withLogAddress,
     Layer.provide(NodeHttpServer.layer(() => createServer(), { port })),
-    // Tracer for the whole serving stack when QWBE_TRACE_URL is set (no-op otherwise);
-    // needs QwbeConfig, which launch provides below.
+    // Span and metric exporters for the QWBE_PROFILE categories when QWBE_TRACE_URL is set
+    // (no-op otherwise); needs QwbeConfig, which launch provides below.
     Layer.provide(TracingLive),
   )
 })

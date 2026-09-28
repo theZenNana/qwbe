@@ -1,27 +1,42 @@
-// Opt-in, dev-only span export. Every Effect span the server creates -- the per-request
-// span from @effect/platform, one per SQL statement from @effect/sql/PgClient, one per
-// Effect.fn / Effect.withSpan with the call-site stack -- is sent over OTLP/HTTP to a local
-// collector. QWBE_TRACE_URL unset means no tracer is built at all: no cost, no spans.
+// Opt-in, dev-only telemetry export over OTLP/HTTP to a local collector. QWBE_TRACE_URL unset
+// means nothing here is built: no cost, no spans, no metrics. QWBE_PROFILE picks what loads:
 //
-// To see the traces: `docker compose --profile trace up -d jaeger`, then open the Jaeger UI
-// at http://localhost:16686 and pick service "qwbe".
+//   requests   every Effect span -- the per-request span from @effect/platform, one per SQL
+//              statement from @effect/sql/PgClient, one per Effect.fn / Effect.withSpan.
+//   resources  CPU / heap / event-loop attributes on each request span (profiling.ts); it
+//              rides on the request spans, so it loads the span exporter too.
+//   process    qwbe.process.* gauges every 5 s (profiling.ts), exported as OTLP metrics.
+//
+// To see them: `docker compose --profile trace up -d lgtm`, open Grafana at
+// http://localhost:3000, Explore -> Tempo for service "qwbe", Prometheus for qwbe_process_*.
 
-import { OtlpSerialization, OtlpTracer } from "@effect/opentelemetry"
+import { OtlpMetrics, OtlpSerialization, OtlpTracer } from "@effect/opentelemetry"
 import { FetchHttpClient, HttpApp, HttpServerResponse } from "@effect/platform"
 import { Effect, Layer } from "effect"
-import { QwbeConfig } from "./config.ts"
+import { type ProfileCategory, QwbeConfig } from "./config.ts"
+import { ProcessMetricsLive } from "./profiling.ts"
 
-/** Builds the OTLP/HTTP exporter only when `traceUrl` is set; `Layer.empty` otherwise. */
+const resource = { serviceName: "qwbe" }
+
+/** Whether request spans are exported: `requests`, or `resources`, which annotates them. */
+export const exportsSpans = (profile: ReadonlySet<ProfileCategory>) =>
+  profile.has("requests") || profile.has("resources")
+
+/** The exporters for the chosen categories; `Layer.empty` when none is on. */
+export const telemetryLayer = (traceUrl: string | undefined, profile: ReadonlySet<ProfileCategory>) => {
+  if (traceUrl === undefined) return Layer.empty
+  const spans = exportsSpans(profile) ? OtlpTracer.layer({ url: `${traceUrl}/v1/traces`, resource }) : Layer.empty
+  const metrics = profile.has("process")
+    ? Layer.merge(OtlpMetrics.layer({ url: `${traceUrl}/v1/metrics`, resource }), ProcessMetricsLive)
+    : Layer.empty
+  return Layer.merge(spans, metrics).pipe(
+    Layer.provide(OtlpSerialization.layerJson),
+    Layer.provide(FetchHttpClient.layer),
+  )
+}
+
 export const TracingLive = Layer.unwrapEffect(
-  Effect.gen(function* () {
-    const { traceUrl } = yield* QwbeConfig
-    return traceUrl === undefined
-      ? Layer.empty
-      : OtlpTracer.layer({ url: `${traceUrl}/v1/traces`, resource: { serviceName: "qwbe" } }).pipe(
-          Layer.provide(OtlpSerialization.layerJson),
-          Layer.provide(FetchHttpClient.layer),
-        )
-  }),
+  Effect.map(QwbeConfig, ({ traceUrl, profile }) => telemetryLayer(traceUrl, profile)),
 )
 
 export const traceIdHeader = <E, R>(app: HttpApp.Default<E, R>): HttpApp.Default<E, R> =>
