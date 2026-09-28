@@ -1,6 +1,8 @@
 import { expect, it } from "@effect/vitest"
 import * as Either from "effect/Either"
-import { afterExit, banner, devPorts, prefixer, SERVICES, serviceSpecs } from "./dev-pure.ts"
+import { afterExit, banner, devArgs, devPorts, heapMessage, prefixer, SERVICES, serviceSpecs } from "./dev-pure.ts"
+
+const plain = { profile: false, cpuProf: false }
 
 it("start runs both services, api and web one each", () => {
   expect(SERVICES).toEqual({ start: ["api", "web"], api: ["api"], web: ["web"] })
@@ -49,9 +51,11 @@ it("an env override moves one port; a bad one names its variable", () => {
 
 it("web reaches a moved API port unless NEXT_PUBLIC_QWBE_API names one", () => {
   const ports = { api: 4530, web: 4510 }
-  expect(serviceSpecs("/r/", ports, {}, "node", false).web.env.NEXT_PUBLIC_QWBE_API).toBe("http://127.0.0.1:4530")
+  expect(serviceSpecs("/r/", ports, {}, "node", false, plain).web.env.NEXT_PUBLIC_QWBE_API).toBe(
+    "http://127.0.0.1:4530",
+  )
   expect(
-    serviceSpecs("/r/", ports, { NEXT_PUBLIC_QWBE_API: "http://x" }, "node", false).web.env.NEXT_PUBLIC_QWBE_API,
+    serviceSpecs("/r/", ports, { NEXT_PUBLIC_QWBE_API: "http://x" }, "node", false, plain).web.env.NEXT_PUBLIC_QWBE_API,
   ).toBe("http://x")
 })
 
@@ -64,4 +68,55 @@ it("the banner names each started service with its address", () => {
   expect(banner(["api", "web"], { api: 4500, web: 4510 })).toMatch(
     /^api on http:\/\/127\.0\.0\.1:4500, web on http:\/\/127\.0\.0\.1:4510\n/,
   )
+})
+
+it("parses at most one subcommand and the flags in any order", () => {
+  expect(devArgs([])).toEqual(Either.right({ name: "start", profile: false, cpuProf: false }))
+  expect(devArgs(["--profile"])).toEqual(Either.right({ name: "start", profile: true, cpuProf: false }))
+  expect(devArgs(["--cpu-prof", "api"])).toEqual(Either.right({ name: "api", profile: false, cpuProf: true }))
+  expect(devArgs(["api", "--profile", "--cpu-prof"])).toEqual(
+    Either.right({ name: "api", profile: true, cpuProf: true }),
+  )
+  expect(Either.isLeft(devArgs(["api", "web"]))).toBe(true)
+  expect(Either.isLeft(devArgs(["--heap"]))).toBe(true)
+})
+
+const api = (flags: { profile: boolean; cpuProf: boolean }, env: Record<string, string> = {}) =>
+  serviceSpecs("/r/", { api: 4500, web: 4510 }, env, "node", false, flags).api
+
+it("the API always takes a heap snapshot on SIGUSR2 and traces nowhere without a flag", () => {
+  expect(api(plain).argv).toEqual([
+    "node",
+    "--heapsnapshot-signal=SIGUSR2",
+    "--diagnostic-dir=/r/.profile/heap",
+    "src/main.ts",
+  ])
+  expect(api(plain).env.QWBE_TRACE_URL).toBeUndefined()
+  expect(heapMessage(api(plain).heapDir ?? "", 42)).toBe("pid 42; heap snapshot: kill -USR2 42 (into /r/.profile/heap)")
+})
+
+it("--cpu-prof adds the V8 CPU profile into .profile/cpu", () => {
+  expect(api({ profile: false, cpuProf: true }).argv.slice(3, 5)).toEqual([
+    "--cpu-prof",
+    "--cpu-prof-dir=/r/.profile/cpu",
+  ])
+})
+
+it("--profile traces the API into the local lgtm with every category", () => {
+  const spec = api({ profile: true, cpuProf: false })
+  expect(spec.env).toMatchObject({
+    QWBE_TRACE_URL: "http://127.0.0.1:4318",
+    QWBE_PROFILE: "requests,resources,process",
+  })
+  expect(spec.argv).not.toContain("--cpu-prof")
+})
+
+it("both flags together, and a QWBE_PROFILE already set wins", () => {
+  const spec = api({ profile: true, cpuProf: true }, { QWBE_PROFILE: "requests" })
+  expect(spec.env.QWBE_PROFILE).toBe("requests")
+  expect(spec.argv).toContain("--cpu-prof")
+  expect(
+    serviceSpecs("/r/", { api: 4500, web: 4510 }, {}, "node", false, { profile: true, cpuProf: true }).web.env
+      .QWBE_TRACE_URL,
+  ).toBeUndefined()
 })

@@ -117,3 +117,12 @@ existing file, which these diffs do not change.
 | `core/src/pg/setup.ts` (diff) | lucian 67.3, ponytail 68.0 |
 | `core/src/kernel/discovery.ts` (diff, one argument added) | lucian 68.6 |
 | `core/tools/api-bench/measure.ts` | lucian 68.9 |
+
+Ticket 06 (`npm start -- --profile`, `--cpu-prof`, heap snapshot), after one refactor run aimed at
+these scores (brief 78), 2026-09-28 ~21:15:
+
+| file | scores under 70 |
+|---|---|
+| `core/tools/dev/dev.ts` (diff) | lucian 51.5 |
+| `core/tools/dev/dev-supervise.ts` (diff) | lucian 60.8, ponytail 68.9 |
+| `core/tools/dev/dev-pure.ts` (diff) | lucian 65.8 |

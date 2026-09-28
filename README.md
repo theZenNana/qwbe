@@ -160,6 +160,16 @@ Start the SQL numbers from zero with
 `docker compose exec -T postgres psql -U postgres -c "SELECT pg_stat_statements_reset();"`.
 Stop with `docker compose --profile trace stop lgtm`.
 
+The dev launcher does the same in one step, and two more:
+
+- `npm start -- --profile` starts `lgtm`, runs the API with `QWBE_TRACE_URL=http://127.0.0.1:4318`
+  and `QWBE_PROFILE=requests,resources,process` (a `QWBE_PROFILE` you set wins), and prints the
+  dashboard link.
+- `npm start -- --cpu-prof` writes a V8 CPU profile into `.profile/cpu/` when the API stops
+  (Ctrl-C); open it in Chrome DevTools (Performance tab) or speedscope.
+- `kill -USR2 <pid>` writes a heap snapshot of the API into `.profile/heap/`; the launcher prints
+  the pid at every start. Open it in Chrome DevTools (Memory tab).
+
 ## Committing to this repo
 
 There are no commit hooks. Run `npm run check` before a commit; its `secrets` gate does what the
