@@ -96,9 +96,15 @@ export const cube = defineCube(group, {
     },
 
     relational: {
-      search: (field, value, page) =>
+      // `only` is the set the kernel authorized; filtering by it in SQL keeps the page full.
+      search: (field, value, page, only = "all") =>
         Effect.gen(function* () {
-          const p = yield* store.page<TagRow>(TABLE, page, { field, value })
+          // Empty `ids` means "no filter" to the store.
+          if (only !== "all" && only.size === 0) return { rows: [], total: 0 }
+          const p = yield* store.page<TagRow>(TABLE, page, {
+            equals: [{ field, value }],
+            ...(only === "all" ? {} : { ids: [...only] }),
+          })
           return { rows: p.rows.map(summary), total: p.total }
         }),
       summaryById: (id) =>

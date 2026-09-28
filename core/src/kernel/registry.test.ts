@@ -10,6 +10,8 @@ const permissions = {
       allowed: ref.entityId === "mine",
       source: ref.entityId === "mine" ? ("owner" as const) : ("none" as const),
     }),
+  authorizeList: () => Effect.succeed(new Set(["mine"])),
+  auditList: () => Effect.void,
 }
 const user = { id: "bob", username: "bob", roles: ["reader"], permissions: [], sessionId: "ses-test" }
 

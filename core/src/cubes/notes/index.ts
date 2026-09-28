@@ -110,9 +110,14 @@ export const cube = defineCube(group, {
         list: ({ urlParams }: { urlParams: typeof NoteListParams.Type }) =>
           Effect.gen(function* () {
             yield* requirePermission(ROUTES.list)
+            // `ids` only when asked, as kernel/list.ts: an empty set to the store matches nothing.
+            const ids = (urlParams.ids ?? "")
+              .split(",")
+              .map((s) => s.trim())
+              .filter(Boolean)
             // Filter, sort (the manifest's `sortable`), count and page all in SQL.
             const { rows, total, offset, limit, sortedBy } = yield* store.page<NoteRow>(TABLE, pageRequest(urlParams), {
-              ids: (urlParams.ids ?? "").split(",").filter(Boolean),
+              ...(ids.length > 0 ? { ids } : {}),
             })
             return { rows, total, offset, limit, sortedBy }
           }),
@@ -140,37 +145,9 @@ export const cube = defineCube(group, {
       },
 
       relational: {
-        // One `authorizeList` for the set and one `entity.list` audit row; legacy owners were
-        // claimed at boot, so nothing is claimed or authorized per note here (Qwbe#73).
-        search: (field, value, page) =>
-          Effect.gen(function* () {
-            const user = yield* CurrentUser
-            const scope = { cube: "notes", entityType: ENTITY }
-            const visible = yield* entityPermissions.authorizeList(actor(user), scope, "read").pipe(Effect.orDie)
-            const audit = (ids: ReadonlyArray<string>) =>
-              entityPermissions
-                .auditList(
-                  actor(user),
-                  scope,
-                  "read",
-                  visible !== "all" ? "scoped" : user.roles.includes("admin") ? "superadmin" : "cube-admin",
-                  ids,
-                )
-                .pipe(Effect.orDie)
-            // Empty `ids` means "no filter" to the store, so an actor who sees nothing never reaches it.
-            if (visible !== "all" && visible.size === 0) {
-              yield* audit([])
-              return { rows: [], total: 0 }
-            }
-            // `field` is a declared link (workspace: `authorId`) and `value` an id, both strings.
-            const { rows, total } = yield* store.page<NoteRow>(TABLE, page, {
-              equals: [{ field, value }],
-              ...(visible === "all" ? {} : { ids: [...visible] }),
-            })
-            yield* audit(rows.map((n) => n.id))
-            return { rows: rows.map(summary), total }
-          }),
-
+        // The kernel runs one `authorizeList` and one audit row and passes the set as `only`;
+        // legacy owners were claimed at boot, so nothing is claimed per note here (Qwbe#73).
+        search: stored.search,
         summaryById: stored.summaryById,
         fieldValue: stored.fieldValue,
       },
