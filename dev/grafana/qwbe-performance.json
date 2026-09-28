@@ -350,7 +350,7 @@
             "uid": "prometheus"
           },
           "refId": "A",
-          "expr": "qwbe_process_heap_used_bytes",
+          "expr": "qwbe_process_heap_used_bytes_ratio",
           "legendFormat": "heap used"
         },
         {
@@ -359,7 +359,7 @@
             "uid": "prometheus"
           },
           "refId": "B",
-          "expr": "qwbe_process_heap_after_gc_bytes",
+          "expr": "qwbe_process_heap_after_gc_bytes_ratio",
           "legendFormat": "heap after GC"
         },
         {
@@ -368,7 +368,7 @@
             "uid": "prometheus"
           },
           "refId": "C",
-          "expr": "qwbe_process_heap_total_bytes",
+          "expr": "qwbe_process_heap_total_bytes_ratio",
           "legendFormat": "heap total"
         },
         {
@@ -377,7 +377,7 @@
             "uid": "prometheus"
           },
           "refId": "D",
-          "expr": "qwbe_process_rss_bytes",
+          "expr": "qwbe_process_rss_bytes_ratio",
           "legendFormat": "RSS"
         },
         {
@@ -386,7 +386,7 @@
             "uid": "prometheus"
           },
           "refId": "E",
-          "expr": "qwbe_process_external_bytes",
+          "expr": "qwbe_process_external_bytes_ratio",
           "legendFormat": "external"
         }
       ],
@@ -428,7 +428,7 @@
             "uid": "prometheus"
           },
           "refId": "A",
-          "expr": "qwbe_process_gc_pause_ms",
+          "expr": "qwbe_process_gc_pause_ms_ratio",
           "legendFormat": "pause ms"
         },
         {
@@ -437,7 +437,7 @@
             "uid": "prometheus"
           },
           "refId": "B",
-          "expr": "qwbe_process_gc_count",
+          "expr": "qwbe_process_gc_count_ratio",
           "legendFormat": "count"
         }
       ],
@@ -478,7 +478,7 @@
             "uid": "prometheus"
           },
           "refId": "A",
-          "expr": "qwbe_process_event_loop_delay_p50_ms",
+          "expr": "qwbe_process_event_loop_delay_p50_ms_ratio",
           "legendFormat": "p50"
         },
         {
@@ -487,7 +487,7 @@
             "uid": "prometheus"
           },
           "refId": "B",
-          "expr": "qwbe_process_event_loop_delay_p99_ms",
+          "expr": "qwbe_process_event_loop_delay_p99_ms_ratio",
           "legendFormat": "p99"
         },
         {
@@ -496,7 +496,7 @@
             "uid": "prometheus"
           },
           "refId": "C",
-          "expr": "qwbe_process_event_loop_delay_max_ms",
+          "expr": "qwbe_process_event_loop_delay_max_ms_ratio",
           "legendFormat": "max"
         }
       ],
@@ -537,7 +537,7 @@
             "uid": "prometheus"
           },
           "refId": "A",
-          "expr": "qwbe_process_event_loop_utilization_percent",
+          "expr": "qwbe_process_event_loop_utilization_percent_ratio",
           "legendFormat": "utilization"
         }
       ],
@@ -578,7 +578,7 @@
             "uid": "prometheus"
           },
           "refId": "A",
-          "expr": "qwbe_process_cpu_percent",
+          "expr": "qwbe_process_cpu_percent_ratio",
           "legendFormat": "cpu"
         }
       ],
