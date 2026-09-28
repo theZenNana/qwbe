@@ -354,12 +354,15 @@ describe("runtime cube capability grants -- route gate and entity gate stay two 
   it.live("concurrent duplicate grants: one revoke, by either id, retires the capability", () =>
     Effect.gen(function* () {
       // A store whose reads take a tick, like Postgres: both fibers read "no grant" before either
-      // inserts. No unique constraint in the store contract, so both land; access must still end
+      // inserts. The grant path reads with where/first (page kept for older readers), so all three
+      // are delayed. No unique constraint in the store contract, so both land; access must still end
       // on revoke. Live clock: under the TestClock the zero delay never yields, so no race.
       const sync = memoryStore()
       const racy: CubeTools["store"] = {
         ...sync,
         page: (...args: Parameters<CubeTools["store"]["page"]>) => Effect.delay(sync.page(...args), 0),
+        where: <A>(...args: Parameters<CubeTools["store"]["where"]>) => Effect.delay(sync.where<A>(...args), 0),
+        first: <A>(...args: Parameters<CubeTools["store"]["first"]>) => Effect.delay(sync.first<A>(...args), 0),
       }
       const w = world(declared, racy)
       const grant = w.service.grantCapability(root, { kind: "user", userId: "ana" }, "fixture:read")

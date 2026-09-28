@@ -1,4 +1,4 @@
-import { DateTime, Effect, Schema } from "effect"
+import { DateTime, Effect, Option, Schema } from "effect"
 import type { CubeTools } from "qwbe-core/cube"
 import type {
   AuditEvent,
@@ -29,42 +29,34 @@ export type HiddenPreference = EntityRef & Readonly<{ id: string; userId: string
 export type StoredGrant = EntityGrant & Readonly<{ deleted?: boolean }>
 export type StoredMembership = GroupMembership & Readonly<{ deleted?: boolean }>
 
-export const refKey = (ref: EntityRef): string => [ref.cube, ref.entityType, ref.entityId].join(":")
-
-/** Page size of `every`: the contract's MAX_LIMIT, so the read stays honest to the store. */
-const PAGE = 200
+/** An entity ref (cube + entityType + entityId) as a store `where`. */
+export const refWhere = (ref: EntityRef) => [
+  { field: "cube", value: ref.cube },
+  { field: "entityType", value: ref.entityType },
+  { field: "entityId", value: ref.entityId },
+]
 
 export const stateFrom = (store: CubeTools["store"]) => {
-  // Every matching row of a table, filtered by the STORE (`body ->> field = value` on
-  // Postgres) rather than read whole and filtered here. Pages until `total` is reached, so
-  // the result is complete whatever the page size. Fixtures may not honour `deleted`, so
-  // callers keep their `deleted !== true` filter.
-  const every = <A>(table: string, field: string, value: string) =>
-    Effect.gen(function* () {
-      const rows: Array<A> = []
-      for (let offset = 0; ; offset += PAGE) {
-        const page = yield* store.page<A>(table, { offset, limit: PAGE }, { field, value })
-        rows.push(...page.rows)
-        if (page.rows.length < PAGE || rows.length >= page.total) return rows
-      }
-    })
+  // Every live row of a table with `field = value`, filtered by the STORE (`body ->> field` on
+  // Postgres) in one read, no paging and no COUNT.
+  const every = <A>(table: string, field: string, value: string) => store.where<A>(table, { field, value })
   const ownership = (ref: EntityRef) =>
-    Effect.map(store.all<StoredOwnership>(tables.ownership), (rows) => rows.find((row) => refKey(row) === refKey(ref)))
+    Effect.map(store.first<StoredOwnership>(tables.ownership, refWhere(ref)), Option.getOrUndefined)
   const cubeAdmin = (actor: PermissionActor, cube: string) =>
-    Effect.map(
-      store.all<StoredCubeAdmin>(tables.cubeAdmins),
-      (rows) =>
-        actor.roles.includes("admin") ||
-        rows.some((row) => row.deleted !== true && row.cube === cube && row.userId === actor.userId),
-    )
-  const grantsFor = (ref: EntityRef) =>
-    Effect.map(store.all<StoredGrant>(tables.grants), (rows) =>
-      rows.filter((row) => row.deleted !== true && refKey(row) === refKey(ref)),
-    )
+    actor.roles.includes("admin")
+      ? Effect.succeed(true)
+      : Effect.map(
+          store.first<StoredCubeAdmin>(tables.cubeAdmins, [
+            { field: "cube", value: cube },
+            { field: "userId", value: actor.userId },
+          ]),
+          Option.isSome,
+        )
+  const grantsFor = (ref: EntityRef) => store.where<StoredGrant>(tables.grants, refWhere(ref))
   const groupIdsFor = (userId: string) =>
     Effect.map(
       every<StoredMembership>(tables.memberships, "userId", userId),
-      (rows) => new Set(rows.filter((row) => row.deleted !== true).map((row) => row.groupId)),
+      (rows) => new Set(rows.map((row) => row.groupId)),
     )
   const writeAudit = (
     actor: PermissionActor,

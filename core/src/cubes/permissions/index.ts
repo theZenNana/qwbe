@@ -35,6 +35,16 @@ export const cube = defineCube(group, {
   manifest: {
     name: "permissions",
     tables: Object.values(tables),
+    // The fields state.ts, groups.ts, sharing.ts and visibility.ts look rows up by.
+    indexed: {
+      [tables.ownership]: ["cube", "entityType", "entityId", "ownerId"],
+      [tables.cubeAdmins]: ["cube", "userId"],
+      [tables.groups]: ["cube"],
+      [tables.memberships]: ["userId", "groupId"],
+      [tables.grants]: ["cube", "entityType", "entityId"],
+      [tables.hidden]: ["userId", "cube", "entityType", "entityId"],
+      [tables.capabilities]: ["subjectKey", "cube"],
+    },
     screen: true,
     requiresAuth: true,
     required: true,

@@ -1,4 +1,4 @@
-import { Effect } from "effect"
+import { Effect, Option } from "effect"
 import type { EntityRef, EntityVisibility, Ownership, PermissionActor, PermissionService } from "qwbe-core/permissions"
 import {
   grantAccess,
@@ -7,8 +7,10 @@ import {
   PermissionNotFound,
   TotalActions,
 } from "qwbe-core/permissions"
-import type { PermissionState } from "./state.ts"
-import { refKey, tables } from "./state.ts"
+import type { HiddenPreference, PermissionState } from "./state.ts"
+import { refWhere, tables } from "./state.ts"
+
+const hiddenWhere = (userId: string, ref: EntityRef) => [{ field: "userId", value: userId }, ...refWhere(ref)]
 
 export const visibilityFrom = (state: PermissionState): Pick<PermissionService, "listVisible" | "setHidden"> => {
   const visibilityFor = (actor: PermissionActor, owner: Ownership) =>
@@ -31,9 +33,7 @@ export const visibilityFrom = (state: PermissionState): Pick<PermissionService, 
                   ? { source: "cube-admin" as const, name: actor.userId, actions: TotalActions }
                   : undefined
       if (!access) return undefined
-      const hidden = (yield* state.store.all<{ id: string; userId: string; deleted?: boolean } & EntityRef>(
-        tables.hidden,
-      )).some((item) => !item.deleted && item.userId === actor.userId && refKey(item) === refKey(ref))
+      const hidden = Option.isSome(yield* state.store.first(tables.hidden, hiddenWhere(actor.userId, ref)))
       return {
         ...ref,
         ownerId: owner.ownerId,
@@ -47,7 +47,7 @@ export const visibilityFrom = (state: PermissionState): Pick<PermissionService, 
   return {
     listVisible: (actor, cube, view) =>
       Effect.gen(function* () {
-        const owners = (yield* state.store.all<Ownership>(tables.ownership)).filter((row) => row.cube === cube)
+        const owners = yield* state.store.where<Ownership>(tables.ownership, { field: "cube", value: cube })
         const visible = yield* Effect.forEach(owners, (owner) => visibilityFor(actor, owner))
         const result: Array<EntityVisibility> = []
         for (const row of visible) {
@@ -65,9 +65,9 @@ export const visibilityFrom = (state: PermissionState): Pick<PermissionService, 
         if (!visible) {
           return yield* Effect.fail(new PermissionForbidden({ message: "entity is not visible to this user" }))
         }
-        const existing = (yield* state.store.all<{ id: string; userId: string; deleted?: boolean } & EntityRef>(
-          tables.hidden,
-        )).find((item) => !item.deleted && item.userId === actor.userId && refKey(item) === refKey(ref))
+        const existing = Option.getOrUndefined(
+          yield* state.store.first<HiddenPreference>(tables.hidden, hiddenWhere(actor.userId, ref)),
+        )
         if (hidden && !existing)
           yield* state.store.insert(tables.hidden, "HiddenPreference", "hidden", { ...ref, userId: actor.userId })
         if (!hidden && existing) yield* state.store.update(tables.hidden, existing.id, { deleted: true })

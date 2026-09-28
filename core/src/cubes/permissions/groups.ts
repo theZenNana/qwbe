@@ -1,11 +1,16 @@
-import { DateTime, Effect } from "effect"
+import { DateTime, Effect, Option } from "effect"
 import type { GroupMembership, PermissionGroup, PermissionService } from "qwbe-core/permissions"
 import { PermissionForbidden, PermissionInvalid, PermissionNotFound } from "qwbe-core/permissions"
 import type { PermissionState, StoredMembership } from "./state.ts"
 import { tables } from "./state.ts"
 
 export const groupById = (state: PermissionState, groupId: string) =>
-  Effect.map(state.store.all<PermissionGroup>(tables.groups), (groups) => groups.find((group) => group.id === groupId))
+  Effect.map(state.store.first<PermissionGroup>(tables.groups, { field: "id", value: groupId }), Option.getOrUndefined)
+
+const memberWhere = (groupId: string, userId: string) => [
+  { field: "groupId", value: groupId },
+  { field: "userId", value: userId },
+]
 
 export const groupsFrom = (
   state: PermissionState,
@@ -16,8 +21,11 @@ export const groupsFrom = (
   const requireCubeAccess = (actor: Parameters<PermissionService["createGroup"]>[0], cube: string) =>
     Effect.gen(function* () {
       if (actor.roles.includes("admin") || (yield* state.cubeAdmin(actor, cube))) return
-      const owns = (yield* state.store.all<{ cube: string; ownerId: string }>(tables.ownership)).some(
-        (row) => row.cube === cube && row.ownerId === actor.userId,
+      const owns = Option.isSome(
+        yield* state.store.first(tables.ownership, [
+          { field: "cube", value: cube },
+          { field: "ownerId", value: actor.userId },
+        ]),
       )
       if (!owns) {
         return yield* Effect.fail(
@@ -80,13 +88,13 @@ export const groupsFrom = (
     groups: (actor, cube) =>
       Effect.gen(function* () {
         yield* requireCubeAccess(actor, cube)
-        return (yield* state.store.all<PermissionGroup>(tables.groups)).filter((group) => group.cube === cube)
+        return yield* state.store.where<PermissionGroup>(tables.groups, { field: "cube", value: cube })
       }),
     addGroupMember: (actor, groupId, userId) =>
       Effect.gen(function* () {
         const group = yield* administer(actor, groupId)
-        const existing = (yield* state.store.all<StoredMembership>(tables.memberships)).find(
-          (item) => item.deleted !== true && item.groupId === groupId && item.userId === userId,
+        const existing = Option.getOrUndefined(
+          yield* state.store.first<StoredMembership>(tables.memberships, memberWhere(groupId, userId)),
         )
         if (existing) return existing
         const createdAt = DateTime.formatIso(yield* DateTime.now)
@@ -110,8 +118,8 @@ export const groupsFrom = (
     removeGroupMember: (actor, groupId, userId) =>
       Effect.gen(function* () {
         const group = yield* administer(actor, groupId)
-        const membership = (yield* state.store.all<StoredMembership>(tables.memberships)).find(
-          (item) => item.deleted !== true && item.groupId === groupId && item.userId === userId,
+        const membership = Option.getOrUndefined(
+          yield* state.store.first<StoredMembership>(tables.memberships, memberWhere(groupId, userId)),
         )
         if (!membership) {
           return yield* Effect.fail(new PermissionNotFound({ message: "membership does not exist" }))

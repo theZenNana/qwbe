@@ -1,4 +1,4 @@
-import { DateTime, Effect, Schema } from "effect"
+import { DateTime, Effect, Option, Schema } from "effect"
 import type { EntityGrant, PermissionService } from "qwbe-core/permissions"
 import { EntityGrantSchema, PermissionInvalid, PermissionNotFound, TotalActions } from "qwbe-core/permissions"
 import type { Foundation } from "./foundation.ts"
@@ -69,8 +69,8 @@ export const sharingFrom = (
     }),
   revokeGrant: (actor, grantId) =>
     Effect.gen(function* () {
-      const grant = (yield* state.store.all<StoredGrant>(tables.grants)).find(
-        (item) => item.deleted !== true && item.id === grantId,
+      const grant = Option.getOrUndefined(
+        yield* state.store.first<StoredGrant>(tables.grants, { field: "id", value: grantId }),
       )
       if (!grant) {
         return yield* Effect.fail(new PermissionNotFound({ message: ["grant", grantId, "does not exist"].join(" ") }))
