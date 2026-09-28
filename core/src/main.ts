@@ -34,9 +34,10 @@ import { rowStateFor } from "./kernel/store.ts"
 import { checkSchemaDrift } from "./metadata/schema-drift.ts"
 import { corsOriginMatcher, originsForStartup } from "./origins.ts"
 import { registryFrom } from "./registry-runtime.ts"
+import { TracingLive, traceIdHeader } from "./tracing.ts"
 
 const boot = Effect.gen(function* () {
-  const { port } = yield* QwbeConfig
+  const { port, traceUrl } = yield* QwbeConfig
 
   // Browser origins for CORS: parse, warn on the unset default, refuse malformed values --
   // all in origins.ts.
@@ -204,7 +205,18 @@ const boot = Effect.gen(function* () {
 
   return HttpApiBuilder.serve((app) =>
     // logRefusals sits outside the disabled-cube filter so it sees every final status.
-    HttpMiddleware.logger(logRefusals(rejectDisabled(system.cubes, system.isEnabled)(app))),
+    HttpMiddleware.logger(
+      logRefusals(
+        rejectDisabled(
+          system.cubes,
+          system.isEnabled,
+        )(
+          // Dev-only, opt-in via QWBE_TRACE_URL: echo the request span's trace id, so a slow
+          // request in the browser maps to its waterfall in Jaeger. Off means no header.
+          traceUrl === undefined ? app : traceIdHeader(app),
+        ),
+      ),
+    ),
   ).pipe(
     // Browser origins come from QWBE_ALLOWED_ORIGINS. Unset means ["*"], no restriction, so
     // local development needs no configuration. With the variable
@@ -236,6 +248,9 @@ const boot = Effect.gen(function* () {
     Layer.provide(ApiLive),
     HttpServer.withLogAddress,
     Layer.provide(NodeHttpServer.layer(() => createServer(), { port })),
+    // Tracer for the whole serving stack when QWBE_TRACE_URL is set (no-op otherwise);
+    // needs QwbeConfig, which launch provides below.
+    Layer.provide(TracingLive),
   )
 })
 

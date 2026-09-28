@@ -25,6 +25,8 @@ export type QwbeSettings = {
   readonly readerPassword: Redacted.Redacted | undefined
   readonly cubeVersionsBaseline: string | undefined
   readonly databaseUrl: Redacted.Redacted | undefined
+  /** QWBE_TRACE_URL: OTLP/HTTP base URL (e.g. http://localhost:4318); unset means no tracing. */
+  readonly traceUrl: string | undefined
 }
 
 export class QwbeConfig extends Context.Tag("qwbe/QwbeConfig")<QwbeConfig, QwbeSettings>() {}
@@ -52,6 +54,7 @@ export const loadConfig: Effect.Effect<QwbeSettings, ConfigInvalid> = Config.all
   readerPassword: optional(Config.redacted("QWBE_READER_PASSWORD")),
   cubeVersionsBaseline: optional(Config.string("QWBE_CUBE_VERSIONS_BASELINE")),
   databaseUrl: optional(Config.redacted("QWBE_DATABASE_URL")),
+  traceUrl: optional(Config.string("QWBE_TRACE_URL")),
 }).pipe(Effect.mapError((e) => new ConfigInvalid({ message: String(e) })))
 
 export const QwbeConfigLive = Layer.effect(QwbeConfig, loadConfig)
