@@ -203,6 +203,7 @@ const world = (declaredNow: ReadonlyMap<string, ReadonlyArray<string>> = declare
 }
 
 const root = { userId: "root", roles: ["admin"] }
+const firstPage = { offset: 0, limit: 50 }
 const listRequest = { urlParams: { offset: 0, limit: 10 } }
 
 describe("runtime cube capability grants -- route gate and entity gate stay two gates (QWB-63)", () => {
@@ -323,7 +324,7 @@ describe("runtime cube capability grants -- route gate and entity gate stay two 
         w.service.grantCapability(root, { kind: "group", groupId: foreign.id }, "fixture:write"),
       )
       assert.ok(crossed instanceof PermissionInvalid)
-      assert.deepEqual(yield* w.service.listCapabilityGrants(root, "fixture"), [])
+      assert.deepEqual((yield* w.service.listCapabilityGrants(root, "fixture", firstPage)).rows, [])
     }),
   )
 
@@ -336,7 +337,7 @@ describe("runtime cube capability grants -- route gate and entity gate stay two 
       const first = yield* w.service.grantCapability(root, subject, "fixture:read")
       const again = yield* w.service.grantCapability(root, subject, "fixture:read")
       assert.equal(again.id, first.id)
-      assert.equal((yield* w.service.listCapabilityGrants(root, "fixture")).length, 1)
+      assert.equal((yield* w.service.listCapabilityGrants(root, "fixture", firstPage)).total, 1)
       const audit = yield* w.service.audit({ cube: "fixture", action: "capability.grant.user" })
       assert.deepEqual(
         audit.map((event) => (event.before === null ? "new" : "repeat")),
@@ -376,7 +377,7 @@ describe("runtime cube capability grants -- route gate and entity gate stay two 
       assert.deepEqual(yield* w.effective("ana", []), ["fixture:read"])
       yield* w.service.revokeCapabilityGrant(root, right.id)
       assert.deepEqual(yield* w.effective("ana", []), [])
-      assert.deepEqual(yield* w.service.listCapabilityGrants(root, "fixture"), [])
+      assert.deepEqual((yield* w.service.listCapabilityGrants(root, "fixture", firstPage)).rows, [])
       const gone = yield* Effect.flip(w.service.revokeCapabilityGrant(root, left.id))
       assert.ok(gone instanceof PermissionNotFound)
     }),
@@ -449,11 +450,18 @@ describe("the same matrix over HTTP: real router, real Authorization middleware,
         username: "ana",
       })
       assert.equal(bad.status, 400)
-      const grants = yield* w.http("GET", "/permissions/capabilities?cube=fixture", root)
-      assert.deepEqual((grants.body as unknown as Array<{ capability: string }>).map((g) => g.capability).sort(), [
-        "fixture:read",
-        "fixture:write",
-      ])
+      type CapabilityPage = { rows: Array<{ capability: string }>; total: number; offset: number; limit: number }
+      const grants = (yield* w.http("GET", "/permissions/capabilities?cube=fixture", root))
+        .body as unknown as CapabilityPage
+      assert.deepEqual(grants.rows.map((g) => g.capability).sort(), ["fixture:read", "fixture:write"])
+      assert.equal(grants.total, 2)
+      // Paged by the store: one row per page, the total stays the whole cube, past the end is empty.
+      const second = (yield* w.http("GET", "/permissions/capabilities?cube=fixture&offset=1&limit=1", root))
+        .body as unknown as CapabilityPage
+      assert.deepEqual([second.rows.length, second.total, second.offset, second.limit], [1, 2, 1, 1])
+      const past = (yield* w.http("GET", "/permissions/capabilities?cube=fixture&offset=5&limit=1", root))
+        .body as unknown as CapabilityPage
+      assert.deepEqual([past.rows, past.total], [[], 2])
       // Revoke write: the same token loses update on its next request, keeps read (additive).
       assert.equal((yield* w.http("DELETE", `/permissions/capabilities/${write.body?.id}`, root)).status, 200)
       assert.equal(needed(yield* w.http("PATCH", "/fixture/t1", ana, { id: "t1", title: "z" })), "fixture:write")

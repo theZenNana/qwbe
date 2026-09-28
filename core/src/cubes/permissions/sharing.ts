@@ -4,7 +4,7 @@ import { EntityGrantSchema, PermissionInvalid, PermissionNotFound, TotalActions 
 import type { Foundation } from "./foundation.ts"
 import { groupById } from "./groups.ts"
 import type { PermissionState, StoredGrant } from "./state.ts"
-import { tables } from "./state.ts"
+import { entityKeyOf, tables } from "./state.ts"
 
 export const sharingFrom = (
   state: PermissionState,
@@ -19,6 +19,7 @@ export const sharingFrom = (
       const createdAt = DateTime.formatIso(yield* DateTime.now)
       const row = yield* state.store.insert(tables.grants, "EntityGrant", "grant", {
         ...ref,
+        entityKey: entityKeyOf(ref),
         subject: { kind: "user", userId },
         actions,
         createdBy: actor.userId,
@@ -32,6 +33,7 @@ export const sharingFrom = (
         createdBy: actor.userId,
         createdAt,
       }
+      yield* state.recountShares(ref)
       yield* state.writeAudit(actor, ref, "grant.user", "success", null, { userId, actions })
       return value
     }),
@@ -51,6 +53,7 @@ export const sharingFrom = (
       const createdAt = DateTime.formatIso(yield* DateTime.now)
       const row = yield* state.store.insert(tables.grants, "EntityGrant", "grant", {
         ...ref,
+        entityKey: entityKeyOf(ref),
         subject: { kind: "group", groupId },
         actions,
         createdBy: actor.userId,
@@ -64,6 +67,7 @@ export const sharingFrom = (
         createdBy: actor.userId,
         createdAt,
       }
+      yield* state.recountShares(ref)
       yield* state.writeAudit(actor, ref, "grant.group", "success", null, { groupId, actions })
       return value
     }),
@@ -77,6 +81,7 @@ export const sharingFrom = (
       }
       yield* foundation.requireShare(actor, grant)
       yield* state.store.update(tables.grants, grantId, { deleted: true })
+      yield* state.recountShares(grant)
       yield* state.writeAudit(actor, grant, "grant.revoke", "success", grant, null)
     }),
   listGrants: (actor, ref) =>

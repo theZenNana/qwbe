@@ -14,8 +14,9 @@ import {
   PermissionNotFound,
   TotalActions,
 } from "qwbe-core/permissions"
-import type { HiddenPreference, PermissionState, StoredGrant } from "./state.ts"
-import { refWhere, tables } from "./state.ts"
+import type { ListWhere, PageRequest } from "../../kernel/pagination.ts"
+import type { HiddenPreference, PermissionState, StoredGrant, StoredOwnership } from "./state.ts"
+import { entityKeyOf, refWhere, tables } from "./state.ts"
 
 type Actor = Pick<PermissionActor, "userId" | "roles">
 
@@ -27,18 +28,7 @@ type EntityFacts = Readonly<{
   hidden: boolean
 }>
 
-/** What the visibility rule reads about a whole cube, keyed by `entityKey`. */
-type CubeFacts = Readonly<{
-  owners: ReadonlyArray<Ownership>
-  grants: ReadonlyMap<string, ReadonlyArray<StoredGrant>>
-  hidden: ReadonlySet<string>
-  groupIds: ReadonlySet<string>
-  admin: boolean
-}>
-
 const hiddenWhere = (userId: string, ref: EntityRef) => [{ field: "userId", value: userId }, ...refWhere(ref)]
-
-const entityKey = (ref: Pick<EntityRef, "entityType" | "entityId">) => JSON.stringify([ref.entityType, ref.entityId])
 
 const refOf = (owner: Ownership): EntityRef => ({
   cube: owner.cube,
@@ -62,7 +52,7 @@ const accessOf = (
 }
 
 /** The visibility rules over preloaded data: `undefined` when the actor may not see the entity. */
-const decide = (actor: Actor, owner: Ownership, facts: EntityFacts): EntityVisibility | undefined => {
+export const decide = (actor: Actor, owner: Ownership, facts: EntityFacts): EntityVisibility | undefined => {
   const access = accessOf(actor, owner, grantAccess(actor.userId, facts.groupIds, facts.grants), facts.admin)
   if (!access) return undefined
   return {
@@ -79,7 +69,7 @@ const decide = (actor: Actor, owner: Ownership, facts: EntityFacts): EntityVisib
 const byEntity = (grants: ReadonlyArray<StoredGrant>) => {
   const grouped = new Map<string, Array<StoredGrant>>()
   for (const grant of grants) {
-    const key = entityKey(grant)
+    const key = entityKeyOf(grant)
     const list = grouped.get(key)
     if (list) list.push(grant)
     else grouped.set(key, [grant])
@@ -87,18 +77,39 @@ const byEntity = (grants: ReadonlyArray<StoredGrant>) => {
   return grouped
 }
 
-/** `decide` per owned entity of the cube, in memory, keeping the rows `view` shows. */
-const visibleRows = (actor: Actor, cube: CubeFacts, view: VisibilityView) =>
-  cube.owners.flatMap((owner) => {
-    const key = entityKey(owner)
-    const row = decide(actor, owner, {
-      grants: cube.grants.get(key) ?? [],
-      groupIds: cube.groupIds,
-      admin: cube.admin,
-      hidden: cube.hidden.has(key),
-    })
-    return row !== undefined && matchesVisibilityView(row, actor.userId, view) ? [row] : []
-  })
+/** Whether a grant names the actor or one of its groups: the subjects `grantAccess` counts. */
+const namesActor = (actor: Actor, groupIds: ReadonlySet<string>, grant: StoredGrant) =>
+  grant.subject.kind === "user" ? grant.subject.userId === actor.userId : groupIds.has(grant.subject.groupId)
+
+/**
+ * The ownership rows `decide` + `matchesVisibilityView` keep, as a store predicate. `accessOf`
+ * gives access to an admin (superadmin or cube admin) for every row, else to the owner or a
+ * grantee: a creator counts only with admin, which already sees all. The stored `sharedWithCount`
+ * is recounted on every grant change, so it equals the live grant count `decide` reports.
+ */
+const visibleWhere = (
+  actor: Actor,
+  cube: string,
+  view: VisibilityView,
+  access: Readonly<{ admin: boolean; granted: ReadonlyArray<string>; hidden: ReadonlyArray<string> }>,
+): ListWhere => {
+  const me = { field: "ownerId", value: actor.userId }
+  const unshared = { field: "sharedWithCount", value: "0" }
+  const hidden = [{ field: "entityKey", values: access.hidden }]
+  const equals = [{ field: "cube", value: cube }]
+  if (view === "owned-by-me" || view === "only-mine" || view === "shared-by-me") equals.push(me)
+  if (view === "only-mine") equals.push(unshared)
+  if (view === "created-by-me") equals.push({ field: "createdBy", value: actor.userId })
+  const excluded: Array<ListWhere> = view === "hidden-by-me" ? [] : [{ in: hidden }]
+  if (view === "shared-by-me") excluded.push({ equals: [unshared] })
+  if (view === "shared-with-me") excluded.push({ equals: [me] })
+  return {
+    equals,
+    ...(view === "hidden-by-me" ? { in: hidden } : {}),
+    ...(access.admin ? {} : { anyOf: [{ equals: [me] }, { in: [{ field: "entityKey", values: access.granted }] }] }),
+    ...(excluded.length > 0 ? { not: { anyOf: excluded } } : {}),
+  }
+}
 
 const loadEntityFacts = (
   state: Pick<PermissionState, "store" | "grantsFor" | "groupIdsFor" | "cubeAdmin">,
@@ -113,25 +124,67 @@ const loadEntityFacts = (
     return { grants, groupIds, admin, hidden }
   })
 
-/** One read per table for the whole cube: ownership, grants, hidden, memberships, cube admin. */
-const loadCubeFacts = (
-  state: Pick<PermissionState, "store" | "groupIdsFor" | "cubeAdmin">,
+/**
+ * One page of `view`: the store filters, sorts, counts and pages the ownership rows, then `decide`
+ * runs on the page's rows only, with their grants read by `in` on the page's keys.
+ */
+const listPage = (
+  state: PermissionState,
   actor: PermissionActor,
   cube: string,
+  view: VisibilityView,
+  page: PageRequest,
 ) =>
   Effect.gen(function* () {
     const byCube = { field: "cube", value: cube }
-    const owners = yield* state.store.where<Ownership>(tables.ownership, byCube)
-    const grants = byEntity(yield* state.store.where<StoredGrant>(tables.grants, byCube))
+    const groupIds = yield* state.groupIdsFor(actor.userId)
+    const admin = yield* state.cubeAdmin(actor, cube)
+    // ponytail: reads every grant of the cube to find the actor's; a `subjectKey` on grants
+    // (as capabilities have) lets the store pick them when a cube's grants outgrow memory.
+    const granted = admin
+      ? []
+      : (yield* state.store.where<StoredGrant>(tables.grants, byCube))
+          .filter((grant) => namesActor(actor, groupIds, grant))
+          .map(entityKeyOf)
     const hidden = new Set(
       (yield* state.store.where<HiddenPreference>(tables.hidden, [
         { field: "userId", value: actor.userId },
         byCube,
-      ])).map(entityKey),
+      ])).map(entityKeyOf),
     )
-    const groupIds = yield* state.groupIdsFor(actor.userId)
-    const admin = yield* state.cubeAdmin(actor, cube)
-    return { owners, grants, hidden, groupIds, admin }
+    const found = yield* state.store.page<StoredOwnership>(
+      tables.ownership,
+      page,
+      visibleWhere(actor, cube, view, { admin, granted: [...new Set(granted)], hidden: [...hidden] }),
+    )
+    const keys = found.rows.map(entityKeyOf)
+    const grants = byEntity(
+      keys.length === 0
+        ? []
+        : yield* state.store.where<StoredGrant>(tables.grants, { in: [{ field: "entityKey", values: keys }] }),
+    )
+    // The predicate expresses the rule; a row the rule still refuses is dropped, never shown.
+    const rows = found.rows.flatMap((owner) => {
+      const key = entityKeyOf(owner)
+      const row = decide(actor, owner, {
+        grants: grants.get(key) ?? [],
+        groupIds,
+        admin,
+        hidden: hidden.has(key),
+      })
+      return row !== undefined && matchesVisibilityView(row, actor.userId, view) ? [row] : []
+    })
+    yield* state
+      .writeAudit(actor, { cube, entityType: "*", entityId: "*" }, "visibility.list", "allowed", null, {
+        view,
+        sortBy: found.sortedBy,
+        descending: page.descending ?? false,
+        offset: found.offset,
+        limit: found.limit,
+        total: found.total,
+      })
+      .pipe(Effect.orDie) // plain strings and numbers: the JSON check cannot refuse them
+    return { ...found, rows }
   })
 
 /** Inserts or soft-deletes the actor's hidden preference so it matches `hidden`. */
@@ -151,8 +204,7 @@ export const visibilityFrom = (state: PermissionState): Pick<PermissionService, 
   const visibilityFor = (actor: PermissionActor, owner: Ownership) =>
     Effect.map(loadEntityFacts(state, actor, refOf(owner)), (facts) => decide(actor, owner, facts))
   return {
-    listVisible: (actor, cube, view) =>
-      Effect.map(loadCubeFacts(state, actor, cube), (facts) => visibleRows(actor, facts, view)),
+    listVisible: (actor, cube, view, page) => listPage(state, actor, cube, view, page),
     setHidden: (actor, ref, hidden) =>
       Effect.gen(function* () {
         const owner = yield* state.ownership(ref)

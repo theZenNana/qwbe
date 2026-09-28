@@ -59,6 +59,7 @@ export const noPermissionService: PermissionService = {
   listCapabilityGrants: unavailable,
   // No provider, no grants: the auth middleware unions this with the role permissions.
   capabilitiesFor: () => Effect.succeed([]),
-  listVisible: () => Effect.succeed([]),
+  listVisible: (_actor, _cube, _view, page) =>
+    Effect.succeed({ rows: [], total: 0, offset: page.offset, limit: page.limit, sortedBy: "createdAt" }),
   setHidden: unavailable,
 }

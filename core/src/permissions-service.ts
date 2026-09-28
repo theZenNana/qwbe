@@ -1,4 +1,6 @@
 import type { Effect } from "effect"
+import type { PageResponse } from "./http-contracts.ts"
+import type { PageRequest } from "./kernel/pagination.ts"
 import type { PermissionServiceError } from "./permissions-errors.ts"
 import type {
   AccessDecision,
@@ -110,17 +112,21 @@ export type PermissionService = Readonly<{
     capability: string,
   ) => Effect.Effect<CapabilityGrant, PermissionServiceError>
   revokeCapabilityGrant: (actor: PermissionActor, grantId: string) => Effect.Effect<void, PermissionServiceError>
+  /** One page of the cube's live grants, paged and counted by the store. */
   listCapabilityGrants: (
     actor: PermissionActor,
     cube: string,
-  ) => Effect.Effect<ReadonlyArray<CapabilityGrant>, PermissionServiceError>
+    page: PageRequest,
+  ) => Effect.Effect<PageResponse<CapabilityGrant>, PermissionServiceError>
   /** Active capability names of one user (own grants plus group grants). Pure lookup, no actor. */
   capabilitiesFor: (userId: string) => Effect.Effect<ReadonlyArray<string>>
+  /** One page of the cube's entities `view` shows the actor, filtered, sorted and counted by the store. */
   listVisible: (
     actor: PermissionActor,
     cube: string,
     view: VisibilityView,
-  ) => Effect.Effect<ReadonlyArray<EntityVisibility>>
+    page: PageRequest,
+  ) => Effect.Effect<PageResponse<EntityVisibility>>
   setHidden: (
     actor: PermissionActor,
     ref: EntityRef,

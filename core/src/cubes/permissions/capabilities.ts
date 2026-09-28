@@ -127,34 +127,39 @@ export const capabilitiesFrom = (
         yield* Effect.forEach(twins, (row) => state.store.update(tables.capabilities, row.id, { deleted: true }))
         yield* state.writeAudit(actor, ref(grant.cube), "capability.revoke", "success", publish(grant), null)
       }),
-    listCapabilityGrants: (actor, cube) =>
+    // No audit row: the other permission-admin lists (groups, members, grants, cube admins,
+    // audit) do not write one either; `entity.list` is for entity data reads.
+    listCapabilityGrants: (actor, cube, page) =>
       Effect.gen(function* () {
         yield* requireManager(actor, cube)
-        const own = live(yield* state.every<StoredCapabilityGrant>(tables.capabilities, "cube", cube))
-        return yield* Effect.forEach(own, (row) =>
+        const found = yield* state.store.page<StoredCapabilityGrant>(tables.capabilities, page, {
+          field: "cube",
+          value: cube,
+        })
+        const rows = yield* Effect.forEach(found.rows, (row) =>
           Schema.decodeUnknown(CapabilityGrantSchema)(row).pipe(
             Effect.mapError(
               () => new PermissionInvalid({ message: "stored capability grant violates its runtime schema" }),
             ),
           ),
         )
+        return { ...found, rows }
       }),
     capabilitiesFor: (userId) =>
       Effect.gen(function* () {
         const groups = yield* state.groupIdsFor(userId)
-        // ponytail: one filtered read per group of the user; an `IN` filter needs a store primitive.
         const keys = [
           subjectKeyOf({ kind: "user", userId }),
           ...[...groups].map((groupId) => subjectKeyOf({ kind: "group", groupId })),
         ]
-        const names = new Set<string>()
-        for (const key of keys) {
-          for (const row of yield* bySubject(key)) {
-            // A grant whose cube left the system names nothing any route requires; keep it out
-            // of what /auth/me reports.
-            if (declared().has(row.capability)) names.add(row.capability)
-          }
-        }
+        const rows = live(
+          yield* state.store.where<StoredCapabilityGrant>(tables.capabilities, {
+            in: [{ field: "subjectKey", values: keys }],
+          }),
+        )
+        // A grant whose cube left the system names nothing any route requires; keep it out
+        // of what /auth/me reports.
+        const names = new Set(rows.map((row) => row.capability).filter((name) => declared().has(name)))
         return [...names].sort()
       }),
   }
