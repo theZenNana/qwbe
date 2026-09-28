@@ -48,10 +48,32 @@ apiBench:
       vary: subjectKey
       rows: 1000
     - { table: permissions.permission_audit, prefix: audit }
-  # p99 budgets in ms, set 2026-09-28 before the store fixes: loose on purpose, to be tightened after them.
+  # p99 budgets in ms, set 2026-09-28 from the clean run of all 73 routes after the store fixes
+  # (test-results/api-bench.json at 18:44Z): twice the measured p99, rounded up. They catch regressions,
+  # not noise. The default covers 55 routes; an override exists only where twice the p99 breaks it.
   budgets:
-    default: { c1: 10000, c20: 10000 }
-    routes: {}
+    default: { c1: 50, c20: 200 }
+    routes:
+      # Still time out: waiting on the owner's decision about batch authorization (Qwbe#73).
+      "GET /notes": { c1: 10000, c20: 10000 }
+      "GET /views": { c1: 10000, c20: 10000 }
+      "GET /permissions/entities/{cube}": { c1: 10000, c20: 10000 }
+      "GET /contracts": { c1: 10000, c20: 10000 }
+      "GET /organizations": { c1: 10000, c20: 10000 }
+      # c20 p99 4117.9 ms: its cost grows with the audit table, every authorize writes a row.
+      "GET /permissions/audit": { c1: 500, c20: 10000 }
+      "POST /customfields": { c1: 150, c20: 2500 }
+      "GET /staging/sets": { c1: 100, c20: 1500 }
+      "POST /account": { c1: 150, c20: 1500 }
+      "PATCH /customfields/{id}": { c1: 100, c20: 1500 }
+      "DELETE /customfields/{id}": { c1: 100, c20: 1000 }
+      "GET /echo/feed": { c1: 100, c20: 700 }
+      "GET /settings/cubes": { c1: 50, c20: 500 }
+      "POST /auth/login": { c1: 100, c20: 400 }
+      "POST /settings/cubes/{name}": { c1: 50, c20: 400 }
+      "POST /permissions/entities/{cube}/{entityType}/{entityId}/visibility": { c1: 50, c20: 300 }
+      "PATCH /echo/comments/{id}": { c1: 50, c20: 300 }
+      "PATCH /contacts/{id}": { c1: 100, c20: 200 }
   exclude:
     "POST /auth/logout": ends the caller's session; every later request of that user answers 401
     "DELETE /permissions/cube-admins/{cube}/{username}": revokes by username; the bench has one reader, a repeat answers 404
