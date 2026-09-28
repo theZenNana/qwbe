@@ -61,3 +61,34 @@ fixed and measured again.
 - Expression indexes on the JSON fields that lookups filter on, declared where the table is
   declared (the kernel creates them with the table).
 - Re-run `npm run bench:api` and compare; tighten the budgets in `qwbe.yaml` to the new numbers.
+
+## Full run, all 82 routes (2026-09-28 ~20:40, before any fix)
+
+`npm run bench:api` after the timeout fix, 10,000 seeded rows per list cube, profiler off. Report
+kept as the baseline for the comparison after the fixes.
+
+- **Five lists never answer within 10 s**, at concurrency 1 as at 20: `GET /notes`, `GET /views`,
+  `GET /permissions/entities/{cube}` (cube `notes`), and the crm-pack lists `GET /contracts`,
+  `GET /organizations`. All five check permissions one row at a time over every row of the
+  table: `visibleNotesPage` (`core/src/cubes/notes/permissions.ts:27`) and the mediated entity
+  list (`core/src/entity-enforcement.ts:142`) call `permissions.authorize` per row, and
+  `authorize` reads the permission tables whole (`core/src/cubes/permissions/state.ts:52-63`):
+  10,000 rows times full scans of 10,000-row tables.
+- **Creates cost about 300 ms alone and 5 s under load**: `POST /notes`, `/views`, `/contacts`,
+  `/contracts`, `/organizations` (283-343 ms at c1, 3.9-5.3 s at c20), and
+  `POST /permissions/entities/.../owner` 311 ms / 3.1 s. Guess: claiming ownership reads the
+  ownership table whole; to confirm after the permissions lookups move.
+- **Everything else** that writes sits at 30-100 ms at c1 and 0.5-1.6 s at c20; single-row reads
+  at 3-10 ms and 20-30 ms.
+- Not performance: `DELETE /permissions/capabilities/{grantId}` and
+  `POST /staging/sets/{id}/finish` answer 404 after the first request, because the fixture reuses
+  one id for a one-shot action (a benchmark fixture to fix, not a server bug); `GET /organizations`
+  answered 500 twice among its timeouts (not investigated yet).
+
+### What the lookups fix will and will not do
+
+Moving `authorize`'s reads to indexed `first`/`where` makes each check a few index lookups
+instead of full scans. The lists still make one check per row: 10,000 rows means tens of
+thousands of queries per request. The fix that removes that is one check for a whole page of
+rows (`authorize` over many refs, a few `= ANY(ids)` queries per page). It adds an operation to
+the permission service contract, so it waits for the owner.
