@@ -144,5 +144,6 @@ responsibilities.
 | `core/src/entity-enforcement.ts` (diff) | lucian 57.2 |
 | `core/src/cubes/permissions/audit.ts` (diff) | lucian 66.1 |
 | `core/src/cubes/permissions/index.ts` (diff: manifest `indexed` and `sortable` entries) | lucian 54.1 |
-| `core/src/cubes/notes/index.ts` (diff) | lucian 48.1 |
+| `core/src/cubes/notes/index.ts` (diff) | lucian 48.1, 44.3 after the single-check change (run 2127ee91) |
 | `core/src/pg/rows.ts` (diff) | lucian 67.8 |
+| `core/src/cubes/customfields/context.ts` (diff, snapshot refresh per cube, run 0cdb98a4) | lucian 68.1 |
