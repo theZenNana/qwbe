@@ -36,7 +36,7 @@ import { type CubeTools, defineCube } from "qwbe-core/cube"
 import { BadRequest, Forbidden, NotFound } from "qwbe-core/errors"
 import { PageOf } from "qwbe-core/http"
 import { requireTool, storeRelational } from "../shared.ts"
-import { definitionsFor, type PackTools, refreshSnapshot, type Snapshot } from "./context.ts"
+import { definitionsFor, emptySnapshot, type PackTools, refreshSnapshot } from "./context.ts"
 import { definitionHandlers } from "./handlers.ts"
 import {
   byPosition,
@@ -143,7 +143,7 @@ export const cube = defineCube(group, {
     )
     const tools: PackTools = { store, bus, catalogue, customFields }
     const stored = storeRelational<DefRow>(store, DEFS, summary)
-    const snapshot: Snapshot = { current: [] }
+    const snapshot = emptySnapshot()
 
     // The kernel publishes these definitions as custom metadata of each target cube.
     tools.customFields.register((cube) =>
