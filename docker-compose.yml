@@ -10,17 +10,31 @@ services:
       POSTGRES_DB: qwbe
     ports:
       - "${QWBE_PG_PORT:-5433}:5432"
+    # Over TCP: the entrypoint's init-time server listens only on the socket, so this stays
+    # unhealthy until the real server is up and `db:up`'s `--wait` can hand it SQL.
+    healthcheck:
+      test: ["CMD", "pg_isready", "-h", "127.0.0.1", "-U", "postgres"]
+      interval: 1s
+      timeout: 3s
+      retries: 30
     volumes:
       - qwbe-pgdata:/var/lib/postgresql/data
 
   # Dev-only, opt-in local viewer (docker compose --profile trace up -d lgtm);
-  # in-memory storage, everything is gone when it stops.
+  # in-memory storage, everything is gone when it stops. The dashboard "qwbe performance" and the
+  # qwbe-pg datasource come from dev/grafana/, one file per mount next to the image's own.
   lgtm:
     image: grafana/otel-lgtm:0.34.0
     profiles: [trace]
+    environment:
+      QWBE_PG_PASSWORD: ${POSTGRES_PASSWORD:-qwbe}
     ports:
-      - "127.0.0.1:3000:3000"  # Grafana
+      - "127.0.0.1:${QWBE_GRAFANA_PORT:-3300}:3000"  # Grafana
       - "127.0.0.1:4318:4318"  # OTLP HTTP
+    volumes:
+      - ./dev/grafana/qwbe-datasource.yaml:/otel-lgtm/grafana/conf/provisioning/datasources/qwbe.yaml:ro
+      - ./dev/grafana/qwbe-dashboards.yaml:/otel-lgtm/grafana/conf/provisioning/dashboards/qwbe.yaml:ro
+      - ./dev/grafana/qwbe-performance.json:/otel-lgtm/qwbe-performance.json:ro
 
 volumes:
   qwbe-pgdata:

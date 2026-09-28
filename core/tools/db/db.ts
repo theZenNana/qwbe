@@ -9,7 +9,7 @@ import { adminUrl } from "../../src/pg/admin-url.ts"
 import { GateFailed, inheritOk } from "../shared/process.ts"
 import { runTool } from "../shared/run-tool.ts"
 import { clean } from "./db-clean.ts"
-import { COMPOSE_ARGV } from "./db-pure.ts"
+import { COMPOSE_STEPS } from "./db-pure.ts"
 
 const Subcommand = Schema.Literal("up", "down", "clean")
 
@@ -19,7 +19,7 @@ const usage = new GateFailed({ message: "usage: node core/tools/db/db.ts <up|dow
 const run = (subcommand: typeof Subcommand.Type): Effect.Effect<void, { readonly message: string }, CommandExecutor> =>
   subcommand === "clean"
     ? Effect.flatMap(Effect.orDie(adminUrl), clean)
-    : Effect.asVoid(inheritOk(COMPOSE_ARGV[subcommand], root))
+    : Effect.forEach(COMPOSE_STEPS[subcommand], (argv) => inheritOk(argv, root), { discard: true })
 
 runTool(
   Schema.decodeUnknown(Subcommand)(process.argv[2]).pipe(

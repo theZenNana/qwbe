@@ -1,9 +1,20 @@
 // Decisions of the db tool; db.ts does the I/O.
 
-export const COMPOSE_ARGV = {
-  up: ["docker", "compose", "up", "-d", "postgres"],
-  down: ["docker", "compose", "down"],
-} as const
+import type { Argv } from "../shared/process.ts"
+
+// Commands each subcommand runs, in order. `up` waits for the healthcheck, then creates
+// pg_stat_statements in the `postgres` database the Grafana datasource reads; the view is
+// server-wide once it exists there. psql runs inside the container over its socket.
+export const COMPOSE_STEPS: Record<"up" | "down", ReadonlyArray<Argv>> = {
+  up: [
+    ["docker", "compose", "up", "-d", "--wait", "postgres"],
+    [
+      ...["docker", "compose", "exec", "-T", "postgres", "psql", "-U", "postgres", "-d", "postgres"],
+      ...["-v", "ON_ERROR_STOP=1", "-c", "CREATE EXTENSION IF NOT EXISTS pg_stat_statements"],
+    ] as const,
+  ],
+  down: [["docker", "compose", "down"]],
+}
 
 // Databases that killed test runs leak; left in place they make every later run crawl. Explicit
 // prefixes only, so the demo stack's qwbe_crm_local can never match.

@@ -1,0 +1,15 @@
+# The compose Postgres as a Grafana datasource, for the "Database" row of qwbe performance.
+# The password is the compose default, passed in through the lgtm service's environment.
+apiVersion: 1
+datasources:
+  - name: qwbe Postgres
+    uid: qwbe-pg
+    type: grafana-postgresql-datasource
+    url: postgres:5432
+    user: postgres
+    jsonData:
+      database: postgres
+      sslmode: disable
+      postgresVersion: 1600
+    secureJsonData:
+      password: ${QWBE_PG_PASSWORD}

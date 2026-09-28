@@ -147,9 +147,17 @@ docker compose --profile trace up -d lgtm
 QWBE_TRACE_URL=http://localhost:4318 npm start
 ```
 
-Open <http://localhost:3000>, pick Explore -> Tempo for traces (service `qwbe`). Each response
-carries its trace id in the `x-trace-id` header. Postgres now loads `pg_stat_statements`, so
-recreate the container once with `docker compose up -d postgres` (its data volume survives).
+Open <http://localhost:3300> (admin/admin; `QWBE_GRAFANA_PORT` moves it) and the dashboard
+**qwbe performance**: latency by cube and route, the slowest requests with links to their traces,
+CPU and heap per request, process memory (heap after GC climbing means a leak), GC, event loop,
+CPU, and the 20 slowest SQL statements. The dashboard and its `qwbe-pg` Postgres datasource load
+from `dev/grafana/`. For one request, Explore -> Tempo (service `qwbe`); each response carries its
+trace id in the `x-trace-id` header.
+
+Postgres loads `pg_stat_statements`, so recreate the container once with
+`docker compose up -d postgres` (its data volume survives); `npm run db:up` creates the extension.
+Start the SQL numbers from zero with
+`docker compose exec -T postgres psql -U postgres -c "SELECT pg_stat_statements_reset();"`.
 Stop with `docker compose --profile trace stop lgtm`.
 
 ## Committing to this repo
