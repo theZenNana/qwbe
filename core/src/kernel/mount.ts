@@ -134,7 +134,8 @@ export const checkCubes = (
  * Route prefixes are read from each cube's REAL contract, not a hand-written table: if a cube
  * changes its routes, switching off follows by itself.
  */
-export const rejectDisabled = (cubes: ReadonlyArray<MountedCube>, isEnabled: (name: string) => boolean) => {
+/** Which cube serves a request URL, by its first path segment; undefined when none does. */
+export const cubeOwner = (cubes: ReadonlyArray<MountedCube>) => {
   // `checkRouteOwnership` has already guaranteed that a route's first segment belongs to
   // exactly one cube, so the mapping is exact. The value is the cube's FULL name
   // (`booktags/bookmarks`), so the parent mask applies: a disabled parent hides every route
@@ -146,12 +147,19 @@ export const rejectDisabled = (cubes: ReadonlyArray<MountedCube>, isEnabled: (na
       return prefix ? [[prefix, c.name] as const] : []
     }),
   )
+  return (url: string): string | undefined => {
+    const first = (url.split("?")[0] ?? "").split("/").filter(Boolean)[0]
+    return first ? owner.get(first) : undefined
+  }
+}
+
+export const rejectDisabled = (cubes: ReadonlyArray<MountedCube>, isEnabled: (name: string) => boolean) => {
+  const ownerOf = cubeOwner(cubes)
 
   return HttpMiddleware.make((app) =>
     Effect.gen(function* () {
       const req = yield* HttpServerRequest.HttpServerRequest
-      const first = (req.url.split("?")[0] ?? "").split("/").filter(Boolean)[0]
-      const cube = first ? owner.get(first) : undefined
+      const cube = ownerOf(req.url)
       if (cube && !isEnabled(cube)) {
         // Byte-for-byte what an unmatched route returns: 404 with an empty body. Anything else
         // -- even a generic JSON message -- distinguishes "switched off" from "never existed",

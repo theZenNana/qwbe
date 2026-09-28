@@ -27,14 +27,14 @@ import { captureEntity } from "./entity-enforcement.ts"
 import { Authorization } from "./kernel/auth-contract.ts"
 import { loadDefinitions, type MountedCube, mount, refusal, switchesFor } from "./kernel/discovery.ts"
 import { readLedger, verifyLedgerUnchanged, writeLedger } from "./kernel/ledger.ts"
-import { buildApi, buildHandlers, checkCubes, rejectDisabled } from "./kernel/mount.ts"
+import { buildApi, buildHandlers, checkCubes, cubeOwner, rejectDisabled } from "./kernel/mount.ts"
 import { logRefusals } from "./kernel/refusal-log.ts"
 import type { Registry, RegistryEntry } from "./kernel/registry.ts"
 import { loadSpaces } from "./kernel/space.ts"
 import { rowStateFor } from "./kernel/store.ts"
 import { checkSchemaDrift } from "./metadata/schema-drift.ts"
 import { corsOriginMatcher, originsForStartup } from "./origins.ts"
-import { resourcesMiddleware } from "./profiling.ts"
+import { requestsMiddleware, resourcesMiddleware } from "./profiling.ts"
 import { registryFrom } from "./registry-runtime.ts"
 import { exportsSpans, TracingLive, traceIdHeader } from "./tracing.ts"
 
@@ -50,6 +50,7 @@ const servePipeline =
       // request in the browser maps to its trace in Grafana (Explore -> Tempo). Off means no header.
       (a) => (exportsSpans(profile) ? traceIdHeader(a) : a),
       (a) => (profile.has("resources") ? resourcesMiddleware(a) : a),
+      (a) => (profile.has("requests") ? requestsMiddleware(cubeOwner(system.cubes))(a) : a),
       rejectDisabled(system.cubes, system.isEnabled),
       // logRefusals sits outside the disabled-cube filter so it sees every final status.
       logRefusals,
