@@ -234,17 +234,24 @@ const canonical = (value: unknown): string =>
  * a second run finds nothing to write. Rows are walked by id in chunks, and only rows carrying
  * a sortable field or a `_sort` are read (the GIN index answers `?|`). A row changed between
  * the read and the write keeps its body: the UPDATE matches the hash of the body it keyed.
- * Keys are derived data: no version bump, no outbox, no activity.
+ * Keys are derived data: no version bump, no outbox, no activity. With `ids`, only those rows
+ * are looked at (a batch re-keys what it wrote, not the table).
  */
-export const rekey = (sql: SqlClient.SqlClient, t: Statement.Fragment, fields: ReadonlyArray<string>) =>
+export const rekey = (
+  sql: SqlClient.SqlClient,
+  t: Statement.Fragment,
+  fields: ReadonlyArray<string>,
+  ids?: ReadonlyArray<string>,
+) =>
   Effect.gen(function* () {
-    if (fields.length === 0) return
+    if (fields.length === 0 || ids?.length === 0) return
     const probe = [...fields, SORT_KEYS]
+    const only = ids === undefined ? sql`` : sql`AND id = ANY(${ids}::text[])`
     let after = ""
     for (;;) {
       const rows = yield* sql<{ id: string; body: Record<string, unknown>; h: string }>`
         SELECT id, body, md5((body - '_sort')::text) AS h FROM ${t}
-        WHERE body ?| ${probe}::text[] AND id COLLATE "C" > ${after} ORDER BY id COLLATE "C" LIMIT ${REKEY_CHUNK}`
+        WHERE body ?| ${probe}::text[] ${only} AND id COLLATE "C" > ${after} ORDER BY id COLLATE "C" LIMIT ${REKEY_CHUNK}`
       const stale = rows.flatMap((r) => {
         const k = sortKeysFor(r.body, fields) ?? null
         return canonical(k) === canonical(r.body[SORT_KEYS]) ? [] : [{ id: r.id, h: r.h, k }]

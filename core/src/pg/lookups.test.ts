@@ -6,9 +6,11 @@ import { Effect } from "effect"
 import { CurrentUser } from "qwbe-core/auth"
 import { describe, it } from "vitest"
 import { cube as notes } from "../cubes/notes/index.ts"
+import { applyChunk, type SetRow } from "../cubes/staging/import-chunks.ts"
 import { cube as views } from "../cubes/views/index.ts"
 import type { Where } from "../kernel/store-contract.ts"
 import { matchesWhere } from "../test-cube-tools.ts"
+import { rekeyTargets } from "./batch.ts"
 import { compileOnly, decode, newId, orderClause, whereClause } from "./rows.ts"
 import { lookupIndexSql } from "./setup.ts"
 
@@ -251,5 +253,35 @@ describe("newId", () => {
   it("does not repeat in 100,000 ids", () => {
     const ids = new Set(Array.from({ length: 100_000 }, () => newId("x")))
     assert.equal(ids.size, 100_000)
+  })
+})
+
+// A batch re-keys only the rows its statements name (Qwbe#73): profile and delete name none.
+describe("rekeyTargets", () => {
+  it("is empty for a batch that names no written rows", () => {
+    assert.equal(
+      rekeyTargets([
+        { text: `SELECT count(*) FROM "rows" WHERE body->>'setId' = $1`, values: ["s1"] },
+        { text: `DELETE FROM "sets" WHERE id = $1`, values: ["s1"] },
+      ]).size,
+      0,
+    )
+  })
+
+  it("names the staging set a chunk updated, and nothing in the rows table", () => {
+    const set: SetRow = {
+      id: "s1",
+      name: "s",
+      format: "jsonl",
+      sourceFile: "s.jsonl",
+      state: "importing",
+      rowCount: 0,
+      malformedCount: 0,
+      malformedSample: [],
+      sensitiveFields: [],
+      createdAt: "2026-01-01T00:00:00Z",
+    }
+    const { statements } = applyChunk(set, '{"a":1}\n{"a":2}', 1, "2026-01-01T00:00:00Z")
+    assert.deepEqual([...rekeyTargets([...statements, ...statements])], [["sets", ["s1"]]])
   })
 })

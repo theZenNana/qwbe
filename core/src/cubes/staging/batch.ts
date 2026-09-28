@@ -24,6 +24,8 @@ import { requireTool } from "../shared.ts"
 export type SqlStatement = {
   readonly text: string
   readonly values?: ReadonlyArray<unknown>
+  /** The rows this statement wrote whose sortable fields may have changed; the store re-keys them. */
+  readonly rekey?: { readonly table: string; readonly ids: ReadonlyArray<string> }
 }
 
 export type BatchStore = {

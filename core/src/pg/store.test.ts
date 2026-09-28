@@ -350,12 +350,43 @@ layer(testStore("store"), { timeout: 60_000, excludeTestServices: true })("CubeS
       const batch = sorted.batch
       assert.ok(batch)
       yield* batch([
-        { text: `UPDATE "batched" SET body = jsonb_set(body, '{rank}', '3') WHERE id = $1`, values: [low.id] },
+        {
+          text: `UPDATE "batched" SET body = jsonb_set(body, '{rank}', '3') WHERE id = $1`,
+          values: [low.id],
+          rekey: { table: "batched", ids: [String(low.id)] },
+        },
       ])
       const page = yield* sorted.page<{ id: string }>("batched", { offset: 0, limit: 10, sortBy: "rank" })
       assert.deepEqual(
         page.rows.map((r) => r.id),
         [high.id, low.id],
+      )
+    }),
+  )
+
+  it.effect("rekeys only the rows a batch names, and nothing for a batch that names none", () =>
+    Effect.gen(function* () {
+      const named = yield* sorted.insert("batched", "thing", "thg", { rank: 1 })
+      const other = yield* sorted.insert("batched", "thing", "thg", { rank: 1 })
+      const key = (id: unknown) =>
+        Effect.map(
+          withSql(
+            (sql) => sql<{ s: unknown }>`SELECT body -> '_sort' AS s FROM "pgsort"."batched" WHERE id = ${String(id)}`,
+          ),
+          ([r]) => r?.s,
+        )
+      const batch = sorted.batch
+      assert.ok(batch)
+      const bump = `UPDATE "batched" SET body = jsonb_set(body, '{rank}', '7') WHERE id = ANY($1::text[])`
+      const ids = [String(named.id), String(other.id)]
+      yield* batch([{ text: bump, values: [ids] }])
+      assert.deepEqual(yield* key(named.id), { v: SORT_KEY_VERSION, k: { rank: sortKey(1) } }, "nothing named")
+      yield* batch([{ text: bump, values: [ids], rekey: { table: "batched", ids: [String(named.id)] } }])
+      assert.deepEqual(yield* key(named.id), { v: SORT_KEY_VERSION, k: { rank: sortKey(7) } })
+      assert.deepEqual(
+        yield* key(other.id),
+        { v: SORT_KEY_VERSION, k: { rank: sortKey(1) } },
+        "not named, not re-keyed",
       )
     }),
   )
