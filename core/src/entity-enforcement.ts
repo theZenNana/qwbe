@@ -12,8 +12,8 @@ import {
 import { CurrentUser } from "./kernel/auth-contract.ts"
 import { Forbidden } from "./kernel/errors.ts"
 import { listPageRequest } from "./kernel/list.ts"
-import { MAX_LIMIT } from "./kernel/pagination.ts"
 import type { AccessDecision, EntityRef, PermissionActor } from "./permissions-contracts.ts"
+import type { ListScope, ListSource } from "./permissions-service.ts"
 
 export { EntityPermissionContractError }
 
@@ -23,6 +23,18 @@ type Gate = Readonly<{
     ref: EntityRef,
     action: "read" | "edit" | "delete",
   ) => Effect.Effect<AccessDecision, unknown>
+  authorizeList: (
+    actor: PermissionActor,
+    scope: ListScope,
+    action: "read",
+  ) => Effect.Effect<"all" | ReadonlySet<string>, unknown>
+  auditList: (
+    actor: PermissionActor,
+    scope: ListScope,
+    action: "read",
+    source: ListSource,
+    returnedIds: ReadonlyArray<string>,
+  ) => Effect.Effect<void, unknown>
   claim: (actor: PermissionActor, ref: EntityRef) => Effect.Effect<unknown, unknown>
   ownership: (ref: EntityRef) => Effect.Effect<unknown>
 }>
@@ -106,57 +118,62 @@ export const enforceEntityHandlers = <Handlers extends Readonly<Record<string, u
       if (!["rows", "total", "offset", "limit", "sortedBy"].every((field) => pageFields.has(field))) {
         throw new EntityPermissionContractError(cube, endpoint.name)
       }
+      // One `authorizeList`, one handler call for exactly the asked page, one `entity.list` audit
+      // row (Qwbe#73). The handler filters by the injected `ids` in SQL; the wrapper checks it did.
       protectedHandlers[endpoint.name] = (request: unknown) =>
         Effect.gen(function* () {
           const user = yield* CurrentUser
           if (!isRecord(request) || !isRecord(request.urlParams))
             return yield* Effect.die("entity list needs paging params")
-          // The SAME reading of the query the generic list handler does, so `page` and
-          // `pageSize` mean here what they mean everywhere else. Read once, at the top: the
-          // inner calls below are driven with an offset of this wrapper's own choosing.
-          const asked = listPageRequest(request.urlParams)
-          const requestedOffset = asked.offset
-          const requestedLimit = asked.limit
-          const visible: Array<unknown> = []
-          let sourceOffset = 0
-          let template: Record<string, unknown> | undefined
-          while (true) {
-            const result = yield* runHandler(handler, {
-              ...request,
-              // `page` and `pageSize` are dropped, not overridden: leaving them in would make the
-              // inner handler recompute an offset from the page number and walk this loop in
-              // circles. `ids` and the field filters stay -- they are part of WHAT to read, and
-              // narrowing them in SQL is exactly what makes this loop affordable.
-              urlParams: {
-                ...request.urlParams,
-                page: undefined,
-                pageSize: undefined,
-                offset: sourceOffset,
-                limit: MAX_LIMIT,
-              },
-            })
-            if (!isRecord(result) || !Array.isArray(result.rows) || typeof result.total !== "number") {
-              return yield* Effect.die("entity list violated its PageOf contract")
+          const actor = actorFrom(user)
+          const scope = { cube, entityType }
+          const visible = yield* permissions.authorizeList(actor, scope, "read").pipe(Effect.orDie)
+          let urlParams = request.urlParams
+          if (visible !== "all") {
+            // The SAME reading of the query the generic list handler does, taken BEFORE `ids` is
+            // injected: an `ids` batch without a size sets the page size, and the injected set
+            // must not. The caller's own `ids` narrow the set; every other filter stays.
+            const asked = listPageRequest(request.urlParams)
+            const wanted = typeof urlParams.ids === "string" ? urlParams.ids.split(",").map((s) => s.trim()) : undefined
+            const ids = wanted ? wanted.filter((id) => visible.has(id)) : [...visible]
+            // Empty `ids` means "no filter" to the store, so an actor who sees nothing never reaches it.
+            if (ids.length === 0) {
+              yield* permissions.auditList(actor, scope, "read", "scoped", []).pipe(Effect.orDie)
+              return {
+                rows: [],
+                total: 0,
+                offset: asked.offset,
+                limit: asked.limit,
+                sortedBy: asked.sortBy ?? "createdAt",
+              }
             }
-            template = result
-            const allowed = yield* Effect.filter(result.rows as ReadonlyArray<unknown>, (row) => {
-              if (!isRecord(row) || typeof row.id !== "string") return Effect.succeed(false)
-              return Effect.map(
-                permissions.authorize(actorFrom(user), { cube, entityType, entityId: row.id }, "read"),
-                (decision) => decision.allowed,
+            // `page` and `pageSize` are dropped, not overridden: the explicit offset/limit win.
+            urlParams = {
+              ...urlParams,
+              ids: ids.join(","),
+              page: undefined,
+              pageSize: undefined,
+              offset: asked.offset,
+              limit: asked.limit,
+            }
+          }
+          const result = yield* runHandler(handler, { ...request, urlParams })
+          if (!isRecord(result) || !Array.isArray(result.rows) || typeof result.total !== "number") {
+            return yield* Effect.die("entity list violated its PageOf contract")
+          }
+          const returned: Array<string> = []
+          for (const row of result.rows as ReadonlyArray<unknown>) {
+            if (!isRecord(row) || typeof row.id !== "string" || (visible !== "all" && !visible.has(row.id))) {
+              return yield* Effect.die(
+                new Error([cube, endpoint.name, "returned a row outside the visible ids"].join(" ")),
               )
-            })
-            for (const row of allowed) visible.push(row)
-            sourceOffset += result.rows.length
-            if (result.rows.length === 0 || sourceOffset >= result.total) break
+            }
+            returned.push(row.id)
           }
-          return {
-            ...template,
-            rows: visible.slice(requestedOffset, requestedOffset + requestedLimit),
-            total: visible.length,
-            offset: requestedOffset,
-            limit: requestedLimit,
-          }
+          const source: ListSource =
+            visible !== "all" ? "scoped" : user.roles.includes("admin") ? "superadmin" : "cube-admin"
+          yield* permissions.auditList(actor, scope, "read", source, returned).pipe(Effect.orDie)
+          return result
         })
     }
   }

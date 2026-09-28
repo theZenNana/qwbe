@@ -9,6 +9,7 @@ import assert from "node:assert/strict"
 import { HttpApi, OpenApi } from "@effect/platform"
 import { describe, it } from "@effect/vitest"
 import { Effect } from "effect"
+import { CurrentUser } from "qwbe-core/auth"
 import type { BadRequest } from "qwbe-core/errors"
 import { deriveCubeMetadata } from "../../metadata/metadata.ts"
 import { cube } from "./index.ts"
@@ -111,6 +112,37 @@ describe("view config -- the trust boundary", () => {
       yield* rejects(encodeTargetCube(""), /targetCube/)
       yield* rejects(encodeTargetCube("crm/organizations extra"), /targetCube/)
       assert.equal(yield* encodeTargetCube("crm/organizations"), "crm/organizations")
+    }),
+  )
+})
+
+describe("views list -- one SQL page (Qwbe#73)", () => {
+  it.effect("hands targetCube, ids and paging to store.page and returns its page", () =>
+    Effect.gen(function* () {
+      const asked: Array<unknown> = []
+      const page = { rows: [], total: 7, offset: 2, limit: 2, sortedBy: "name" }
+      const store = {
+        page: (...args: Array<unknown>) =>
+          Effect.sync(() => {
+            asked.push(args)
+            return page
+          }),
+      }
+      const { handlers } = cube.create({ ...(tools as object), store } as never) as unknown as {
+        handlers: { list: (request: unknown) => Effect.Effect<unknown, unknown, CurrentUser> }
+      }
+      const user = { id: "u", username: "u", roles: ["reader"], permissions: ["views:read"], sessionId: "s" }
+      const result = yield* handlers
+        .list({ urlParams: { offset: 2, limit: 2, sortBy: "name", descending: true, targetCube: "crm", ids: "v1,v2" } })
+        .pipe(Effect.provideService(CurrentUser, user))
+      assert.deepEqual(result, page)
+      assert.deepEqual(asked, [
+        [
+          "views",
+          { offset: 2, limit: 2, sortBy: "name", descending: true },
+          { equals: [{ field: "targetCube", value: "crm" }], ids: ["v1", "v2"] },
+        ],
+      ])
     }),
   )
 })

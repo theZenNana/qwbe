@@ -9,12 +9,11 @@
 // and `npm run boundaries` (rule `no-cube-to-cube`) refuses imports of any other cube.
 //
 // Authorization is entirely the kernel's: `usesEntityPermissions` wraps every handler, so
-// create claims ownership, item routes authorize read/edit/delete, and the list route is
-// filtered row by row. This file contains no permission code and imports nothing from any
-// other cube (the same decoupling as notes: look for "crm" here -- it is not anywhere).
+// create claims ownership, item routes authorize read/edit/delete, and the list route reads
+// only the visible ids the wrapper injects as `ids`. This file contains no permission code and
+// imports nothing from any other cube (the same decoupling as notes: look for "crm" here -- it
+// is not anywhere).
 //
-// ponytail: the enforced list wrapper scans the whole `views` table per list call,
-// inherited from entity-enforcement; an owner-indexed read needs a kernel primitive.
 // ponytail: duplicate view names are allowed -- the store contract has no unique index,
 // same reasoning as permissions/capabilities.ts.
 //
@@ -79,6 +78,8 @@ const ViewPatch = Schema.Struct({
 const ViewListParams = Schema.Struct({
   ...PageParams.fields,
   targetCube: Schema.optional(Schema.String),
+  /** `ids=a,b,c` -- only these views. The entity wrapper injects the actor's visible ids here. */
+  ids: Schema.optional(Schema.String),
 })
 
 const group = HttpApiGroup.make("views")
@@ -142,28 +143,17 @@ export const cube = defineCube(group, {
         list: ({ urlParams }: { urlParams: ViewListParamsType }) =>
           Effect.gen(function* () {
             yield* requirePermission(ROUTES.list)
-            const page = pageRequest(urlParams)
-            const rows = (
-              urlParams.targetCube === undefined
-                ? yield* store.all<SavedViewRow>(TABLE)
-                : yield* store.where<SavedViewRow>(TABLE, { field: "targetCube", value: urlParams.targetCube })
-            ).filter((v) => !v.deleted)
-            const field = SORTABLE.includes(page.sortBy as (typeof SORTABLE)[number])
-              ? (page.sortBy as string)
-              : "createdAt"
-            rows.sort((left, right) =>
-              String(left[field as keyof SavedViewRow] ?? "").localeCompare(
-                String(right[field as keyof SavedViewRow] ?? ""),
-              ),
+            // Filter, sort (the manifest's `sortable`), count and page all in SQL.
+            const { rows, total, offset, limit, sortedBy } = yield* store.page<SavedViewRow>(
+              TABLE,
+              pageRequest(urlParams),
+              {
+                equals:
+                  urlParams.targetCube === undefined ? [] : [{ field: "targetCube", value: urlParams.targetCube }],
+                ids: (urlParams.ids ?? "").split(",").filter(Boolean),
+              },
             )
-            if (page.descending) rows.reverse()
-            return {
-              rows: rows.slice(page.offset, page.offset + page.limit),
-              total: rows.length,
-              offset: page.offset,
-              limit: page.limit,
-              sortedBy: field,
-            }
+            return { rows, total, offset, limit, sortedBy }
           }),
 
         get: ({ path }: { path: { id: string } }) =>

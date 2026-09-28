@@ -80,7 +80,12 @@ const world = (declaredNow: ReadonlyMap<string, ReadonlyArray<string>> = declare
   ]
   const ran: Array<string> = []
   const raw = {
-    list: () => Effect.succeed({ rows: things, total: things.length, offset: 0, limit: things.length, sortedBy: "id" }),
+    // Like a real list: the entity wrapper injects the visible ids as `ids=a,b,c`.
+    list: ({ urlParams }: { urlParams: { ids?: string } }) => {
+      const ids = urlParams.ids?.split(",")
+      const rows = ids ? things.filter((row) => ids.includes(row.id)) : things
+      return Effect.succeed({ rows, total: rows.length, offset: 0, limit: rows.length, sortedBy: "id" })
+    },
     get: ({ path }: { path: { id: string } }) => Effect.succeed(things.find((row) => row.id === path.id)),
     create: () =>
       Effect.sync(() => {
