@@ -138,16 +138,19 @@ back on; until then, green means green locally.
 
 ### Tracing a slow request
 
-A local Jaeger in docker compose shows each request as a waterfall of spans. It is dev-only and
-opt-in, and keeps traces in memory only.
+A local Grafana LGTM stack in docker compose shows each request as a waterfall of spans, plus
+memory and CPU graphs over time and the slowest SQL. It is dev-only and opt-in, and keeps
+everything in memory only.
 
 ```bash
-docker compose --profile trace up -d jaeger
+docker compose --profile trace up -d lgtm
 QWBE_TRACE_URL=http://localhost:4318 npm start
 ```
 
-Open <http://localhost:16686>, pick service `qwbe` and a recent operation. Each response carries
-its trace id in the `x-trace-id` header. Stop with `docker compose --profile trace stop jaeger`.
+Open <http://localhost:3000>, pick Explore -> Tempo for traces (service `qwbe`). Each response
+carries its trace id in the `x-trace-id` header. Postgres now loads `pg_stat_statements`, so
+recreate the container once with `docker compose up -d postgres` (its data volume survives).
+Stop with `docker compose --profile trace stop lgtm`.
 
 ## Committing to this repo
 

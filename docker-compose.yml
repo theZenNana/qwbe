@@ -4,6 +4,7 @@
 services:
   postgres:
     image: postgres:16-alpine
+    command: ["postgres", "-c", "shared_preload_libraries=pg_stat_statements", "-c", "pg_stat_statements.track=all"]
     environment:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-qwbe}
       POSTGRES_DB: qwbe
@@ -12,14 +13,14 @@ services:
     volumes:
       - qwbe-pgdata:/var/lib/postgresql/data
 
-  # Dev-only, opt-in local trace viewer (docker compose --profile trace up -d jaeger);
-  # in-memory storage, spans are gone when it stops.
-  jaeger:
-    image: jaegertracing/jaeger:2.9.0
+  # Dev-only, opt-in local viewer (docker compose --profile trace up -d lgtm);
+  # in-memory storage, everything is gone when it stops.
+  lgtm:
+    image: grafana/otel-lgtm:0.34.0
     profiles: [trace]
     ports:
-      - "127.0.0.1:16686:16686" # UI
-      - "127.0.0.1:4318:4318"   # OTLP HTTP
+      - "127.0.0.1:3000:3000"  # Grafana
+      - "127.0.0.1:4318:4318"  # OTLP HTTP
 
 volumes:
   qwbe-pgdata:
