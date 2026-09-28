@@ -13,7 +13,7 @@ import assert from "node:assert/strict"
 import { layer } from "@effect/vitest"
 import { Cause, Effect, Exit, Option } from "effect"
 import { SORT_KEY_VERSION, sortKey } from "../kernel/sort-key.ts"
-import { rekey, schemaName, withRole } from "./setup.ts"
+import { ensureCubeSchema, ensureTable, rekey, SetupLive, schemaName, withRole } from "./setup.ts"
 import { storeFor } from "./store.ts"
 import { testStore, withSql } from "./test-db.ts"
 
@@ -123,6 +123,30 @@ layer(testStore("store"), { timeout: 60_000, excludeTestServices: true })("CubeS
       assert.equal(results.length, 8)
       assert.ok(results.every((r) => typeof r.id === "string"))
       assert.equal(yield* burst.count("things"), 8)
+    }),
+  )
+
+  it.effect("survives 8 concurrent first touches of a table with indexed fields (the index DDL race)", () =>
+    Effect.gen(function* () {
+      // Each touch gets its own Setup memo, as two sessions or processes would: only the
+      // advisory lock stands between their CREATE INDEX IF NOT EXISTS and a duplicate pg_class row.
+      yield* withSql(() => ensureCubeSchema("pgidxrace"))
+      const schema = schemaName("pgidxrace")
+      yield* Effect.all(
+        Array.from({ length: 8 }, () =>
+          withSql(() => ensureTable(schema, "owners", ["entityType", "ownerId"]).pipe(Effect.provide(SetupLive))),
+        ),
+        { concurrency: "unbounded" },
+      )
+      const indexes = yield* withSql(
+        (sql) => sql<{ n: string }>`SELECT indexname AS n FROM pg_indexes WHERE schemaname = ${schema}`,
+      )
+      assert.deepEqual(indexes.map((r) => r.n).sort(), [
+        "owners_body_gin",
+        "owners_entityType_idx",
+        "owners_ownerId_idx",
+        "owners_pkey",
+      ])
     }),
   )
 

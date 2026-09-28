@@ -157,8 +157,15 @@ export const SetupLive = Layer.effect(
     const schema = yield* memo((s: string) => createSchema(sql, s))
     const table = yield* memo(([s, t]: readonly [string, string]) => createTable(sql, s, t))
     // suspend: a refused field throws inside the effect, so it is a defect, not a throw at build.
+    // The memo only covers this process: two sessions racing on CREATE INDEX IF NOT EXISTS
+    // collide on pg_class, so the DDL waits on the table's advisory lock, like createTable.
     const index = yield* memo(([s, t, f]: readonly [string, string, string]) =>
-      Effect.suspend(() => sql.unsafe(lookupIndexSql(s, t, f))),
+      Effect.suspend(() => {
+        const ddl = lookupIndexSql(s, t, f)
+        return sql.withTransaction(
+          Effect.zipRight(sql`SELECT pg_advisory_xact_lock(hashtext(${`${s}.${t}`}))`, sql.unsafe(ddl)),
+        )
+      }),
     )
     // Runs as the login, outside any cube transaction: each chunk commits on its own.
     const sortKeys = yield* memo(([s, t, fields]: readonly [string, string, string]) =>
