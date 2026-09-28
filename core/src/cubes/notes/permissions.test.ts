@@ -115,3 +115,95 @@ describe("notes list -- one SQL page, permissions left to the entity wrapper (Qw
     }),
   )
 })
+
+describe("notes item and search -- one permission check each (Qwbe#73)", () => {
+  const full = (id: string, authorId: string) => ({
+    ...note(id, authorId),
+    title: id,
+    body: "",
+    createdAt: "2026-09-28",
+  })
+  const rows = [full("note-1", "ana"), full("note-2", "bob"), full("note-3", "ana")]
+  const user = { id: "ana", username: "ana", roles: ["reader"], permissions: ["notes:read"], sessionId: "s" }
+  const perNote = (what: string) => () => Effect.die(`search must not ${what} per note`)
+
+  it.effect("a single read through the entity wrapper authorizes once, so one audit row", () =>
+    Effect.gen(function* () {
+      const authorized: Array<string> = []
+      const permissions = {
+        authorize: (_actor: unknown, ref: { entityId: string }) =>
+          Effect.sync(() => {
+            authorized.push(ref.entityId)
+            return { allowed: true }
+          }),
+      } as unknown as PermissionService
+      const store = { byId: (_table: string, id: string) => Effect.succeed(rows.find((row) => row.id === id)) }
+      const parts = cube.create({ store, bus: {}, entityPermissions: permissions } as never) as unknown as {
+        group: Parameters<typeof enforceEntityHandlers>[2]
+        handlers: { get: (request: unknown) => Effect.Effect<{ id: string }, unknown, CurrentUser> }
+      }
+      const wrapped = enforceEntityHandlers("notes", "Note", parts.group, parts.handlers, permissions)
+      const n = yield* wrapped.get({ path: { id: "note-3" } }).pipe(Effect.provideService(CurrentUser, user))
+      assert.equal(n.id, "note-3")
+      assert.deepEqual(authorized, ["note-3"])
+    }),
+  )
+
+  it.effect("search: one authorizeList, the set filtered in SQL, one auditList, no claim", () =>
+    Effect.gen(function* () {
+      const asked: Array<unknown> = []
+      const audits: Array<ReadonlyArray<string>> = []
+      const permissions = {
+        authorize: perNote("authorize"),
+        claim: perNote("claim"),
+        ownership: perNote("read ownership"),
+        authorizeList: () => Effect.succeed(new Set(["note-1", "note-3"])),
+        auditList: (_a: unknown, _s: unknown, _x: unknown, source: string, ids: ReadonlyArray<string>) =>
+          Effect.sync(() => {
+            audits.push([source, ...ids])
+          }),
+      } as unknown as PermissionService
+      const store = {
+        page: (_table: string, request: PageRequest, where: ListWhere) =>
+          Effect.sync(() => {
+            asked.push(where)
+            const matching = rows.filter(
+              (row) => row.authorId === where.equals?.[0]?.value && where.ids?.includes(row.id),
+            )
+            return { rows: matching.slice(request.offset, request.offset + request.limit), total: matching.length }
+          }),
+      }
+      const parts = cube.create({ store, bus: {}, entityPermissions: permissions } as never)
+      const result = yield* parts.relational!.search!("authorId", "ana", { offset: 0, limit: 10 }).pipe(
+        Effect.provideService(CurrentUser, user),
+      )
+      assert.deepEqual(
+        result.rows.map((row) => row.id),
+        ["note-1", "note-3"],
+      )
+      assert.equal(result.total, 2)
+      assert.deepEqual(asked, [{ equals: [{ field: "authorId", value: "ana" }], ids: ["note-1", "note-3"] }])
+      assert.deepEqual(audits, [["scoped", "note-1", "note-3"]])
+    }),
+  )
+
+  it.effect("search: an actor who sees no note gets an empty result without reaching the store", () =>
+    Effect.gen(function* () {
+      const audits: Array<ReadonlyArray<string>> = []
+      const permissions = {
+        authorizeList: () => Effect.succeed(new Set<string>()),
+        auditList: (_a: unknown, _s: unknown, _x: unknown, _source: unknown, ids: ReadonlyArray<string>) =>
+          Effect.sync(() => {
+            audits.push(ids)
+          }),
+      } as unknown as PermissionService
+      const store = { page: () => Effect.die("store must not be asked with an empty id set") }
+      const parts = cube.create({ store, bus: {}, entityPermissions: permissions } as never)
+      const result = yield* parts.relational!.search!("authorId", "ana", { offset: 0, limit: 10 }).pipe(
+        Effect.provideService(CurrentUser, user),
+      )
+      assert.deepEqual(result, { rows: [], total: 0 })
+      assert.deepEqual(audits, [[]])
+    }),
+  )
+})

@@ -117,18 +117,12 @@ export const cube = defineCube(group, {
             return { rows, total, offset, limit, sortedBy }
           }),
 
+        // The entity wrapper authorizes the path id and writes the one audit row (Qwbe#73).
         get: ({ path }: { path: { id: string } }) =>
           Effect.gen(function* () {
             yield* requirePermission(ROUTES.get)
-            const user = yield* CurrentUser
             const n = yield* store.byId<NoteRow>(TABLE, path.id)
             if (!n) return yield* Effect.fail(new NotFound({ message: `note ${path.id} does not exist` }))
-            const ref = reference(n)
-            if (!(yield* entityPermissions.authorize(actor(user), ref, "read").pipe(Effect.orDie)).allowed) {
-              return yield* Effect.fail(
-                new Forbidden({ message: "this note is not shared with you", needed: "notes:read" }),
-              )
-            }
             return n
           }),
 
@@ -146,22 +140,35 @@ export const cube = defineCube(group, {
       },
 
       relational: {
+        // One `authorizeList` for the set and one `entity.list` audit row; legacy owners were
+        // claimed at boot, so nothing is claimed or authorized per note here (Qwbe#73).
         search: (field, value, page) =>
           Effect.gen(function* () {
             const user = yield* CurrentUser
-            // `field` is a declared link (workspace: `authorId`) and `value` an id, both strings,
-            // so the SQL text compare matches the old in-memory `String(...) === value`.
-            const matching = yield* store.where<NoteRow>(TABLE, { field, value })
-            const rows = yield* Effect.filter(matching, (note) =>
-              Effect.gen(function* () {
-                const ref = reference(note)
-                if (!(yield* entityPermissions.ownership(ref)) && note.authorId) {
-                  yield* entityPermissions.claim({ userId: note.authorId, roles: user.roles }, ref).pipe(Effect.orDie)
-                }
-                return (yield* entityPermissions.authorize(actor(user), ref, "read").pipe(Effect.orDie)).allowed
-              }),
-            )
-            return { rows: rows.slice(page.offset, page.offset + page.limit).map(summary), total: rows.length }
+            const scope = { cube: "notes", entityType: ENTITY }
+            const visible = yield* entityPermissions.authorizeList(actor(user), scope, "read").pipe(Effect.orDie)
+            const audit = (ids: ReadonlyArray<string>) =>
+              entityPermissions
+                .auditList(
+                  actor(user),
+                  scope,
+                  "read",
+                  visible !== "all" ? "scoped" : user.roles.includes("admin") ? "superadmin" : "cube-admin",
+                  ids,
+                )
+                .pipe(Effect.orDie)
+            // Empty `ids` means "no filter" to the store, so an actor who sees nothing never reaches it.
+            if (visible !== "all" && visible.size === 0) {
+              yield* audit([])
+              return { rows: [], total: 0 }
+            }
+            // `field` is a declared link (workspace: `authorId`) and `value` an id, both strings.
+            const { rows, total } = yield* store.page<NoteRow>(TABLE, page, {
+              equals: [{ field, value }],
+              ...(visible === "all" ? {} : { ids: [...visible] }),
+            })
+            yield* audit(rows.map((n) => n.id))
+            return { rows: rows.map(summary), total }
           }),
 
         summaryById: stored.summaryById,
