@@ -100,9 +100,11 @@ export const request = async <A, I>(
     body = text
   }
   if (!r.ok) {
-    // A 401 mid-session means the token died -- send the person back to the door rather than
-    // rendering an error they can do nothing about.
-    if (r.status === 401 && session.read()) endSession()
+    // A 401 means the token died -- send the person back to the door rather than rendering an
+    // error they can do nothing about. Not gated on `session.read()`: an expired session is
+    // already gone from storage by the time this runs, and that gate left a stale tab stuck on
+    // "no token". Login is the exception -- a wrong password stays on the form.
+    if (r.status === 401 && path !== "/auth/login") endSession()
     throw new ApiError(r.status, (body as { message?: string })?.message ?? `HTTP ${r.status}`)
   }
   return Schema.decodeUnknownPromise(schema)(body)
