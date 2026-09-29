@@ -26,6 +26,8 @@ export const cube = defineCube(stagingGroup, {
       { name: "staging:write", roles: ["admin"] },
     ],
     routes: ROUTES,
+    // What `GET /staging/sets?sort=` may order by; createdAt is a column and always allowed.
+    sortable: ["name", "state", "format", "rowCount"],
     publishes: ["staging.set.created"],
     // DECLARED CAPABILITY: staging is the one cube whose store carries the raw SQL batch
     // (`grep -r usesBatch` returns the complete list). Why it needs it: profiling in SQL, a

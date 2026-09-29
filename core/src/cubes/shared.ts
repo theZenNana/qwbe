@@ -25,10 +25,15 @@ export const storeRelational = <Row extends { readonly deleted?: boolean }>(
 ) => {
   const live = (id: string) => Effect.map(store.byId<Row>(table, id), (row) => (row && !row.deleted ? row : undefined))
   return {
-    search: (field: string, value: string, page: PageRequest) =>
+    search: (field: string, value: string, page: PageRequest, only: "all" | ReadonlySet<string> = "all") =>
       Effect.gen(function* () {
+        // Empty `ids` means "no filter" to the store.
+        if (only !== "all" && only.size === 0) return { rows: [], total: 0 }
         yield* before
-        const p = yield* store.page<Row>(table, page, { field, value })
+        const p = yield* store.page<Row>(table, page, {
+          equals: [{ field, value }],
+          ...(only === "all" ? {} : { ids: [...only] }),
+        })
         return { rows: p.rows.map(summary), total: p.total }
       }),
     summaryById: (id: string) => Effect.map(live(id), (row) => (row ? summary(row) : undefined)),

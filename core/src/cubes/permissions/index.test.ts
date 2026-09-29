@@ -2,11 +2,11 @@ import assert from "node:assert/strict"
 import { describe, it } from "@effect/vitest"
 import { Effect } from "effect"
 import { PermissionConflict, PermissionForbidden, PermissionInvalid, PermissionNotFound } from "qwbe-core/permissions"
-import { memoryStore } from "../../test-cube-tools.ts"
 import { cube } from "./index.ts"
+import { pagingStore } from "./test-store.ts"
 
 const tools = () => ({
-  store: memoryStore(),
+  store: pagingStore(),
   bus: { publish: () => Effect.void },
   catalogue: () => [],
   permissions: () => new Map(),
@@ -193,14 +193,14 @@ describe("permissions public capability", () => {
       const ref = { cube: "crm/contacts", entityType: "Contact", entityId: "contact-hidden" }
       yield* service.claim(actor, ref)
 
-      assert.equal((yield* service.listVisible(actor, ref.cube, "all")).length, 1)
+      assert.equal((yield* service.listVisible(actor, ref.cube, "all", { offset: 0, limit: 50 })).total, 1)
       yield* service.setHidden(actor, ref, true)
-      assert.equal((yield* service.listVisible(actor, ref.cube, "all")).length, 0)
-      assert.equal((yield* service.listVisible(actor, ref.cube, "hidden-by-me")).length, 1)
+      assert.equal((yield* service.listVisible(actor, ref.cube, "all", { offset: 0, limit: 50 })).total, 0)
+      assert.equal((yield* service.listVisible(actor, ref.cube, "hidden-by-me", { offset: 0, limit: 50 })).total, 1)
 
       yield* service.setHidden(actor, ref, false)
-      assert.equal((yield* service.listVisible(actor, ref.cube, "all")).length, 1)
-      assert.equal((yield* service.listVisible(actor, ref.cube, "hidden-by-me")).length, 0)
+      assert.equal((yield* service.listVisible(actor, ref.cube, "all", { offset: 0, limit: 50 })).total, 1)
+      assert.equal((yield* service.listVisible(actor, ref.cube, "hidden-by-me", { offset: 0, limit: 50 })).total, 0)
     }),
   )
 

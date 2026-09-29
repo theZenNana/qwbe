@@ -34,7 +34,17 @@ export type SearchResult = {
 }
 
 export type RelationalPart = {
-  readonly search?: (field: string, value: string, page: PageRequest) => Effect.Effect<SearchResult, never, CurrentUser>
+  /**
+   * `only`: the ids the caller may see, or "all". The kernel passes it after one `authorizeList`
+   * and drops any returned row outside it, so filter by it in SQL (`ids` on `store.page`) to
+   * return a full page. Optional so packs written before it keep compiling (Qwbe#73).
+   */
+  readonly search?: (
+    field: string,
+    value: string,
+    page: PageRequest,
+    only?: "all" | ReadonlySet<string>,
+  ) => Effect.Effect<SearchResult, never, CurrentUser>
   readonly summaryById?: (id: string) => Effect.Effect<SummaryRow | undefined, never, never>
   readonly fieldValue?: (id: string, field: string) => Effect.Effect<string | null, never, never>
 }

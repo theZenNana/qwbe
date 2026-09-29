@@ -12,13 +12,16 @@
 import assert from "node:assert/strict"
 import { layer } from "@effect/vitest"
 import { Cause, Effect, Exit, Option } from "effect"
-import { schemaName, withRole } from "./setup.ts"
+import { SORT_KEY_VERSION, sortKey } from "../kernel/sort-key.ts"
+import { ensureCubeSchema, ensureTable, rekey, SetupLive, schemaName, withRole } from "./setup.ts"
 import { storeFor } from "./store.ts"
 import { testStore, withSql } from "./test-db.ts"
 
 const store = storeFor("pgtest", ["items", "logs"], ["name"])
 // Its own cube and table, so the lookups below count exactly what they inserted.
 const lookups = storeFor("pglookup", ["people"], [], false, undefined, { people: ["username"] })
+// Sort keys (Qwbe#73): one table per test, so each sees only its own rows.
+const sorted = storeFor("pgsort", ["things", "keys", "backfill", "batched"], ["rank"], true)
 
 // The store's operations are Effect values with a `never` error channel; a defect fails the test.
 const outboxCount = Effect.map(
@@ -123,6 +126,30 @@ layer(testStore("store"), { timeout: 60_000, excludeTestServices: true })("CubeS
     }),
   )
 
+  it.effect("survives 8 concurrent first touches of a table with indexed fields (the index DDL race)", () =>
+    Effect.gen(function* () {
+      // Each touch gets its own Setup memo, as two sessions or processes would: only the
+      // advisory lock stands between their CREATE INDEX IF NOT EXISTS and a duplicate pg_class row.
+      yield* withSql(() => ensureCubeSchema("pgidxrace"))
+      const schema = schemaName("pgidxrace")
+      yield* Effect.all(
+        Array.from({ length: 8 }, () =>
+          withSql(() => ensureTable(schema, "owners", ["entityType", "ownerId"]).pipe(Effect.provide(SetupLive))),
+        ),
+        { concurrency: "unbounded" },
+      )
+      const indexes = yield* withSql(
+        (sql) => sql<{ n: string }>`SELECT indexname AS n FROM pg_indexes WHERE schemaname = ${schema}`,
+      )
+      assert.deepEqual(indexes.map((r) => r.n).sort(), [
+        "owners_body_gin",
+        "owners_entityType_idx",
+        "owners_ownerId_idx",
+        "owners_pkey",
+      ])
+    }),
+  )
+
   it.effect("leaves exactly one outbox row per successful insert and update", () =>
     Effect.gen(function* () {
       const before = yield* outboxCount
@@ -190,6 +217,52 @@ layer(testStore("store"), { timeout: 60_000, excludeTestServices: true })("CubeS
     }),
   )
 
+  it.effect("pages rows with one created_at by id, never repeating or skipping one", () =>
+    Effect.gen(function* () {
+      const paged = storeFor("pgties", ["ties"], [])
+      yield* paged.count("ties")
+      // One statement, so every row gets the same now(): created_at ties on all of them.
+      yield* withSql(
+        (sql) => sql`INSERT INTO "pgties"."ties" (id, type, created_at, deleted, version, body)
+                     SELECT 'r-' || lpad(n::text, 3, '0'), 'row', now(), false, 1, '{}'
+                     FROM generate_series(1, 30) AS n`,
+      )
+      for (const descending of [false, true]) {
+        const seen: Array<string> = []
+        for (let offset = 0; offset < 30; offset += 7) {
+          const page = yield* paged.page<{ id: string }>("ties", { offset, limit: 7, descending })
+          seen.push(...page.rows.map((r) => r.id))
+        }
+        const ids = Array.from({ length: 30 }, (_, i) => `r-${String(i + 1).padStart(3, "0")}`)
+        assert.deepEqual(seen, descending ? ids.reverse() : ids)
+      }
+    }),
+  )
+
+  it.effect("where ORs anyOf groups and drops a not group, keeping a row missing its field", () =>
+    Effect.gen(function* () {
+      const gus = yield* lookups.insert("people", "person", "per", { username: "gus", team: "violet" })
+      const hal = yield* lookups.insert("people", "person", "per", { username: "hal", team: "violet" })
+      const ivy = yield* lookups.insert("people", "person", "per", { username: "ivy" })
+      const ids = (rows: ReadonlyArray<{ id: string }>) => rows.map((r) => r.id)
+      const either = yield* lookups.where<{ id: string }>("people", {
+        anyOf: [{ equals: [{ field: "username", value: "gus" }] }, { ids: [String(ivy.id)] }],
+      })
+      assert.deepEqual(ids(either), [gus.id, ivy.id])
+      assert.equal((yield* lookups.where("people", { anyOf: [] })).length, 0)
+      const notHal = yield* lookups.where<{ id: string }>("people", {
+        in: [{ field: "id", values: [String(gus.id), String(hal.id), String(ivy.id)] }],
+        not: {
+          equals: [
+            { field: "team", value: "violet" },
+            { field: "username", value: "hal" },
+          ],
+        },
+      })
+      assert.deepEqual(ids(notHal), [gus.id, ivy.id])
+    }),
+  )
+
   it.effect("leaves soft-deleted rows out of first and where", () =>
     Effect.gen(function* () {
       const gone = yield* lookups.insert("people", "person", "per", { username: "cy" })
@@ -207,6 +280,114 @@ layer(testStore("store"), { timeout: 60_000, excludeTestServices: true })("CubeS
                                             WHERE schemaname = ${schemaName("pglookup")} AND tablename = 'people'`,
       )
       assert.ok(found.some((r) => r.indexname === "people_username_idx"))
+    }),
+  )
+
+  // Qwbe#73: list order comes from kernel/sort-key.ts, not from the engine. A page equals the
+  // same rows sorted in memory by their keys, then id; a missing field sits before a null.
+  it.effect("pages in the order of the application's sort keys, both directions, with ties", () =>
+    Effect.gen(function* () {
+      const values = [10, 9, -1.5, 0, 10, "b", "B", "\u00c9mile", "emile", "a", null, true, false, undefined, 9]
+      for (const rank of values) yield* sorted.insert("things", "thing", "thg", rank === undefined ? {} : { rank })
+      const all = yield* sorted.page<{ id: string; rank?: unknown }>("things", { offset: 0, limit: 100 })
+      const key = (r: { rank?: unknown }) => (r.rank === undefined ? "" : sortKey(r.rank))
+      const cmp = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0)
+      const ascending = [...all.rows].sort((a, b) => cmp(key(a), key(b)) || cmp(a.id, b.id)).map((r) => r.id)
+      const ids = (descending: boolean) =>
+        Effect.map(sorted.page<{ id: string }>("things", { offset: 0, limit: 100, sortBy: "rank", descending }), (p) =>
+          p.rows.map((r) => r.id),
+        )
+      assert.equal(all.total, values.length)
+      assert.deepEqual(yield* ids(false), ascending)
+      assert.deepEqual(yield* ids(true), [...ascending].reverse())
+    }),
+  )
+
+  it.effect("writes the keys with the body, rewrites them on update and never returns them", () =>
+    Effect.gen(function* () {
+      const row = yield* sorted.insert("keys", "thing", "thg", { rank: 2, _sort: "forged" })
+      assert.equal("_sort" in row, false)
+      const stored = Effect.map(
+        withSql((sql) => sql<{ s: unknown }>`SELECT body -> '_sort' AS s FROM "pgsort"."keys" WHERE id = ${row.id}`),
+        ([r]) => r?.s,
+      )
+      assert.deepEqual(yield* stored, { v: SORT_KEY_VERSION, k: { rank: sortKey(2) } })
+      const updated = yield* sorted.update("keys", String(row.id), { rank: "x", _sort: "forged" })
+      assert.equal(updated !== undefined && "_sort" in updated, false)
+      assert.deepEqual(yield* stored, { v: SORT_KEY_VERSION, k: { rank: sortKey("x") } })
+      assert.equal("_sort" in ((yield* sorted.byId<Record<string, unknown>>("keys", String(row.id))) ?? {}), false)
+    }),
+  )
+
+  it.effect("backfills missing and old keys, and a second run changes nothing", () =>
+    Effect.gen(function* () {
+      const a = yield* sorted.insert("backfill", "thing", "thg", { rank: 1 })
+      const b = yield* sorted.insert("backfill", "thing", "thg", { rank: "z" })
+      const c = yield* sorted.insert("backfill", "thing", "thg", { other: 1 })
+      const bodies = withSql(
+        (sql) =>
+          sql<{ id: string; body: Record<string, unknown> }>`SELECT id, body FROM "pgsort"."backfill" ORDER BY id`,
+      )
+      const before = yield* bodies
+      yield* withSql((sql) =>
+        Effect.all([
+          sql`UPDATE "pgsort"."backfill" SET body = body - '_sort' WHERE id = ${String(a.id)}`,
+          sql`UPDATE "pgsort"."backfill" SET body = jsonb_set(body, '{_sort,v}', '0') WHERE id = ${String(b.id)}`,
+        ]),
+      )
+      yield* withSql((sql) => rekey(sql, sql`"pgsort"."backfill"`, ["rank"]))
+      assert.deepEqual(yield* bodies, before)
+      yield* withSql((sql) => rekey(sql, sql`"pgsort"."backfill"`, ["rank"]))
+      assert.deepEqual(yield* bodies, before)
+      assert.equal(before.find((r) => r.id === c.id)?.body._sort, undefined, "no sortable field, no keys")
+    }),
+  )
+
+  it.effect("rekeys the rows a raw batch changed, in the same transaction", () =>
+    Effect.gen(function* () {
+      const low = yield* sorted.insert("batched", "thing", "thg", { rank: 1 })
+      const high = yield* sorted.insert("batched", "thing", "thg", { rank: 2 })
+      const batch = sorted.batch
+      assert.ok(batch)
+      yield* batch([
+        {
+          text: `UPDATE "batched" SET body = jsonb_set(body, '{rank}', '3') WHERE id = $1`,
+          values: [low.id],
+          rekey: { table: "batched", ids: [String(low.id)] },
+        },
+      ])
+      const page = yield* sorted.page<{ id: string }>("batched", { offset: 0, limit: 10, sortBy: "rank" })
+      assert.deepEqual(
+        page.rows.map((r) => r.id),
+        [high.id, low.id],
+      )
+    }),
+  )
+
+  it.effect("rekeys only the rows a batch names, and nothing for a batch that names none", () =>
+    Effect.gen(function* () {
+      const named = yield* sorted.insert("batched", "thing", "thg", { rank: 1 })
+      const other = yield* sorted.insert("batched", "thing", "thg", { rank: 1 })
+      const key = (id: unknown) =>
+        Effect.map(
+          withSql(
+            (sql) => sql<{ s: unknown }>`SELECT body -> '_sort' AS s FROM "pgsort"."batched" WHERE id = ${String(id)}`,
+          ),
+          ([r]) => r?.s,
+        )
+      const batch = sorted.batch
+      assert.ok(batch)
+      const bump = `UPDATE "batched" SET body = jsonb_set(body, '{rank}', '7') WHERE id = ANY($1::text[])`
+      const ids = [String(named.id), String(other.id)]
+      yield* batch([{ text: bump, values: [ids] }])
+      assert.deepEqual(yield* key(named.id), { v: SORT_KEY_VERSION, k: { rank: sortKey(1) } }, "nothing named")
+      yield* batch([{ text: bump, values: [ids], rekey: { table: "batched", ids: [String(named.id)] } }])
+      assert.deepEqual(yield* key(named.id), { v: SORT_KEY_VERSION, k: { rank: sortKey(7) } })
+      assert.deepEqual(
+        yield* key(other.id),
+        { v: SORT_KEY_VERSION, k: { rank: sortKey(1) } },
+        "not named, not re-keyed",
+      )
     }),
   )
 })

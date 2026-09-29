@@ -147,3 +147,38 @@ responsibilities.
 | `core/src/cubes/notes/index.ts` (diff) | lucian 48.1, 44.3 after the single-check change (run 2127ee91) |
 | `core/src/pg/rows.ts` (diff) | lucian 67.8 |
 | `core/src/cubes/customfields/context.ts` (diff, snapshot refresh per cube, run 0cdb98a4) | lucian 68.1 |
+
+Branch `feature/q73-sort-keys` (engine-independent ordering, paged permission lists), scored 2026-09-29
+~00:35 over the whole branch diff (`agents jev--score-run 34388ecc --since origin/feature/q73-request-profiler
+--all --skill lucian,ponytail`). No refactor run aimed at these scores yet (unlike the earlier branches):
+the owner decides whether one runs before merge.
+
+| file | score under 70 |
+|---|---|
+| `core/src/cubes/permissions/visibility.ts (diff)` | lucian 42.9 |
+| `core/src/pg/store.ts (diff)` | lucian 43.3 |
+| `core/src/cubes/notes/index.ts (diff)` | lucian 43.7 |
+| `core/src/cubes/permissions/sharing.ts (diff)` | lucian 47.1 |
+| `core/src/cubes/permissions/foundation.ts (diff)` | lucian 51.6 |
+| `core/src/relational-enforcement.ts (diff)` | lucian 56.6 |
+| `core/src/test-cube-tools.ts (diff)` | lucian 56.9 |
+| `core/src/cubes/views/index.ts (diff)` | lucian 59.4 |
+| `core/src/cubes/permissions/state.ts (diff)` | lucian 60.0 |
+| `core/src/cubes/staging/handlers.ts (diff)` | lucian 60.2 |
+| `core/src/cubes/staging/import-chunks.ts (diff)` | lucian 60.2 |
+| `core/src/capability-gates.test.ts (diff)` | lucian 60.6 |
+| `core/src/cubes/permissions/index.ts (diff)` | lucian 61.2 |
+| `core/plugins/example-plugin/cubes/booktags/tags/index.ts (diff)` | lucian 61.3 |
+| `core/src/pg/rows.ts (diff)` | lucian 62.8 |
+| `core/src/cubes/permissions/counts.ts` | lucian 63.4 |
+| `core/src/pg/setup.ts (diff)` | lucian 63.6 |
+| `core/src/cubes/permissions/capabilities.ts (diff)` | lucian 63.7 |
+| `core/src/pg/batch.ts (diff)` | lucian 65.4 |
+| `core/src/cubes/shared.ts (diff)` | lucian 65.9 |
+| `core/src/pg/setup.ts (diff)` | ponytail 66.0 |
+| `core/src/cubes/permissions/visibility.test.ts (diff)` | lucian 66.5 |
+| `core/src/test-cube-tools.ts (diff)` | ponytail 68.1 |
+| `core/plugins/example-plugin/cubes/booktags/bookmarks/index.ts (diff)` | lucian 68.2 |
+| `core/src/cubes/staging/handlers.ts (diff)` | ponytail 68.3 |
+| `core/src/cubes/notes/permissions.test.ts (diff)` | lucian 68.4 |
+| `core/src/pg/store.test.ts (diff)` | lucian 69.3 |

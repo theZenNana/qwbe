@@ -6,6 +6,7 @@ import { DateTime, Effect } from "effect"
 import type { CubeTools } from "qwbe-core/cube"
 import { requirePermission } from "../../kernel/auth-contract.ts"
 import { BadRequest, NotFound } from "../../kernel/errors.ts"
+import { genericList } from "../../kernel/list.ts"
 import type { BatchStore } from "./batch.ts"
 import { MAX_CHUNK_CHARS, ROUTES, type SetCreate, type StagingSet as StagingSetRow, TABLES } from "./contract.ts"
 import { applyChunk } from "./import-chunks.ts"
@@ -54,13 +55,16 @@ export const stagingHandlers = (tools: CubeTools, batched: BatchStore) => {
           return toState(row)
         }),
 
-      listSets: () =>
-        Effect.gen(function* () {
-          yield* requirePermission(ROUTES.listSets)
-          // store.all already filters deleted = false; no second filter here.
-          const rows = (yield* store.all(TABLES.sets)) as ReadonlyArray<StagingSetRow>
-          return rows.map(toState)
-        }),
+      // The kernel's list: one page from SQL, only that page mapped. The unpaged array cost
+      // 2 MB and 20 MB of heap per request at 10,000 sets. No `list` route, so the permission
+      // is the `staging:read` convention, the same as ROUTES.listSets.
+      listSets: genericList<StagingSetRow, ReturnType<typeof toState>>({
+        cube: "staging",
+        table: TABLES.sets,
+        manifest: { name: "staging", routes: ROUTES },
+        store,
+        map: toState,
+      }),
 
       getSet: ({ path }: { path: { id: string } }) =>
         Effect.gen(function* () {

@@ -1,6 +1,8 @@
+import { Layer } from "effect"
 import { type CubeTools, defineCube } from "qwbe-core/cube"
 import { group } from "./api.ts"
 import { auditFrom } from "./audit.ts"
+import { backfillCounts } from "./counts.ts"
 import { foundationHandlers } from "./foundation-handlers.ts"
 import { serviceFrom } from "./service.ts"
 import { capabilityHandlers, sharingHandlers } from "./sharing-handlers.ts"
@@ -36,20 +38,24 @@ export const cube = defineCube(group, {
   manifest: {
     name: "permissions",
     tables: Object.values(tables),
-    // The fields state.ts, groups.ts, sharing.ts and visibility.ts look rows up by.
+    // The fields state.ts, groups.ts, sharing.ts and visibility.ts look rows up by; `entityKey`
+    // is the one key the entities visibility list pages by.
     indexed: {
-      [tables.ownership]: ["cube", "entityType", "entityId", "ownerId"],
+      [tables.ownership]: ["cube", "entityType", "entityId", "ownerId", "entityKey"],
       [tables.cubeAdmins]: ["cube", "userId"],
       [tables.groups]: ["cube"],
       [tables.memberships]: ["userId", "groupId"],
-      [tables.grants]: ["cube", "entityType", "entityId"],
+      [tables.grants]: ["cube", "entityType", "entityId", "entityKey"],
       [tables.hidden]: ["userId", "cube", "entityType", "entityId"],
       [tables.capabilities]: ["subjectKey", "cube"],
       // audit.ts filters by these. `result` has three values, too few for an index to pay off.
       [tables.audit]: ["actorUserId", "cube", "entityType", "entityId", "action"],
     },
-    // audit.ts pages newest first.
-    sortable: ["timestamp"],
+    // audit.ts pages newest first; the rest are the ownership fields visibility.ts pages by
+    // (`createdAt` is a store column and needs no key).
+    // ponytail: the store keys every table carrying these fields, audit and grants included;
+    // per-table sortable lists in the manifest if that write cost ever shows.
+    sortable: ["timestamp", "cube", "entityType", "entityId", "ownerId", "createdBy", "sharedWithCount"],
     screen: true,
     requiresAuth: true,
     required: true,
@@ -64,6 +70,9 @@ export const cube = defineCube(group, {
   create: ({ store, identities, permissions }: CubeTools) => {
     const entityPermissions = serviceFrom(store, permissions)
     return {
+      // Rows written before `entityKey` and `sharedWithCount` existed get them here, once, at boot,
+      // in the app runtime (the Postgres store needs its SqlClient); a failure fails the boot.
+      layers: Layer.effectDiscard(backfillCounts(stateFrom(store))),
       handlers: {
         ...foundationHandlers(entityPermissions, identities, auditFrom(stateFrom(store)).auditPage),
         ...sharingHandlers(entityPermissions, identities),

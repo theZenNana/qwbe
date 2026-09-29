@@ -9,7 +9,7 @@ import type {
 } from "qwbe-core/permissions"
 import { PermissionConflict, PermissionForbidden, PermissionNotFound } from "qwbe-core/permissions"
 import type { PermissionState, StoredGrant, StoredOwnership } from "./state.ts"
-import { tables } from "./state.ts"
+import { entityKeyOf, tables } from "./state.ts"
 
 type Scope = Readonly<{ cube: string; entityType: string }>
 
@@ -104,7 +104,13 @@ export const foundationFrom = (state: PermissionState): Foundation => {
           )
         const createdAt = DateTime.formatIso(yield* DateTime.now)
         const value: Ownership = { ...ref, ownerId: actor.userId, createdBy: actor.userId, createdAt }
-        yield* state.store.insert(tables.ownership, "Ownership", "own", value)
+        // An admin may have shared the entity before anyone claimed it, so count, do not assume 0.
+        const sharedWithCount = (yield* state.grantsFor(ref)).length
+        yield* state.store.insert(tables.ownership, "Ownership", "own", {
+          ...value,
+          entityKey: entityKeyOf(ref),
+          sharedWithCount,
+        })
         yield* state.writeAudit(actor, ref, "ownership.claim", "success", null, value)
         return value
       }),
@@ -123,6 +129,7 @@ export const foundationFrom = (state: PermissionState): Foundation => {
             new PermissionForbidden({ message: "only an authorized owner or administrator may transfer ownership" }),
           )
         yield* state.store.update(tables.ownership, current.id, { ownerId: userId })
+        yield* state.recountShares(ref)
         const changed: Ownership = { ...current, ownerId: userId }
         yield* state.writeAudit(actor, ref, "ownership.transfer", "success", current, changed)
         return changed

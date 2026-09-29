@@ -8,6 +8,7 @@ import { PgClient } from "@effect/sql-pg"
 import { DateTime, Effect } from "effect"
 import { checkCustomObject } from "../custom-values.ts"
 import type { ListWhere } from "../kernel/pagination.ts"
+import { SORT_KEYS } from "../kernel/sort-key.ts"
 import type { Where } from "../kernel/store-contract.ts"
 import { CustomCapError } from "./errors.ts"
 import { ident } from "./setup.ts"
@@ -21,13 +22,17 @@ export const compileOnly = Statement.make(Effect.dieMessage("compile only"), PgC
  */
 export const newId = (prefix: string) => `${prefix}-${randomBytes(16).toString("hex")}`
 
-export const decode = (row: Record<string, unknown>): Record<string, unknown> => ({
-  id: row.id,
-  type: row.type,
-  createdAt: DateTime.formatIso(DateTime.unsafeMake(row.created_at as Date)),
-  deleted: row.deleted === true,
-  ...(row.body as Record<string, unknown>),
-})
+/** The row as callers see it: the reserved sort keys (`_sort`) never leave the store. */
+export const decode = (row: Record<string, unknown>): Record<string, unknown> => {
+  const { [SORT_KEYS]: _keys, ...body } = row.body as Record<string, unknown>
+  return {
+    id: row.id,
+    type: row.type,
+    createdAt: DateTime.formatIso(DateTime.unsafeMake(row.created_at as Date)),
+    deleted: row.deleted === true,
+    ...body,
+  }
+}
 
 /** Only these may be interpolated into SQL. Everything else is a bound parameter. */
 const META_COLUMNS = new Set(["id", "type", "createdAt", "deleted"])
@@ -114,15 +119,21 @@ export const orderClause = (
   sortableFields: ReadonlySet<string>,
 ): { readonly sql: Statement.Fragment; readonly applied: string } => {
   const dir = sql.literal(descending ? "DESC" : "ASC")
-  const fallback = { sql: sql`ORDER BY created_at ${dir}`, applied: "createdAt" }
+  // The unique `id` ends every ordering: without a total order, OFFSET paging may repeat or skip
+  // equal rows, and which ones depends on the engine's plan (Qwbe#73).
+  const fallback = { sql: sql`ORDER BY created_at ${dir}, id ${dir}`, applied: "createdAt" }
   if (!sortBy) return fallback
-  if (META_COLUMNS.has(sortBy)) return { sql: sql`ORDER BY ${column(sql, sortBy)} ${dir}`, applied: sortBy }
+  if (sortBy === "id") return { sql: sql`ORDER BY ${column(sql, sortBy)} ${dir}`, applied: sortBy }
+  if (META_COLUMNS.has(sortBy)) return { sql: sql`ORDER BY ${column(sql, sortBy)} ${dir}, id ${dir}`, applied: sortBy }
   if (!sortableFields.has(sortBy)) return fallback
-  // jsonb ordering (`body -> field`), not text ordering (`body ->> field`): the SQLite store
-  // sorted by the JSON value's own type, so 9 < 10 numerically and true > false. Text ordering
-  // would put "10" before "9" and silently change every numeric cube's page order and boundaries.
-  // Ties oldest first: without a tie-breaker, OFFSET paging may repeat or skip equal rows.
-  return { sql: sql`ORDER BY body -> ${sortBy} ${dir}, created_at ASC`, applied: sortBy }
+  // The key the store wrote (kernel/sort-key.ts), compared as bytes: the order is decided in
+  // JavaScript, not by this engine's collation or jsonb ordering, and 9 < 10 still holds. A row
+  // without the field has no key; it sits where a null key would, first ascending.
+  const nulls = sql.literal(descending ? "NULLS LAST" : "NULLS FIRST")
+  return {
+    sql: sql`ORDER BY (body -> '_sort' -> 'k' ->> ${sortBy}) COLLATE "C" ${dir} ${nulls}, id ${dir}`,
+    applied: sortBy,
+  }
 }
 
 /**
@@ -142,9 +153,9 @@ export const orderClause = (
 const column = (sql: Statement.Constructor, field: string) => ident(sql, field === "createdAt" ? "created_at" : field)
 
 const equalsSql = (sql: Statement.Constructor, field: string, value: string) => {
-  if (field === "deleted") return sql`AND deleted = ${value === "true"}`
-  if (META_COLUMNS.has(field)) return sql`AND ${column(sql, field)}::text = ${value}`
-  return sql`AND body ->> ${field}::text = ${value}::text`
+  if (field === "deleted") return sql`deleted = ${value === "true"}`
+  if (META_COLUMNS.has(field)) return sql`${column(sql, field)}::text = ${value}`
+  return sql`body ->> ${field}::text = ${value}::text`
 }
 
 // ILIKE reads `%` and `_` as wildcards, so a caller searching for "50%" must not match every
@@ -157,7 +168,47 @@ const searchSql = (sql: Statement.Constructor, text: string, fields: ReadonlyArr
   const branches = fields.map((f) =>
     META_COLUMNS.has(f) ? sql`${column(sql, f)}::text ILIKE ${pattern}` : sql`body ->> ${f}::text ILIKE ${pattern}`,
   )
-  return sql`AND (${sql.join(" OR ", false)(branches)})`
+  return sql`(${sql.join(" OR ", false)(branches)})`
+}
+
+/** The conditions of one group, each a bare predicate: the caller ANDs, ORs or negates them. */
+const conditions = (sql: Statement.Constructor, criteria: ListWhere): Array<Statement.Fragment> => {
+  const parts: Array<Statement.Fragment> = []
+  for (const e of criteria.equals ?? []) parts.push(equalsSql(sql, e.field, e.value))
+  // `= ANY(array::text[])` is one bound array, so a batch of ids costs one parameter whatever
+  // its size -- and an id never becomes SQL text. An explicitly empty set matches nothing.
+  if (criteria.ids) parts.push(criteria.ids.length === 0 ? sql`FALSE` : sql`id = ANY(${[...criteria.ids]}::text[])`)
+  for (const s of criteria.in ?? []) {
+    const values = [...s.values]
+    if (values.length === 0) parts.push(sql`FALSE`)
+    else if (META_COLUMNS.has(s.field)) parts.push(sql`${column(sql, s.field)}::text = ANY(${values}::text[])`)
+    else parts.push(sql`body ->> ${s.field}::text = ANY(${values}::text[])`)
+  }
+  // COLLATE "C" so the bounds compare as bytes, exactly as the JS `>=`/`<=` they replace; the
+  // database's default collation may order punctuation differently.
+  const r = criteria.range
+  if (r?.from !== undefined) parts.push(sql`(body ->> ${r.field}::text) COLLATE "C" >= ${r.from}::text`)
+  if (r?.to !== undefined) parts.push(sql`(body ->> ${r.field}::text) COLLATE "C" <= ${r.to}::text`)
+  if (criteria.q && criteria.q.text !== "" && criteria.q.fields.length > 0) {
+    parts.push(searchSql(sql, criteria.q.text, criteria.q.fields))
+  }
+  // An OR of no groups is FALSE, like an empty `in` set.
+  if (criteria.anyOf) {
+    parts.push(
+      criteria.anyOf.length === 0
+        ? sql`FALSE`
+        : sql`(${sql.join(" OR ", false)(criteria.anyOf.map((g) => group(sql, g)))})`,
+    )
+  }
+  // IS NOT TRUE, not NOT: a missing body field makes the group NULL, and NOT NULL would drop the
+  // row where the in-memory store (and the reader) keeps it.
+  if (criteria.not) parts.push(sql`${group(sql, criteria.not)} IS NOT TRUE`)
+  return parts
+}
+
+const group = (sql: Statement.Constructor, criteria: ListWhere): Statement.Fragment => {
+  const parts = conditions(sql, criteria)
+  return parts.length === 0 ? sql`TRUE` : sql`(${sql.join(" AND ", false)(parts)})`
 }
 
 export const whereClause = (sql: Statement.Constructor, where?: Where): Statement.Fragment => {
@@ -167,26 +218,7 @@ export const whereClause = (sql: Statement.Constructor, where?: Where): Statemen
     : "field" in where
       ? { equals: [where] }
       : (where as ListWhere)
-  const parts: Array<Statement.Fragment> = []
-  for (const e of criteria.equals ?? []) parts.push(equalsSql(sql, e.field, e.value))
-  // `= ANY(array::text[])` is one bound array, so a batch of ids costs one parameter whatever
-  // its size -- and an id never becomes SQL text.
-  if (criteria.ids && criteria.ids.length > 0) parts.push(sql`AND id = ANY(${[...criteria.ids]}::text[])`)
-  for (const s of criteria.in ?? []) {
-    const values = [...s.values]
-    if (values.length === 0) parts.push(sql`AND FALSE`)
-    else if (META_COLUMNS.has(s.field)) parts.push(sql`AND ${column(sql, s.field)}::text = ANY(${values}::text[])`)
-    else parts.push(sql`AND body ->> ${s.field}::text = ANY(${values}::text[])`)
-  }
-  // COLLATE "C" so the bounds compare as bytes, exactly as the JS `>=`/`<=` they replace; the
-  // database's default collation may order punctuation differently.
-  const r = criteria.range
-  if (r?.from !== undefined) parts.push(sql`AND (body ->> ${r.field}::text) COLLATE "C" >= ${r.from}::text`)
-  if (r?.to !== undefined) parts.push(sql`AND (body ->> ${r.field}::text) COLLATE "C" <= ${r.to}::text`)
-  if (criteria.q && criteria.q.text !== "" && criteria.q.fields.length > 0) {
-    parts.push(searchSql(sql, criteria.q.text, criteria.q.fields))
-  }
-  return sql.join(" ", false)(parts)
+  return sql.join(" ", false)(conditions(sql, criteria).map((part) => sql`AND ${part}`))
 }
 
 /**
