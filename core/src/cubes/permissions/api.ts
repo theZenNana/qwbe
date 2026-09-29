@@ -155,8 +155,8 @@ export const group = HttpApiGroup.make("permissions")
   )
   .add(
     HttpApiEndpoint.get("permissionCapabilities")`/permissions/capabilities`
-      .setUrlParams(GroupListParams)
-      .addSuccess(Schema.Array(CapabilityGrantSchema))
+      .setUrlParams(Schema.Struct({ ...GroupListParams.fields, ...EntityGrantListParams.fields }))
+      .addSuccess(PageOf(CapabilityGrantSchema))
       .addError(Forbidden),
   )
   .add(

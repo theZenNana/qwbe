@@ -112,9 +112,11 @@ export const capabilityHandlers = (service: PermissionService, identities: Ident
       yield* service.revokeCapabilityGrant(actorFrom(user), path.grantId).pipe(capabilityError)
       return { revoked: path.grantId }
     }),
-  permissionCapabilities: ({ urlParams }: { urlParams: { cube: string } }) =>
+  permissionCapabilities: ({ urlParams }: { urlParams: { cube: string; offset?: number; limit?: number } }) =>
     Effect.gen(function* () {
       const user = yield* CurrentUser
-      return yield* service.listCapabilityGrants(actorFrom(user), urlParams.cube).pipe(capabilityError)
+      return yield* service
+        .listCapabilityGrants(actorFrom(user), urlParams.cube, pageRequest(urlParams))
+        .pipe(capabilityError)
     }),
 })

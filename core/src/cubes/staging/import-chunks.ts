@@ -90,16 +90,20 @@ export const tallyStatement = (
                    jsonb_set(body, '{rowCount}', to_jsonb((body->>'rowCount')::int + $2)),
                    '{malformedCount}', to_jsonb((body->>'malformedCount')::int + $3)),
                  '{malformedSample}', ${sample})`
+  // rowCount is sortable: the store re-keys this one set after the batch.
+  const rekey = { table: TABLES.sets, ids: [setId] }
   return csvHeader === undefined
     ? {
         text: `UPDATE "${TABLES.sets}" SET body = ${inner} WHERE id = $1`,
         values: [setId, parsedDelta, malformedDelta, JSON.stringify(sampleDelta)],
+        rekey,
       }
     : {
         text: `UPDATE "${TABLES.sets}"
                SET body = jsonb_set(${inner}, '{csvHeader}', $5::jsonb)
                WHERE id = $1`,
         values: [setId, parsedDelta, malformedDelta, JSON.stringify(sampleDelta), JSON.stringify(csvHeader)],
+        rekey,
       }
 }
 

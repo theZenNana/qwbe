@@ -46,6 +46,10 @@ export type ListWhere = {
   readonly range?: { readonly field: string; readonly from?: string | undefined; readonly to?: string | undefined }
   /** `q=` -- prefix match, ORed across `fields`. */
   readonly q?: { readonly text: string; readonly fields: ReadonlyArray<string> }
+  /** At least one group matches, each group's conditions ANDed. No groups match nothing. */
+  readonly anyOf?: ReadonlyArray<ListWhere>
+  /** The group does not match; a row missing one of its fields counts as not matching it. */
+  readonly not?: ListWhere
 }
 
 export type Page<A> = {

@@ -143,6 +143,11 @@ export const cube = defineCube(group, {
         list: ({ urlParams }: { urlParams: ViewListParamsType }) =>
           Effect.gen(function* () {
             yield* requirePermission(ROUTES.list)
+            // `ids` only when asked, as kernel/list.ts: an empty set to the store matches nothing.
+            const ids = (urlParams.ids ?? "")
+              .split(",")
+              .map((s) => s.trim())
+              .filter(Boolean)
             // Filter, sort (the manifest's `sortable`), count and page all in SQL.
             const { rows, total, offset, limit, sortedBy } = yield* store.page<SavedViewRow>(
               TABLE,
@@ -150,7 +155,7 @@ export const cube = defineCube(group, {
               {
                 equals:
                   urlParams.targetCube === undefined ? [] : [{ field: "targetCube", value: urlParams.targetCube }],
-                ids: (urlParams.ids ?? "").split(",").filter(Boolean),
+                ...(ids.length > 0 ? { ids } : {}),
               },
             )
             return { rows, total, offset, limit, sortedBy }

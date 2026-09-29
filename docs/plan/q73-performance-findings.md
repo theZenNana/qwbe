@@ -228,3 +228,44 @@ Still open: `GET /permissions/entities/{cube}` at 640 ms under load (it decides 
 memory over every ownership row of the cube; the page is sliced after); the notes item routes and
 `relational.search` in notes still call `authorize` themselves on top of the wrapper;
 `POST /customfields` re-reads every definition for its snapshot after a create.
+
+## Engine-independent ordering and the remaining permission lists (2026-09-29 ~00:30)
+
+The owner may replace Postgres, so list order must not depend on the engine's collation or jsonb
+ordering. Design by Fable, reviewed against the code (`.briefs/q73-fable-sort-keys-design.md`, local):
+
+- The application computes a byte-comparable sort key per sortable field (`core/src/kernel/sort-key.ts`:
+  a type tag, order-preserving float64 hex for numbers, folded lowercase text for strings); the store
+  writes the keys with the body (`body._sort`, stripped on read), orders by key then `id`, and
+  backfills old rows at first touch. The database only compares bytes; an adapter for another engine
+  implements "compare bytes".
+- Paging is stable: `id` is the final tie-breaker, so OFFSET never repeats or skips a row.
+- An explicitly empty id set matches nothing (it used to mean "no filter").
+- Ownership rows store their `entityKey` and `sharedWithCount` (recounted, never incremented, on every
+  grant change; backfilled at boot), so the entities visibility list filters, sorts and pages in the
+  store and decides only the returned rows. `sharedWithCount` now sorts as a number (it sorted as
+  text: 10 before 9).
+- Relational search asks once for the visible set and passes it to the cube's search (optional
+  `only` parameter, plugins that ignore it get rows dropped, never leaked); it used to walk every match.
+- `GET /permissions/capabilities` and `GET /staging/sets` return pages.
+
+Found on the way and fixed: index creation raced at boot (two sessions, duplicate pg_class entry,
+server did not start), now serialized under the table's advisory lock; the first sort-key version
+re-keyed whole tables after every batch (staging 50-100x slower), now only the rows a batch names.
+
+p99 in ms, concurrency 1 / 20, 10,000 rows, before this branch -> after:
+
+| route | before | after |
+|---|---|---|
+| `GET /permissions/entities/{cube}` | 43.5 / 581 | 10.9 / 40.7 |
+| `GET /permissions/capabilities` | 12.6 / 106 | 3.5 / 20.7 |
+| `GET /staging/sets` | 54.2 / 673 | 5.0 / 24.3 |
+| `POST /staging/sets/{id}/chunks` | 5.9 / 66 | 7.4 / 80 |
+
+Benchmark: no failures, no route over budget (one run had `GET /contracts/{id}` at 278 ms at c20, the
+rerun 21.9 ms: a single outlier).
+
+Still open: a scoped (non-admin) user's visibility still reads every grant of the cube to find what is
+shared with them (a flat indexed `subjectKey` on grants removes it); `sortable` is declared per cube,
+so keys are written on every table of the cube; raw batch statements that change a sortable field must
+name their rows or the keys stay stale until the next boot; crm-pack's search does not use `only` yet.

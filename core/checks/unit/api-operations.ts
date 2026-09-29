@@ -56,7 +56,7 @@ export const unguardedSignatures = (paths: OpenApi.OpenAPISpecPaths): ReadonlyAr
 export const EXPECTED_OPERATIONS: ReadonlyArray<string> = [
   "DELETE /permissions/cube-admins/{cube}/{username}|path:cube!,path:username!|-|200,400,401,403,404,409",
   "DELETE /permissions/capabilities/{grantId}|path:grantId!|-|200,400,401,403,404,409",
-  "GET /permissions/capabilities|query:cube!|-|200,400,401,403,404,409",
+  "GET /permissions/capabilities|query:cube!,query:limit,query:offset|-|200,400,401,403,404,409",
   "POST /permissions/capabilities/group|-|body|200,400,401,403,404,409",
   "POST /permissions/capabilities/user|-|body|200,400,401,403,404,409",
   "DELETE /settings/cubes/{name}|path:name!|-|200,400,401,403,404",
@@ -86,7 +86,7 @@ export const EXPECTED_OPERATIONS: ReadonlyArray<string> = [
   "GET /settings/packages|-|-|200,400,401,403",
   "GET /staging/sets/{id}/profile|path:id!|-|200,400,401,403,404",
   "GET /staging/sets/{id}|path:id!|-|200,400,401,403,404",
-  "GET /staging/sets|-|-|200,400,401,403",
+  "GET /staging/sets|query:descending,query:ids,query:limit,query:offset,query:page,query:pageSize,query:q,query:sort,query:sortBy|-|200,400,401,403",
   "GET /tags/{id}|path:id!|-|200,400,401,403,404",
   "GET /tags|query:descending,query:ids,query:limit,query:offset,query:page,query:pageSize,query:q,query:sort,query:sortBy|-|200,400,401,403",
   "POST /account|-|body|200,400,401,403",

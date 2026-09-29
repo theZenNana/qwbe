@@ -23,10 +23,13 @@ export const tables = {
   capabilities: "permission_capability_grants",
 } as const
 
-export type StoredOwnership = Ownership & Readonly<{ id: string }>
+// `entityKey` and `sharedWithCount` are optional: rows written before they existed lack them
+// until `backfillCounts` (counts.ts) runs at boot.
+export type StoredOwnership = Ownership &
+  Readonly<{ id: string; entityKey?: string; sharedWithCount?: number; deleted?: boolean }>
 export type StoredCubeAdmin = CubeAdmin & Readonly<{ deleted?: boolean }>
 export type HiddenPreference = EntityRef & Readonly<{ id: string; userId: string; deleted?: boolean }>
-export type StoredGrant = EntityGrant & Readonly<{ deleted?: boolean }>
+export type StoredGrant = EntityGrant & Readonly<{ entityKey?: string; deleted?: boolean }>
 export type StoredMembership = GroupMembership & Readonly<{ deleted?: boolean }>
 
 /** An entity ref (cube + entityType + entityId) as a store `where`. */
@@ -35,6 +38,9 @@ export const refWhere = (ref: EntityRef) => [
   { field: "entityType", value: ref.entityType },
   { field: "entityId", value: ref.entityId },
 ]
+
+/** One indexed key per entity, `cube:entityType:entityId`, stored on ownership and grant rows. */
+export const entityKeyOf = (ref: EntityRef) => [ref.cube, ref.entityType, ref.entityId].join(":")
 
 export const stateFrom = (store: CubeTools["store"]) => {
   // Every live row of a table with `field = value`, filtered by the STORE (`body ->> field` on
@@ -53,6 +59,16 @@ export const stateFrom = (store: CubeTools["store"]) => {
           Option.isSome,
         )
   const grantsFor = (ref: EntityRef) => store.where<StoredGrant>(tables.grants, refWhere(ref))
+  // Recount and set, never increment: `update` is an unlocked read-modify-write, so a lost
+  // increment would stay wrong, while a recount heals on the next grant change.
+  const recountShares = (ref: EntityRef) =>
+    Effect.gen(function* () {
+      const sharedWithCount = (yield* grantsFor(ref)).length
+      const owners = yield* store.where<StoredOwnership>(tables.ownership, refWhere(ref))
+      yield* Effect.forEach(owners, (row) =>
+        store.update(tables.ownership, row.id, { entityKey: entityKeyOf(ref), sharedWithCount }),
+      )
+    })
   const groupIdsFor = (userId: string) =>
     Effect.map(
       every<StoredMembership>(tables.memberships, "userId", userId),
@@ -86,7 +102,7 @@ export const stateFrom = (store: CubeTools["store"]) => {
         after: safeAfter,
       })
     }).pipe(Effect.asVoid)
-  return { store, every, ownership, cubeAdmin, grantsFor, groupIdsFor, writeAudit }
+  return { store, every, ownership, cubeAdmin, grantsFor, recountShares, groupIdsFor, writeAudit }
 }
 
 export type PermissionState = ReturnType<typeof stateFrom>

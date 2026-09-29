@@ -2,11 +2,11 @@ import assert from "node:assert/strict"
 import { describe, it } from "@effect/vitest"
 import { Effect } from "effect"
 import { PermissionForbidden, PermissionInvalid, TotalActions } from "qwbe-core/permissions"
-import { memoryStore } from "../../test-cube-tools.ts"
 import { cube } from "./index.ts"
+import { pagingStore } from "./test-store.ts"
 
 const tools = () => ({
-  store: memoryStore(),
+  store: pagingStore(),
   bus: { publish: () => Effect.void },
   catalogue: () => [],
   permissions: () => new Map(),
@@ -167,7 +167,10 @@ describe("permissions sharing capability", () => {
       yield* service.grantUser(ana, ref, "ioana", ["read"])
       yield* service.grantGroup(ana, ref, sales.id, ["edit"])
       yield* service.grantGroup(ana, ref, legal.id, ["delete", "read"])
-      const row = (yield* service.listVisible({ userId: "ioana", roles: [] }, ref.cube, "all"))[0]
+      const row = (yield* service.listVisible({ userId: "ioana", roles: [] }, ref.cube, "all", {
+        offset: 0,
+        limit: 50,
+      })).rows[0]
       assert.equal(row?.access.source, "user-grant")
       assert.deepEqual(row?.access.actions, ["read", "edit", "delete"])
     }),
