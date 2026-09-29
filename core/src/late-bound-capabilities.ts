@@ -37,6 +37,8 @@ export const noPermissionService: PermissionService = {
   claim: unavailable,
   ownership: () => Effect.succeed(undefined),
   authorize: () => Effect.succeed({ allowed: false, source: "none" }),
+  authorizeList: () => Effect.succeed(new Set<string>()),
+  auditList: () => Effect.void,
   assignCubeAdmin: unavailable,
   revokeCubeAdmin: unavailable,
   cubeAdmins: unavailable,

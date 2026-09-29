@@ -136,6 +136,40 @@ CI (`.github/workflows/verify.yml`) runs `npm run setup`, `npm run check` with a
 and gitleaks, then `npm run e2e`. The workflow is disabled on GitHub until the owner turns it
 back on; until then, green means green locally.
 
+### Tracing a slow request
+
+A local Grafana LGTM stack in docker compose shows each request as a waterfall of spans, plus
+memory and CPU graphs over time and the slowest SQL. It is dev-only and opt-in, and keeps
+everything in memory only.
+
+```bash
+docker compose --profile trace up -d lgtm
+QWBE_TRACE_URL=http://localhost:4318 npm start
+```
+
+Open <http://localhost:3300> (admin/admin; `QWBE_GRAFANA_PORT` moves it) and the dashboard
+**qwbe performance**: latency by cube and route, the slowest requests with links to their traces,
+CPU and heap per request, process memory (heap after GC climbing means a leak), GC, event loop,
+CPU, and the 20 slowest SQL statements. The dashboard and its `qwbe-pg` Postgres datasource load
+from `dev/grafana/`. For one request, Explore -> Tempo (service `qwbe`); each response carries its
+trace id in the `x-trace-id` header.
+
+Postgres loads `pg_stat_statements`, so recreate the container once with
+`docker compose up -d postgres` (its data volume survives); `npm run db:up` creates the extension.
+Start the SQL numbers from zero with
+`docker compose exec -T postgres psql -U postgres -c "SELECT pg_stat_statements_reset();"`.
+Stop with `docker compose --profile trace stop lgtm`.
+
+The dev launcher does the same in one step, and two more:
+
+- `npm start -- --profile` starts `lgtm`, runs the API with `QWBE_TRACE_URL=http://127.0.0.1:4318`
+  and `QWBE_PROFILE=requests,resources,process` (a `QWBE_PROFILE` you set wins), and prints the
+  dashboard link.
+- `npm start -- --cpu-prof` writes a V8 CPU profile into `.profile/cpu/` when the API stops
+  (Ctrl-C); open it in Chrome DevTools (Performance tab) or speedscope.
+- `kill -USR2 <pid>` writes a heap snapshot of the API into `.profile/heap/`; the launcher prints
+  the pid at every start. Open it in Chrome DevTools (Memory tab).
+
 ## Committing to this repo
 
 There are no commit hooks. Run `npm run check` before a commit; its `secrets` gate does what the

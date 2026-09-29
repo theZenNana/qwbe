@@ -46,12 +46,15 @@ export const GATES: ReadonlyArray<GateSpec> = [
 // Opt-in gates, after the list above: `--live` boots real servers, `--bench` runs minutes of
 // benchmarks against the budgets in qwbe.yaml. Plain `check` runs neither.
 const LIVE: GateSpec = { name: "live", steps: [["npm", "--prefix", "core", "run", "test:live"]] }
-const BENCH: GateSpec = { name: "bench", steps: ["bench"] }
+const BENCH: ReadonlyArray<GateSpec> = [
+  { name: "bench", steps: ["bench"] },
+  { name: "api-bench", steps: [["npm", "run", "bench:api"]] },
+]
 
 export const gateList = (live: boolean, bench: boolean): ReadonlyArray<GateSpec> => [
   ...GATES,
   ...(live ? [LIVE] : []),
-  ...(bench ? [BENCH] : []),
+  ...(bench ? BENCH : []),
 ]
 
 // Every gate `check` runs, each bound to the repo at `root`; `excused` holds the units allowed to lack tests.

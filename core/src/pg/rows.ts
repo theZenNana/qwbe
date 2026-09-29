@@ -8,14 +8,18 @@ import { PgClient } from "@effect/sql-pg"
 import { DateTime, Effect } from "effect"
 import { checkCustomObject } from "../custom-values.ts"
 import type { ListWhere } from "../kernel/pagination.ts"
+import type { Where } from "../kernel/store-contract.ts"
 import { CustomCapError } from "./errors.ts"
 import { ident } from "./setup.ts"
 
 /** Builds and compiles statements with the Postgres dialect and runs nothing: for no-DB tests. */
 export const compileOnly = Statement.make(Effect.dieMessage("compile only"), PgClient.makeCompiler(), [], undefined)
 
-/** Ids are random, not sequential -- see the comment this replaces from the SQLite store. */
-export const newId = (prefix: string) => `${prefix}-${randomBytes(4).toString("hex")}`
+/**
+ * Ids are random, not sequential -- see the comment this replaces from the SQLite store.
+ * 128 bits: 32 bits collided past ~77,000 rows (Qwbe#73). Older rows keep 8-hex ids.
+ */
+export const newId = (prefix: string) => `${prefix}-${randomBytes(16).toString("hex")}`
 
 export const decode = (row: Record<string, unknown>): Record<string, unknown> => ({
   id: row.id,
@@ -117,7 +121,8 @@ export const orderClause = (
   // jsonb ordering (`body -> field`), not text ordering (`body ->> field`): the SQLite store
   // sorted by the JSON value's own type, so 9 < 10 numerically and true > false. Text ordering
   // would put "10" before "9" and silently change every numeric cube's page order and boundaries.
-  return { sql: sql`ORDER BY body -> ${sortBy} ${dir}`, applied: sortBy }
+  // Ties oldest first: without a tie-breaker, OFFSET paging may repeat or skip equal rows.
+  return { sql: sql`ORDER BY body -> ${sortBy} ${dir}, created_at ASC`, applied: sortBy }
 }
 
 /**
@@ -155,17 +160,29 @@ const searchSql = (sql: Statement.Constructor, text: string, fields: ReadonlyArr
   return sql`AND (${sql.join(" OR ", false)(branches)})`
 }
 
-export const whereClause = (
-  sql: Statement.Constructor,
-  where?: { field: string; value: string } | ListWhere,
-): Statement.Fragment => {
+export const whereClause = (sql: Statement.Constructor, where?: Where): Statement.Fragment => {
   if (!where) return sql.literal("")
-  const criteria: ListWhere = "field" in where ? { equals: [where] } : where
+  const criteria: ListWhere = Array.isArray(where)
+    ? { equals: where }
+    : "field" in where
+      ? { equals: [where] }
+      : (where as ListWhere)
   const parts: Array<Statement.Fragment> = []
   for (const e of criteria.equals ?? []) parts.push(equalsSql(sql, e.field, e.value))
   // `= ANY(array::text[])` is one bound array, so a batch of ids costs one parameter whatever
   // its size -- and an id never becomes SQL text.
   if (criteria.ids && criteria.ids.length > 0) parts.push(sql`AND id = ANY(${[...criteria.ids]}::text[])`)
+  for (const s of criteria.in ?? []) {
+    const values = [...s.values]
+    if (values.length === 0) parts.push(sql`AND FALSE`)
+    else if (META_COLUMNS.has(s.field)) parts.push(sql`AND ${column(sql, s.field)}::text = ANY(${values}::text[])`)
+    else parts.push(sql`AND body ->> ${s.field}::text = ANY(${values}::text[])`)
+  }
+  // COLLATE "C" so the bounds compare as bytes, exactly as the JS `>=`/`<=` they replace; the
+  // database's default collation may order punctuation differently.
+  const r = criteria.range
+  if (r?.from !== undefined) parts.push(sql`AND (body ->> ${r.field}::text) COLLATE "C" >= ${r.from}::text`)
+  if (r?.to !== undefined) parts.push(sql`AND (body ->> ${r.field}::text) COLLATE "C" <= ${r.to}::text`)
   if (criteria.q && criteria.q.text !== "" && criteria.q.fields.length > 0) {
     parts.push(searchSql(sql, criteria.q.text, criteria.q.fields))
   }

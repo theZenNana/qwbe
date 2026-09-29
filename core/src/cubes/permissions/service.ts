@@ -12,7 +12,7 @@ import { visibilityFrom } from "./visibility.ts"
 export const serviceFrom = (store: CubeTools["store"], declared: CubeTools["permissions"]): PermissionService => {
   const state = stateFrom(store)
   const foundation = foundationFrom(state)
-  const { decide: _decide, requireShare: _requireShare, ...publicFoundation } = foundation
+  const { decide: _decide, requireShare: _requireShare, visibleIds: _visibleIds, ...publicFoundation } = foundation
   return {
     ...publicFoundation,
     ...auditFrom(state),

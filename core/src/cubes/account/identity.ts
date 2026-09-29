@@ -1,4 +1,4 @@
-import { Effect } from "effect"
+import { Effect, Option } from "effect"
 import type { CubeTools, IdentityDirectory } from "qwbe-core/cube"
 
 type AccountIdentity = Readonly<{ id: string; username: string }>
@@ -7,7 +7,7 @@ export const identityDirectory = (store: CubeTools["store"], seed: Effect.Effect
   resolveUsername: (username) =>
     Effect.gen(function* () {
       yield* seed
-      const found = (yield* store.all<AccountIdentity>("accounts")).find((account) => account.username === username)
-      return found ? { id: found.id, username: found.username } : undefined
+      const found = yield* store.first<AccountIdentity>("accounts", { field: "username", value: username })
+      return Option.getOrUndefined(Option.map(found, (a) => ({ id: a.id, username: a.username })))
     }),
 })

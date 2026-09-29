@@ -1,4 +1,4 @@
-import { Effect } from "effect"
+import { Effect, Option } from "effect"
 import type { PermissionService } from "qwbe-core/permissions"
 import { PermissionForbidden, PermissionNotFound } from "qwbe-core/permissions"
 import type { PermissionState, StoredCubeAdmin } from "./state.ts"
@@ -15,9 +15,14 @@ export const cubeAdminsFrom = (
       ),
       Effect.asVoid,
     )
-  const rows = () => state.store.all<StoredCubeAdmin>(tables.cubeAdmins)
   const find = (cube: string, userId: string) =>
-    Effect.map(rows(), (items) => items.find((row) => !row.deleted && row.cube === cube && row.userId === userId))
+    Effect.map(
+      state.store.first<StoredCubeAdmin>(tables.cubeAdmins, [
+        { field: "cube", value: cube },
+        { field: "userId", value: userId },
+      ]),
+      Option.getOrUndefined,
+    )
   const ref = (cube: string) => ({ cube, entityType: "Cube", entityId: cube })
   return {
     assignCubeAdmin: (actor, cube, userId) =>
@@ -38,7 +43,7 @@ export const cubeAdminsFrom = (
     cubeAdmins: (actor, cube) =>
       Effect.gen(function* () {
         yield* requireManager(actor, cube)
-        return (yield* rows()).filter((row) => !row.deleted && row.cube === cube)
+        return yield* state.store.where<StoredCubeAdmin>(tables.cubeAdmins, { field: "cube", value: cube })
       }),
   }
 }

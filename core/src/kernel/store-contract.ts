@@ -3,8 +3,14 @@
 // which would close a cycle through kernel/registry.ts and kernel/store.ts. manifest.ts
 // re-exports them so the public surface is unchanged.
 
-import type { Effect } from "effect"
+import type { Effect, Option } from "effect"
 import type { ListWhere, Page, PageRequest } from "./pagination.ts"
+
+/** One pair, several pairs ANDed, or the full ListWhere. */
+export type Where =
+  | { readonly field: string; readonly value: string }
+  | ReadonlyArray<{ readonly field: string; readonly value: string }>
+  | ListWhere
 
 /**
  * Current state of one captured row (echo feed's delete-vs-missing resolver). Lives with the
@@ -22,6 +28,14 @@ export type CubeStore = {
     where?: { readonly field: string; readonly value: string } | ListWhere,
   ) => Effect.Effect<Page<A>, never, never>
   readonly byId: <A>(table: string, id: string) => Effect.Effect<A | undefined, never, never>
+  /** The oldest live row matching `where`, or none. Filtered in SQL, no COUNT. */
+  readonly first: <A>(table: string, where: Where) => Effect.Effect<Option.Option<A>, never, never>
+  /** Every live row matching `where`, oldest first, filtered in SQL. No COUNT. */
+  readonly where: <A>(
+    table: string,
+    where: Where,
+    opts?: { readonly limit?: number },
+  ) => Effect.Effect<ReadonlyArray<A>, never, never>
   readonly insert: (
     table: string,
     entityType: string,

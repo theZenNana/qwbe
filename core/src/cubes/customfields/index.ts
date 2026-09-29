@@ -36,7 +36,7 @@ import { type CubeTools, defineCube } from "qwbe-core/cube"
 import { BadRequest, Forbidden, NotFound } from "qwbe-core/errors"
 import { PageOf } from "qwbe-core/http"
 import { requireTool, storeRelational } from "../shared.ts"
-import { definitionsFor, type PackTools, refreshSnapshot, type Snapshot } from "./context.ts"
+import { definitionsFor, emptySnapshot, type PackTools, refreshSnapshot } from "./context.ts"
 import { definitionHandlers } from "./handlers.ts"
 import {
   byPosition,
@@ -122,6 +122,7 @@ export const cube = defineCube(group, {
     name: "customfields",
     screen: true,
     tables: [DEFS],
+    indexed: { [DEFS]: ["targetCube"] },
     sortable: ["targetCube", "name", "label", "fieldType", "position", "createdAt"],
     requiresAuth: true,
     providesCustomFields: true,
@@ -142,7 +143,7 @@ export const cube = defineCube(group, {
     )
     const tools: PackTools = { store, bus, catalogue, customFields }
     const stored = storeRelational<DefRow>(store, DEFS, summary)
-    const snapshot: Snapshot = { current: [] }
+    const snapshot = emptySnapshot()
 
     // The kernel publishes these definitions as custom metadata of each target cube.
     tools.customFields.register((cube) =>
@@ -179,11 +180,13 @@ export const cube = defineCube(group, {
           maxArgs: 1,
           run: (args) =>
             Effect.gen(function* () {
-              const rows = yield* store.all<DefRow>(DEFS)
               const wanted = args[0]
+              const rows = wanted
+                ? yield* store.where<DefRow>(DEFS, { field: "targetCube", value: wanted })
+                : yield* store.all<DefRow>(DEFS)
               return (
                 rows
-                  .filter((d) => d.deleted === false && (!wanted || d.targetCube === wanted))
+                  .filter((d) => d.deleted === false)
                   .sort((a, b) => a.targetCube.localeCompare(b.targetCube) || byPosition(a, b))
                   .map(
                     (d) =>

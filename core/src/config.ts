@@ -3,7 +3,7 @@
 // server builds the layer once at boot, tests provide their own (test-config.ts).
 import { dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
-import { Config, Context, Data, Effect, Layer, Option, type Redacted } from "effect"
+import { Config, ConfigError, Context, Data, Effect, Either, Layer, Option, type Redacted } from "effect"
 
 const srcDir = dirname(fileURLToPath(import.meta.url))
 
@@ -25,6 +25,28 @@ export type QwbeSettings = {
   readonly readerPassword: Redacted.Redacted | undefined
   readonly cubeVersionsBaseline: string | undefined
   readonly databaseUrl: Redacted.Redacted | undefined
+  /** QWBE_TRACE_URL: OTLP/HTTP base URL (e.g. http://localhost:4318); unset means no tracing. */
+  readonly traceUrl: string | undefined
+  /** QWBE_PROFILE categories to export; always empty without QWBE_TRACE_URL. */
+  readonly profile: ReadonlySet<ProfileCategory>
+}
+
+export const profileCategories = ["requests", "resources", "process"] as const
+export type ProfileCategory = (typeof profileCategories)[number]
+
+const isProfileCategory = (name: string): name is ProfileCategory =>
+  (profileCategories as ReadonlyArray<string>).includes(name)
+
+/** A comma list of categories; an unknown name is refused, naming it and the allowed ones. */
+export const parseProfile = (raw: string): Either.Either<ReadonlySet<ProfileCategory>, string> => {
+  const names = raw
+    .split(",")
+    .map((n) => n.trim())
+    .filter((n) => n !== "")
+  const unknown = names.find((n) => !isProfileCategory(n))
+  return unknown === undefined
+    ? Either.right(new Set(names.filter(isProfileCategory)))
+    : Either.left(`QWBE_PROFILE: unknown category "${unknown}"; allowed: ${profileCategories.join(", ")}`)
 }
 
 export class QwbeConfig extends Context.Tag("qwbe/QwbeConfig")<QwbeConfig, QwbeSettings>() {}
@@ -52,6 +74,15 @@ export const loadConfig: Effect.Effect<QwbeSettings, ConfigInvalid> = Config.all
   readerPassword: optional(Config.redacted("QWBE_READER_PASSWORD")),
   cubeVersionsBaseline: optional(Config.string("QWBE_CUBE_VERSIONS_BASELINE")),
   databaseUrl: optional(Config.redacted("QWBE_DATABASE_URL")),
-}).pipe(Effect.mapError((e) => new ConfigInvalid({ message: String(e) })))
+  traceUrl: optional(Config.string("QWBE_TRACE_URL")),
+  profile: Config.string("QWBE_PROFILE").pipe(
+    Config.withDefault("requests"),
+    Config.mapOrFail((raw) => Either.mapLeft(parseProfile(raw), (message) => ConfigError.InvalidData([], message))),
+  ),
+}).pipe(
+  // QWBE_TRACE_URL is the master switch: without it no category loads, whatever QWBE_PROFILE says.
+  Config.map((s) => (s.traceUrl === undefined ? { ...s, profile: new Set<ProfileCategory>() } : s)),
+  Effect.mapError((e) => new ConfigInvalid({ message: String(e) })),
+)
 
 export const QwbeConfigLive = Layer.effect(QwbeConfig, loadConfig)

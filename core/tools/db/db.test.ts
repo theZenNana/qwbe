@@ -2,11 +2,17 @@ import { expect, it } from "@effect/vitest"
 import * as ConfigProvider from "effect/ConfigProvider"
 import * as Effect from "effect/Effect"
 import { adminUrl } from "../../src/pg/admin-url.ts"
-import { COMPOSE_ARGV, cleanSummary, dropStatement, LEAK_PREFIXES, leakSearch } from "./db-pure.ts"
+import { COMPOSE_STEPS, cleanSummary, dropStatement, LEAK_PREFIXES, leakSearch } from "./db-pure.ts"
 
-it("up starts only postgres, detached; down stops the stack", () => {
-  expect(COMPOSE_ARGV.up).toEqual(["docker", "compose", "up", "-d", "postgres"])
-  expect(COMPOSE_ARGV.down).toEqual(["docker", "compose", "down"])
+it("up starts only postgres and waits for it, then creates pg_stat_statements; down stops the stack", () => {
+  expect(COMPOSE_STEPS.up).toEqual([
+    ["docker", "compose", "up", "-d", "--wait", "postgres"],
+    [
+      ...["docker", "compose", "exec", "-T", "postgres", "psql", "-U", "postgres", "-d", "postgres"],
+      ...["-v", "ON_ERROR_STOP=1", "-c", "CREATE EXTENSION IF NOT EXISTS pg_stat_statements"],
+    ],
+  ])
+  expect(COMPOSE_STEPS.down).toEqual([["docker", "compose", "down"]])
 })
 
 it("the leak prefixes never match the demo database", () => {

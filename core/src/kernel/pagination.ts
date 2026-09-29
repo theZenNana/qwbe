@@ -40,6 +40,10 @@ export type ListWhere = {
   readonly equals?: ReadonlyArray<{ readonly field: string; readonly value: string }>
   /** `ids=a,b,c` -- exactly these rows, in one query. */
   readonly ids?: ReadonlyArray<string>
+  /** A field whose text is one of `values`. An empty `values` matches nothing, unlike `ids`. */
+  readonly in?: ReadonlyArray<{ readonly field: string; readonly values: ReadonlyArray<string> }>
+  /** A field's text between `from` and `to`, both inclusive, compared byte by byte like JS `<=`. */
+  readonly range?: { readonly field: string; readonly from?: string | undefined; readonly to?: string | undefined }
   /** `q=` -- prefix match, ORed across `fields`. */
   readonly q?: { readonly text: string; readonly fields: ReadonlyArray<string> }
 }

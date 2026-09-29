@@ -1,9 +1,10 @@
 import { type CubeTools, defineCube } from "qwbe-core/cube"
 import { group } from "./api.ts"
+import { auditFrom } from "./audit.ts"
 import { foundationHandlers } from "./foundation-handlers.ts"
 import { serviceFrom } from "./service.ts"
 import { capabilityHandlers, sharingHandlers } from "./sharing-handlers.ts"
-import { tables } from "./state.ts"
+import { stateFrom, tables } from "./state.ts"
 import { visibilityHandlers } from "./visibility-handlers.ts"
 
 // Route permissions, published by the metadata and checked by the handlers (see metadata/declarations.ts).
@@ -35,6 +36,20 @@ export const cube = defineCube(group, {
   manifest: {
     name: "permissions",
     tables: Object.values(tables),
+    // The fields state.ts, groups.ts, sharing.ts and visibility.ts look rows up by.
+    indexed: {
+      [tables.ownership]: ["cube", "entityType", "entityId", "ownerId"],
+      [tables.cubeAdmins]: ["cube", "userId"],
+      [tables.groups]: ["cube"],
+      [tables.memberships]: ["userId", "groupId"],
+      [tables.grants]: ["cube", "entityType", "entityId"],
+      [tables.hidden]: ["userId", "cube", "entityType", "entityId"],
+      [tables.capabilities]: ["subjectKey", "cube"],
+      // audit.ts filters by these. `result` has three values, too few for an index to pay off.
+      [tables.audit]: ["actorUserId", "cube", "entityType", "entityId", "action"],
+    },
+    // audit.ts pages newest first.
+    sortable: ["timestamp"],
     screen: true,
     requiresAuth: true,
     required: true,
@@ -50,7 +65,7 @@ export const cube = defineCube(group, {
     const entityPermissions = serviceFrom(store, permissions)
     return {
       handlers: {
-        ...foundationHandlers(entityPermissions, identities),
+        ...foundationHandlers(entityPermissions, identities, auditFrom(stateFrom(store)).auditPage),
         ...sharingHandlers(entityPermissions, identities),
         ...visibilityHandlers(entityPermissions),
         ...capabilityHandlers(entityPermissions, identities),

@@ -20,6 +20,7 @@
     "check:strict": "node core/tools/check/check.ts --strict",
     "check:live": "node core/tools/check/check.ts --live",
     "check:bench": "node core/tools/check/check.ts --bench",
+    "bench:api": "node core/tools/api-bench/api-bench.ts",
     "boundaries": "npm --prefix core run boundaries",
     "e2e": "node core/tools/dev/e2e.ts",
     "db:up": "node core/tools/db/db.ts up",

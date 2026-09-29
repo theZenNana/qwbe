@@ -135,6 +135,12 @@ export type Manifest = {
   readonly parent?: string
   /** Tables it OWNS. Its store opens exactly these and nothing else (`store.ts`). */
   readonly tables: readonly string[]
+  /**
+   * JSON fields each table's lookups filter on, e.g. `{ accounts: ["username"] }`. The kernel
+   * creates `(body ->> field)` expression indexes with the table (pg/setup.ts). Plain identifiers
+   * only; any other name is refused before DDL runs.
+   */
+  readonly indexed?: { readonly [table: string]: readonly string[] }
   /** The public entity it holds, e.g. "Account". Absent for cubes without data. */
   readonly entity?: string
   /**

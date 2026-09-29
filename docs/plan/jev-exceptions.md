@@ -96,3 +96,54 @@ the whole surrounding function.
 | `core/checks/live/qwbe-check-bin.test.ts` | ponytail 66.1 |
 | `core/checks/bench/staging-pg.bench.ts` | ponytail 68.3 |
 | `core/checks/_layers/boot.ts` | lucian 68.4 |
+
+## Qwbe#73 (request profiler, store lookups, API benchmark), 2026-09-28
+
+Measured with `agents jev--score-run <run_id>` after each writer run (Opus 5.5). Each file below
+went through one refactor run aimed at these scores (briefs 73 and 74: one job per function,
+narrow parameters); the numbers are after it. `store.ts`, `setup.ts`, `manifest-validation.ts`
+and `discovery.ts` are scored on their diff, but `lucian` rates the responsibilities of the whole
+existing file, which these diffs do not change.
+
+| file | scores under 70 |
+|---|---|
+| `core/src/pg/store.ts` (diff) | lucian 56.5 |
+| `core/tools/api-bench/api-bench.ts` | lucian 57.6 |
+| `core/src/kernel/manifest-validation.ts` (diff) | lucian 62.1 |
+| `core/src/test-cube-tools.ts` (diff) | lucian 62.3 |
+| `core/tools/api-bench/seed.ts` | lucian 65.4 |
+| `core/tools/api-bench/report.ts` | lucian 65.7 |
+| `core/tools/api-bench/routes.ts` | lucian 67.1 |
+| `core/src/pg/setup.ts` (diff) | lucian 67.3, ponytail 68.0 |
+| `core/src/kernel/discovery.ts` (diff, one argument added) | lucian 68.6 |
+| `core/tools/api-bench/measure.ts` | lucian 68.9 |
+
+Ticket 06 (`npm start -- --profile`, `--cpu-prof`, heap snapshot), after one refactor run aimed at
+these scores (brief 78), 2026-09-28 ~21:15:
+
+| file | scores under 70 |
+|---|---|
+| `core/tools/dev/dev.ts` (diff) | lucian 51.5 |
+| `core/tools/dev/dev-supervise.ts` (diff) | lucian 60.8, ponytail 68.9 |
+| `core/tools/dev/dev-pure.ts` (diff) | lucian 65.8 |
+
+`GET /settings/cubes` builds the catalogue once (run af54f1d5), 2026-09-28 ~21:35:
+
+| file | scores under 70 |
+|---|---|
+| `core/src/cubes/settings/index.ts` (diff, 10 lines in the existing handlers object) | lucian 51.0 |
+
+List permissions (tickets 11-17), after one refactor run aimed at these scores (brief 93, run
+d3588f77), 2026-09-28 ~23:30. Diffs in existing files; `lucian` rates the whole file's
+responsibilities.
+
+| file | scores under 70 |
+|---|---|
+| `core/src/cubes/permissions/foundation.ts` (diff) | lucian 55.8 |
+| `core/src/cubes/permissions/visibility.ts` (diff) | lucian 56.9 |
+| `core/src/entity-enforcement.ts` (diff) | lucian 57.2 |
+| `core/src/cubes/permissions/audit.ts` (diff) | lucian 66.1 |
+| `core/src/cubes/permissions/index.ts` (diff: manifest `indexed` and `sortable` entries) | lucian 54.1 |
+| `core/src/cubes/notes/index.ts` (diff) | lucian 48.1, 44.3 after the single-check change (run 2127ee91) |
+| `core/src/pg/rows.ts` (diff) | lucian 67.8 |
+| `core/src/cubes/customfields/context.ts` (diff, snapshot refresh per cube, run 0cdb98a4) | lucian 68.1 |

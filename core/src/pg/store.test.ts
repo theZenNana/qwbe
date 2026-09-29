@@ -11,12 +11,14 @@
 
 import assert from "node:assert/strict"
 import { layer } from "@effect/vitest"
-import { Cause, Effect, Exit } from "effect"
-import { withRole } from "./setup.ts"
+import { Cause, Effect, Exit, Option } from "effect"
+import { schemaName, withRole } from "./setup.ts"
 import { storeFor } from "./store.ts"
 import { testStore, withSql } from "./test-db.ts"
 
 const store = storeFor("pgtest", ["items", "logs"], ["name"])
+// Its own cube and table, so the lookups below count exactly what they inserted.
+const lookups = storeFor("pglookup", ["people"], [], false, undefined, { people: ["username"] })
 
 // The store's operations are Effect values with a `never` error channel; a defect fails the test.
 const outboxCount = Effect.map(
@@ -42,7 +44,7 @@ layer(testStore("store"), { timeout: 60_000, excludeTestServices: true })("CubeS
         deleted: boolean
       }
       const b = yield* store.insert("items", "item", "itm", { name: "b" })
-      assert.match(a.id, /^itm-[0-9a-f]{8}$/)
+      assert.match(a.id, /^itm-[0-9a-f]{32}$/)
       assert.equal(a.type, "item")
       assert.equal(a.deleted, false)
       assert.equal((yield* store.byId<{ name: string }>("items", a.id))?.name, "a")
@@ -137,6 +139,74 @@ layer(testStore("store"), { timeout: 60_000, excludeTestServices: true })("CubeS
       assert.equal(last?.row_id, row.id)
       assert.equal(last?.cube, "pgtest")
       assert.equal(last?.table, "items")
+    }),
+  )
+
+  it.effect("first finds the oldest live match, or none", () =>
+    Effect.gen(function* () {
+      const a = yield* lookups.insert("people", "person", "per", { username: "ana", team: "red" })
+      yield* lookups.insert("people", "person", "per", { username: "ana", team: "blue" })
+      const hit = yield* lookups.first<{ id: string }>("people", { field: "username", value: "ana" })
+      assert.equal(Option.getOrUndefined(hit)?.id, a.id)
+      assert.ok(Option.isNone(yield* lookups.first("people", { field: "username", value: "nobody" })))
+    }),
+  )
+
+  it.effect("where ANDs its conditions, filters a meta column on the column, and honours limit", () =>
+    Effect.gen(function* () {
+      const bo = yield* lookups.insert("people", "person", "per", { username: "bo", team: "red" })
+      yield* lookups.insert("people", "person", "per", { username: "bo", team: "blue" })
+      yield* lookups.insert("people", "person", "per", { username: "bo", team: "red" })
+      assert.equal((yield* lookups.where("people", { field: "username", value: "bo" })).length, 3)
+      const reds = yield* lookups.where<{ id: string }>("people", [
+        { field: "username", value: "bo" },
+        { field: "team", value: "red" },
+      ])
+      assert.equal(reds.length, 2)
+      assert.equal(reds[0]?.id, bo.id, "oldest first")
+      const byId = yield* lookups.where<{ id: string }>("people", { field: "id", value: String(bo.id) })
+      assert.deepEqual(
+        byId.map((r) => r.id),
+        [bo.id],
+      )
+      assert.equal((yield* lookups.where("people", { field: "username", value: "bo" }, { limit: 2 })).length, 2)
+    }),
+  )
+
+  it.effect("where keeps a body field in a set, and an empty set matches nothing", () =>
+    Effect.gen(function* () {
+      const dee = yield* lookups.insert("people", "person", "per", { username: "dee", team: "green" })
+      const eve = yield* lookups.insert("people", "person", "per", { username: "eve", team: "green" })
+      yield* lookups.insert("people", "person", "per", { username: "fay", team: "green" })
+      const picked = yield* lookups.where<{ id: string }>("people", {
+        equals: [{ field: "team", value: "green" }],
+        in: [{ field: "username", values: ["dee", "eve", "nobody"] }],
+      })
+      assert.deepEqual(
+        picked.map((r) => r.id),
+        [dee.id, eve.id],
+      )
+      assert.equal((yield* lookups.where("people", { in: [{ field: "username", values: [] }] })).length, 0)
+    }),
+  )
+
+  it.effect("leaves soft-deleted rows out of first and where", () =>
+    Effect.gen(function* () {
+      const gone = yield* lookups.insert("people", "person", "per", { username: "cy" })
+      yield* lookups.update("people", String(gone.id), { deleted: true })
+      assert.ok(Option.isNone(yield* lookups.first("people", { field: "username", value: "cy" })))
+      assert.equal((yield* lookups.where("people", { field: "username", value: "cy" })).length, 0)
+    }),
+  )
+
+  it.effect("creates the declared lookup index on the first access of the table", () =>
+    Effect.gen(function* () {
+      yield* lookups.count("people")
+      const found = yield* withSql(
+        (sql) => sql<{ indexname: string }>`SELECT indexname FROM pg_indexes
+                                            WHERE schemaname = ${schemaName("pglookup")} AND tablename = 'people'`,
+      )
+      assert.ok(found.some((r) => r.indexname === "people_username_idx"))
     }),
   )
 })

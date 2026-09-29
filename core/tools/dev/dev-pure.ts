@@ -21,7 +21,55 @@ export type ServiceSpec = {
   readonly shell: boolean
   readonly restartOnClean: boolean
   readonly color: number
+  // Where SIGUSR2 writes a heap snapshot; the supervisor names it with the pid after each start.
+  readonly heapDir?: string
 }
+
+export type DevFlags = { readonly profile: boolean; readonly cpuProf: boolean }
+export type DevArgs = DevFlags & { readonly name: keyof typeof SERVICES }
+
+const DevArg = Schema.Literal("start", "api", "web", "--profile", "--cpu-prof")
+
+// At most one subcommand (start by default) and any of the flags, in any order.
+export const devArgs = (argv: ReadonlyArray<string>): Either.Either<DevArgs, void> =>
+  Either.flatMap(
+    Either.mapLeft(Schema.decodeUnknownEither(Schema.Array(DevArg))(argv), () => undefined),
+    argsFrom,
+  )
+
+const argsFrom = (args: ReadonlyArray<typeof DevArg.Type>): Either.Either<DevArgs, void> => {
+  const names = args.filter((arg): arg is keyof typeof SERVICES => arg in SERVICES)
+  return names.length > 1
+    ? Either.left(undefined)
+    : Either.right({
+        name: names[0] ?? "start",
+        profile: args.includes("--profile"),
+        cpuProf: args.includes("--cpu-prof"),
+      })
+}
+
+export const LGTM_UP: Argv = ["docker", "compose", "--profile", "trace", "up", "-d", "--wait", "lgtm"]
+export const PROFILE_DIRS = { cpu: ".profile/cpu", heap: ".profile/heap" } as const
+
+// The heap snapshot signal is always on; the CPU profile only with --cpu-prof, written on a clean stop.
+const apiNodeArgs = (root: string, cpuProf: boolean) => [
+  "--heapsnapshot-signal=SIGUSR2",
+  `--diagnostic-dir=${root}${PROFILE_DIRS.heap}`,
+  ...(cpuProf ? ["--cpu-prof", `--cpu-prof-dir=${root}${PROFILE_DIRS.cpu}`] : []),
+]
+
+// --profile sends the API's traces and metrics to the local lgtm; a QWBE_PROFILE already set wins.
+const apiProfileEnv = (profile: boolean, current: string | undefined): Env =>
+  profile ? { QWBE_TRACE_URL: "http://127.0.0.1:4318", QWBE_PROFILE: current ?? "requests,resources,process" } : {}
+
+export const grafanaMessage = (port: string | undefined) =>
+  `Grafana: http://127.0.0.1:${port ?? "3300"}/d/qwbe-perf (admin/admin)`
+
+export const heapMessage = (heapDir: string, pid: number) =>
+  `pid ${pid}; heap snapshot: kill -USR2 ${pid} (into ${heapDir})`
+
+export const cpuProfMessage = (root: string) =>
+  `CPU profile in ${root}${PROFILE_DIRS.cpu}; open it in Chrome DevTools (Performance tab) or speedscope.`
 
 export type AfterExit =
   | { readonly _tag: "restart"; readonly quickExits: number; readonly delayMillis: number; readonly message: string }
@@ -55,27 +103,40 @@ export const serviceSpecs = (
   env: Env,
   node: string,
   windows: boolean,
+  flags: DevFlags,
 ): Readonly<Record<ServiceName, ServiceSpec>> => {
   const childEnv = withoutAllowScripts(env)
   return {
-    api: {
-      argv: [node, "src/main.ts"],
-      cwd: `${root}core`,
-      env: { ...childEnv, QWBE_PORT: String(ports.api) },
-      shell: false,
-      restartOnClean: true,
-      color: 36,
-    },
-    web: {
-      argv: ["npm", "run", "dev", "--", "-p", String(ports.web)],
-      cwd: `${root}web`,
-      env: { ...childEnv, NEXT_PUBLIC_QWBE_API: env.NEXT_PUBLIC_QWBE_API ?? `http://127.0.0.1:${ports.api}` },
-      shell: windows,
-      restartOnClean: false,
-      color: 35,
-    },
+    api: apiSpec(root, ports.api, childEnv, node, flags.cpuProf, apiProfileEnv(flags.profile, env.QWBE_PROFILE)),
+    web: webSpec(root, ports.web, childEnv, env.NEXT_PUBLIC_QWBE_API ?? `http://127.0.0.1:${ports.api}`, windows),
   }
 }
+
+const apiSpec = (
+  root: string,
+  port: number,
+  childEnv: Env,
+  node: string,
+  cpuProf: boolean,
+  profileEnv: Env,
+): ServiceSpec => ({
+  argv: [node, ...apiNodeArgs(root, cpuProf), "src/main.ts"],
+  cwd: `${root}core`,
+  env: { ...childEnv, ...profileEnv, QWBE_PORT: String(port) },
+  shell: false,
+  restartOnClean: true,
+  color: 36,
+  heapDir: `${root}${PROFILE_DIRS.heap}`,
+})
+
+const webSpec = (root: string, port: number, childEnv: Env, apiUrl: string, windows: boolean): ServiceSpec => ({
+  argv: ["npm", "run", "dev", "--", "-p", String(port)],
+  cwd: `${root}web`,
+  env: { ...childEnv, NEXT_PUBLIC_QWBE_API: apiUrl },
+  shell: windows,
+  restartOnClean: false,
+  color: 35,
+})
 
 const exitedMessage = (code: number) => `exited (code ${code}), stopping the rest`
 

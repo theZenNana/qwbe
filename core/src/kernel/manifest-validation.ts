@@ -8,6 +8,7 @@ import { AGENT_SURFACE } from "../agent-contracts.ts"
 import { containsStatus } from "../entity-contract.ts"
 import { groupEndpoints } from "../metadata/ast.ts"
 import type { MetadataDeclarations } from "../metadata/declarations.ts"
+import { isLookupField } from "../pg/setup.ts"
 import { Authorization, readPermissionOf } from "./auth-contract.ts"
 import type { CommandSpec, CubeGroup, Manifest } from "./manifest.ts"
 
@@ -155,8 +156,18 @@ export const validateManifest = (directory: string, m: Manifest): void => {
       reasons.push(`permission "${p.name}" does not start with "${full}:" -- a cube cannot grant another's`)
     }
   }
+  reasons.push(...indexedReasons(m))
   if (reasons.length > 0) throw new InvalidManifestError(directory, reasons)
 }
+
+/** Lookup indexes become DDL text, so refuse them at mount rather than on the first access. */
+const indexedReasons = (m: Pick<Manifest, "tables" | "indexed">): ReadonlyArray<string> =>
+  Object.entries(m.indexed ?? {}).flatMap(([table, fields]) => [
+    ...(m.tables.includes(table) ? [] : [`indexed table "${table}" is not in tables`]),
+    ...fields
+      .filter((field) => !isLookupField(field))
+      .map((field) => `indexed field ${JSON.stringify(field)} on "${table}" is not a plain identifier`),
+  ])
 
 /** Commands are validated separately: they are built by `create`, so they exist later. */
 export const validateCommands = (m: Manifest, commands: ReadonlyArray<CommandSpec>): void => {

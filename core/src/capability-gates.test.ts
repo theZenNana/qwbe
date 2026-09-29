@@ -80,7 +80,12 @@ const world = (declaredNow: ReadonlyMap<string, ReadonlyArray<string>> = declare
   ]
   const ran: Array<string> = []
   const raw = {
-    list: () => Effect.succeed({ rows: things, total: things.length, offset: 0, limit: things.length, sortedBy: "id" }),
+    // Like a real list: the entity wrapper injects the visible ids as `ids=a,b,c`.
+    list: ({ urlParams }: { urlParams: { ids?: string } }) => {
+      const ids = urlParams.ids?.split(",")
+      const rows = ids ? things.filter((row) => ids.includes(row.id)) : things
+      return Effect.succeed({ rows, total: rows.length, offset: 0, limit: rows.length, sortedBy: "id" })
+    },
     get: ({ path }: { path: { id: string } }) => Effect.succeed(things.find((row) => row.id === path.id)),
     create: () =>
       Effect.sync(() => {
@@ -354,12 +359,15 @@ describe("runtime cube capability grants -- route gate and entity gate stay two 
   it.live("concurrent duplicate grants: one revoke, by either id, retires the capability", () =>
     Effect.gen(function* () {
       // A store whose reads take a tick, like Postgres: both fibers read "no grant" before either
-      // inserts. No unique constraint in the store contract, so both land; access must still end
+      // inserts. The grant path reads with where/first (page kept for older readers), so all three
+      // are delayed. No unique constraint in the store contract, so both land; access must still end
       // on revoke. Live clock: under the TestClock the zero delay never yields, so no race.
       const sync = memoryStore()
       const racy: CubeTools["store"] = {
         ...sync,
         page: (...args: Parameters<CubeTools["store"]["page"]>) => Effect.delay(sync.page(...args), 0),
+        where: <A>(...args: Parameters<CubeTools["store"]["where"]>) => Effect.delay(sync.where<A>(...args), 0),
+        first: <A>(...args: Parameters<CubeTools["store"]["first"]>) => Effect.delay(sync.first<A>(...args), 0),
       }
       const w = world(declared, racy)
       const grant = w.service.grantCapability(root, { kind: "user", userId: "ana" }, "fixture:read")

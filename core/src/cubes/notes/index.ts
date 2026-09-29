@@ -19,7 +19,7 @@ import { PageOf } from "qwbe-core/http"
 import { PageParams, pageRequest } from "qwbe-core/pagination"
 import { requireTool, storeRelational } from "../shared.ts"
 import { notesCommands } from "./commands.ts"
-import { migrateLegacyNotes, visibleNotesPage } from "./permissions.ts"
+import { migrateLegacyNotes } from "./permissions.ts"
 
 const TABLE = "notes"
 const ENTITY = "Note"
@@ -46,8 +46,14 @@ const NoteCreate = Schema.Struct({
 
 type NoteRow = typeof Note.Type
 
+const NoteListParams = Schema.Struct({
+  ...PageParams.fields,
+  /** `ids=a,b,c` -- only these notes. The entity wrapper injects the actor's visible ids here. */
+  ids: Schema.optional(Schema.String),
+})
+
 const group = HttpApiGroup.make("notes")
-  .add(HttpApiEndpoint.get("list")`/notes`.setUrlParams(PageParams).addSuccess(PageOf(Note)).addError(Forbidden))
+  .add(HttpApiEndpoint.get("list")`/notes`.setUrlParams(NoteListParams).addSuccess(PageOf(Note)).addError(Forbidden))
   .add(
     HttpApiEndpoint.get("get")`/notes/${HttpApiSchema.param("id", Schema.String)}`
       .addSuccess(Note)
@@ -72,6 +78,7 @@ export const cube = defineCube(group, {
     // Declares a version, which opts the cube into the drift gate (schema-drift.ts).
     version: "1.0.0",
     tables: [TABLE],
+    indexed: { [TABLE]: ["authorId"] },
     entity: ENTITY,
     // Sorting reads the stored row, so only these are offered. `body` is content, not an
     // index, but it is already public -- the point of the list is to keep hidden columns out.
@@ -92,37 +99,30 @@ export const cube = defineCube(group, {
     const stored = storeRelational<NoteRow>(store, TABLE, summary)
     const actor = (user: CurrentUser["Type"]) => ({ userId: user.id, roles: user.roles })
     const reference = (note: NoteRow) => ({ cube: "notes", entityType: ENTITY, entityId: note.id })
-    const ensureOwn = (note: NoteRow) =>
-      Effect.gen(function* () {
-        const ref = reference(note)
-        if (!(yield* entityPermissions.ownership(ref))) yield* migrateLegacyNotes<NoteRow>(store, entityPermissions)
-        return ref
-      })
 
     return {
       commands: notesCommands(store),
+      // Legacy notes get an owner here, once, at boot; `create` claims every new note.
       layers: Layer.effectDiscard(migrateLegacyNotes<NoteRow>(store, entityPermissions)),
 
       handlers: {
-        list: ({ urlParams }: { urlParams: typeof PageParams.Type }) =>
+        // The entity wrapper authorizes, injects the visible `ids` and writes the audit row (Qwbe#73).
+        list: ({ urlParams }: { urlParams: typeof NoteListParams.Type }) =>
           Effect.gen(function* () {
             yield* requirePermission(ROUTES.list)
-            const user = yield* CurrentUser
-            return yield* visibleNotesPage<NoteRow>(store, entityPermissions, user, pageRequest(urlParams))
+            // Filter, sort (the manifest's `sortable`), count and page all in SQL.
+            const { rows, total, offset, limit, sortedBy } = yield* store.page<NoteRow>(TABLE, pageRequest(urlParams), {
+              ids: (urlParams.ids ?? "").split(",").filter(Boolean),
+            })
+            return { rows, total, offset, limit, sortedBy }
           }),
 
+        // The entity wrapper authorizes the path id and writes the one audit row (Qwbe#73).
         get: ({ path }: { path: { id: string } }) =>
           Effect.gen(function* () {
             yield* requirePermission(ROUTES.get)
-            const user = yield* CurrentUser
             const n = yield* store.byId<NoteRow>(TABLE, path.id)
             if (!n) return yield* Effect.fail(new NotFound({ message: `note ${path.id} does not exist` }))
-            const ref = yield* ensureOwn(n)
-            if (!(yield* entityPermissions.authorize(actor(user), ref, "read").pipe(Effect.orDie)).allowed) {
-              return yield* Effect.fail(
-                new Forbidden({ message: "this note is not shared with you", needed: "notes:read" }),
-              )
-            }
             return n
           }),
 
@@ -140,22 +140,35 @@ export const cube = defineCube(group, {
       },
 
       relational: {
+        // One `authorizeList` for the set and one `entity.list` audit row; legacy owners were
+        // claimed at boot, so nothing is claimed or authorized per note here (Qwbe#73).
         search: (field, value, page) =>
           Effect.gen(function* () {
             const user = yield* CurrentUser
-            const matching = (yield* store.all<NoteRow>(TABLE)).filter(
-              (note) => !note.deleted && String((note as Record<string, unknown>)[field] ?? "") === value,
-            )
-            const rows = yield* Effect.filter(matching, (note) =>
-              Effect.gen(function* () {
-                const ref = reference(note)
-                if (!(yield* entityPermissions.ownership(ref)) && note.authorId) {
-                  yield* entityPermissions.claim({ userId: note.authorId, roles: user.roles }, ref).pipe(Effect.orDie)
-                }
-                return (yield* entityPermissions.authorize(actor(user), ref, "read").pipe(Effect.orDie)).allowed
-              }),
-            )
-            return { rows: rows.slice(page.offset, page.offset + page.limit).map(summary), total: rows.length }
+            const scope = { cube: "notes", entityType: ENTITY }
+            const visible = yield* entityPermissions.authorizeList(actor(user), scope, "read").pipe(Effect.orDie)
+            const audit = (ids: ReadonlyArray<string>) =>
+              entityPermissions
+                .auditList(
+                  actor(user),
+                  scope,
+                  "read",
+                  visible !== "all" ? "scoped" : user.roles.includes("admin") ? "superadmin" : "cube-admin",
+                  ids,
+                )
+                .pipe(Effect.orDie)
+            // Empty `ids` means "no filter" to the store, so an actor who sees nothing never reaches it.
+            if (visible !== "all" && visible.size === 0) {
+              yield* audit([])
+              return { rows: [], total: 0 }
+            }
+            // `field` is a declared link (workspace: `authorId`) and `value` an id, both strings.
+            const { rows, total } = yield* store.page<NoteRow>(TABLE, page, {
+              equals: [{ field, value }],
+              ...(visible === "all" ? {} : { ids: [...visible] }),
+            })
+            yield* audit(rows.map((n) => n.id))
+            return { rows: rows.map(summary), total }
           }),
 
         summaryById: stored.summaryById,

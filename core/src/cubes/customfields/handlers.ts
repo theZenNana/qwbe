@@ -87,7 +87,7 @@ export const definitionHandlers = (tools: PackTools, snapshot: Snapshot) => {
           required: p.required,
           position: p.position,
         })) as DefRow
-        yield* refreshSnapshot(store, snapshot)
+        yield* refreshSnapshot(store, snapshot, d.targetCube)
         yield* bus.publish("customfields.defined", { id: d.id, cube: d.targetCube, name: d.name })
         return d
       }),
@@ -109,7 +109,7 @@ export const definitionHandlers = (tools: PackTools, snapshot: Snapshot) => {
           return yield* Effect.fail(new BadRequest({ message: `a "select" field needs at least one option` }))
         }
         const updated = (yield* store.update(DEFS, path.id, payload)) as DefRow
-        yield* refreshSnapshot(store, snapshot)
+        yield* refreshSnapshot(store, snapshot, current.targetCube)
         return updated
       }),
 
@@ -124,7 +124,7 @@ export const definitionHandlers = (tools: PackTools, snapshot: Snapshot) => {
         // rows' own bodies; touching them from here is impossible by construction and wrong by
         // design -- they become orphans, reported by the orphans report, never silently deleted.
         yield* store.update(DEFS, path.id, { deleted: true })
-        yield* refreshSnapshot(store, snapshot)
+        yield* refreshSnapshot(store, snapshot, current.targetCube)
         yield* bus.publish("customfields.removed", {
           id: current.id,
           cube: current.targetCube,
