@@ -52,8 +52,9 @@ export const session = {
   },
 }
 
-/** Called when the API says 401 mid-session: drop the token and go back to the door. */
+/** Called when the API says 401: drop the token and go back to the door. */
 export const endSession = (): void => {
+  if (typeof window === "undefined") return
   session.clear()
-  if (typeof window !== "undefined") window.location.href = "/"
+  window.location.href = "/"
 }

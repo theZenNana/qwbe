@@ -77,6 +77,24 @@ describe("request response contract", () => {
     )
   })
 
+  it("sends a tab with no live session to the login screen, but not a wrong password", async () => {
+    // An expired session is already gone from storage when the 401 arrives; the redirect must
+    // not depend on it still being there.
+    const location = { href: "/settings" }
+    const localStorage = { getItem: () => null, removeItem: () => undefined }
+    Object.assign(globalThis, { window: { localStorage, location } })
+    globalThis.fetch = async () => Response.json({ message: "no token" }, { status: 401 })
+    const refused = (e: unknown) => e instanceof ApiError && e.status === 401
+    try {
+      await assert.rejects(request("/auth/login", Schema.Unknown), refused)
+      assert.equal(location.href, "/settings")
+      await assert.rejects(request("/settings/cubes", Schema.Unknown), refused)
+      assert.equal(location.href, "/")
+    } finally {
+      Reflect.deleteProperty(globalThis, "window")
+    }
+  })
+
   it("validates paging metadata while leaving discovered row fields unknown", async () => {
     globalThis.fetch = async () =>
       Response.json({
